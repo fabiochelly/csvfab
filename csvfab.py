@@ -29,7 +29,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 HERE = os.path.dirname(os.path.realpath(__file__))   # suit le lien ~/.local/bin ou /usr/bin
 # CSVFAB_* ; les anciens noms CSV_EDITOR_* restent lus.
 PORT = int(os.environ.get("CSVFAB_PORT") or os.environ.get("CSV_EDITOR_PORT") or "8787")
