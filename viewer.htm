@@ -58,7 +58,7 @@
             --menu-bg: #7aa2f7; --menu-bg-hover: #8db0fa; --menu-fg: #101014;
             --status-a: #121218; --status-b: #0e0e13; --status-brd: #232433; --status-sep: #2f334d;
             --status-fg: #737aa2; --stat-filt: #ff9e64; --stat-total: #9ece6a;
-            --idx-hover: #292e42; --row-alt: #181924; --row-hover: #202333;
+            --idx-hover: #292e42; --row-bg: #0f1016; --row-alt: #121319; --row-hover: #1b1d29;   /* rows a notch darker than the grid */
         }
         /* Catppuccin Mocha on its darkest layers (crust / mantle). */
         :root[data-theme="catppuccin"] {
@@ -578,7 +578,7 @@
 
         td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; max-width: 480px; cursor: cell; }
 
-        .row-even { background-color: var(--row-alt); } .row-odd { background-color: transparent; }
+        .row-even { background-color: var(--row-alt); } .row-odd { background-color: var(--row-bg, transparent); }   /* --row-bg: only themes whose rows differ from the grid's background */
         tr:hover, .row-even:hover, .row-odd:hover { background-color: var(--row-hover) !important; }
 
         .resizer { position: absolute; right: 0; top: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 10; }
