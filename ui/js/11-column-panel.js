@@ -54,9 +54,11 @@ function openColPanel(e, col) {
             sum += k * n; cnt += n;
         }
         const num = x => esc(x.toLocaleString('fr-FR', { maximumFractionDigits: 2 }));
-        const line = (a, b, full) => `<div class="cp-kv"><span>${a}</span><b title="${esc(full || b)}">${esc(b)}</b></div>`;
-        /* Text: the shortest and longest values themselves, cut at 24 characters (whole value in the tooltip). */
-        const txt = ([len, v]) => { const x = v.trim(); return [(x.length > 24 ? x.slice(0, 24) + '…' : x) + ` (${fmt(len)} char${len === 1 ? '' : 's'})`, x]; };
+        /* The value may be cut (ellipsis, whole value in the tooltip); what follows it — a
+           text value's length — sits outside that box, so it always shows in full. */
+        const line = (a, b, full, after) => `<div class="cp-kv"><span>${a}</span><b title="${esc(full || b)}">${esc(b)}</b>${after ? `<i class="cnt">${after}</i>` : ''}</div>`;
+        /* Text: the shortest and longest values themselves, with their length. */
+        const txt = ([len, v]) => { const x = v.trim(); return [x, x, `(${fmt(len)} char${len === 1 ? '' : 's'})`]; };
         if (lo && kind === 'n') range = `<div class="cp-pair">${line('min', lo[1])}${line('max', hi[1])}</div>`
             + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`;
         else if (lo && kind === 'd') range = line('min', lo[1]) + line('max', hi[1]);

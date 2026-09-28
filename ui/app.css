@@ -419,7 +419,8 @@ tr:hover .row-btn, .row-btn.open { display: flex; }
 .cp-note { font-size: 11.5px; color: var(--txt-dim); margin-bottom: 2px; }
 .cp-kv { display: flex; gap: 8px; min-width: 0; }
 .cp-kv span { flex: none; width: 30px; color: var(--txt-dim); }
-.cp-kv b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-kv b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-kv .cnt { flex: none; margin-left: -2px; font-style: normal; color: var(--txt-dim); white-space: nowrap; }
 .cp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cp-search { width: 100%; margin: 4px 0 6px; font-size: 13px; padding: 5px 10px; }
 .cp-list { max-height: min(320px, calc(100vh - 300px)); overflow-y: auto; }
