@@ -49,7 +49,7 @@ fi
 # --- sources: this folder, or the release archive ---------------------------
 SRC=""
 case "$0" in
-    */*) d=$(cd "$(dirname "$0")" && pwd); [ -f "$d/csvfab" ] && [ -f "$d/viewer.htm" ] && SRC="$d" ;;
+    */*) d=$(cd "$(dirname "$0")" && pwd); [ -f "$d/csvfab.py" ] && [ -f "$d/viewer.htm" ] && SRC="$d" ;;
 esac
 if [ -z "$SRC" ]; then
     command -v curl >/dev/null 2>&1 || die "curl is required to download csvfab."
@@ -65,16 +65,16 @@ fi
 say "Installing into $DEST"
 rm -rf "$DEST"
 mkdir -p "$DEST/icons" "$BIN"
-for f in csvfab server.py viewer.htm papaparse.min.js LICENSE; do cp "$SRC/$f" "$DEST/"; done
+for f in csvfab.py server.py viewer.htm papaparse.min.js LICENSE; do cp "$SRC/$f" "$DEST/"; done
 cp "$SRC"/icons/csvfab.svg "$SRC"/icons/csvfab-*.png "$DEST/icons/"
-chmod 755 "$DEST/csvfab"
-ln -sf "$DEST/csvfab" "$BIN/csvfab"
+chmod 755 "$DEST/csvfab.py"
+ln -sf "$DEST/csvfab.py" "$BIN/csvfab"          # the command is "csvfab"; the file keeps its .py
 
 if [ "$OS" = Darwin ]; then
     # A minimal app bundle, so csvfab shows in Launchpad and Spotlight.
     APP="$HOME/Applications/csvfab.app"
     rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-    printf '#!/bin/sh\nexec /usr/bin/env python3 "%s/csvfab" "$@"\n' "$DEST" > "$APP/Contents/MacOS/csvfab"
+    printf '#!/bin/sh\nexec /usr/bin/env python3 "%s/csvfab.py" "$@"\n' "$DEST" > "$APP/Contents/MacOS/csvfab"
     chmod 755 "$APP/Contents/MacOS/csvfab"
     if command -v iconutil >/dev/null 2>&1; then
         set_=$(mktemp -d)/csvfab.iconset; mkdir -p "$set_"
@@ -98,7 +98,7 @@ PLIST
 else
     mkdir -p "$DATA/applications"
     # Absolute Exec: a session started outside a login shell may not have ~/.local/bin on its PATH.
-    sed "s|^Exec=csvfab|Exec=$DEST/csvfab|" "$SRC/csvfab.desktop" > "$DATA/applications/csvfab.desktop"
+    sed "s|^Exec=csvfab|Exec=$DEST/csvfab.py|" "$SRC/csvfab.desktop" > "$DATA/applications/csvfab.desktop"
     for s in 16 24 32 48 64 128 256 512; do
         mkdir -p "$DATA/icons/hicolor/${s}x${s}/apps"
         cp "$SRC/icons/csvfab-$s.png" "$DATA/icons/hicolor/${s}x${s}/apps/csvfab.png"
@@ -110,4 +110,4 @@ else
 fi
 
 case ":$PATH:" in *":$BIN:"*) ;; *) warn "$BIN is not on your PATH: add it to run 'csvfab' from a terminal." ;; esac
-say "csvfab $(python3 "$DEST/csvfab" --version | cut -d' ' -f2) installed. Run: csvfab [file.csv]"
+say "csvfab $(python3 "$DEST/csvfab.py" --version | cut -d' ' -f2) installed. Run: csvfab [file.csv]"

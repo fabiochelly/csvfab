@@ -16,7 +16,7 @@ sha256sums=('79b83707d0ee8ca8d0173c53d2767ef43adc005384b6129459b9f538d7b05467')
 
 package() {
     cd "$pkgname-$pkgver"
-    install -Dm755 csvfab -t "$pkgdir/usr/share/csvfab/"
+    install -Dm755 csvfab.py -t "$pkgdir/usr/share/csvfab/"
     install -Dm644 server.py viewer.htm papaparse.min.js -t "$pkgdir/usr/share/csvfab/"
     install -Dm644 icons/csvfab.svg -t "$pkgdir/usr/share/csvfab/icons/"
     install -Dm644 icons/csvfab.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/csvfab.svg"
@@ -26,5 +26,5 @@ package() {
     install -Dm644 csvfab.desktop -t "$pkgdir/usr/share/applications/"
     install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
     install -dm755 "$pkgdir/usr/bin"
-    ln -s /usr/share/csvfab/csvfab "$pkgdir/usr/bin/csvfab"   # the launcher follows the link back to its files
+    ln -s /usr/share/csvfab/csvfab.py "$pkgdir/usr/bin/csvfab"   # the launcher follows the link back to its files
 }

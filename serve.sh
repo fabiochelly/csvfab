@@ -2,7 +2,7 @@
 # Ouvre l'editeur dans le navigateur courant, en onglet normal.
 #
 # Pour l'application de bureau (fenetre sans barre d'adresse, integration
-# "Ouvrir avec"), utiliser ./csvfab a la place. Ce script reste le mode
+# "Ouvrir avec"), utiliser csvfab (./csvfab.py) a la place. Ce script reste le mode
 # navigateur : meme serveur, mais une simple page.
 #
 # Le serveur est indispensable : l'API File System Access -- seul moyen pour une

@@ -28,7 +28,7 @@ ChangesAssociations=yes
 WizardStyle=modern
 
 [Files]
-Source: "..\..\csvfab";            DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\csvfab.py";         DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\csvfab.cmd";        DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\server.py";         DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\viewer.htm";        DestDir: "{app}"; Flags: ignoreversion

@@ -14,7 +14,8 @@ boîte de message sous Windows), seul canal visible sans terminal.
 
 Python plutôt que bash : c'est déjà une dépendance du serveur, et c'est la
 seule façon d'avoir un même lanceur sur les trois systèmes. Sous Windows,
-csvfab.cmd le lance avec pythonw (pas de fenêtre de console).
+csvfab.cmd le lance avec pythonw (pas de fenêtre de console). Installé, ce fichier
+csvfab.py est exposé sous le nom de commande « csvfab » (lien ou raccourci).
 
     csvfab [fichier.csv …]     ouvre les fichiers (dans la fenêtre déjà ouverte s'il y en a une)
     csvfab --version

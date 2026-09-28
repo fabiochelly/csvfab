@@ -42,7 +42,7 @@ if (-not $pyw) { throw 'Python 3 is required: winget install Python.Python.3.12 
 
 # --- sources: this folder, or the release archive ---------------------------
 $Src = $null
-if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'csvfab')) -and (Test-Path (Join-Path $PSScriptRoot 'viewer.htm'))) { $Src = $PSScriptRoot }
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'csvfab.py')) -and (Test-Path (Join-Path $PSScriptRoot 'viewer.htm'))) { $Src = $PSScriptRoot }
 if (-not $Src) {
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("csvfab-" + [guid]::NewGuid())
     New-Item -ItemType Directory $tmp | Out-Null
@@ -58,20 +58,20 @@ if (-not $Src) {
 Say "Installing into $Dest"
 Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
 New-Item -ItemType Directory "$Dest\icons" -Force | Out-Null
-foreach ($f in 'csvfab', 'csvfab.cmd', 'server.py', 'viewer.htm', 'papaparse.min.js', 'LICENSE') { Copy-Item (Join-Path $Src $f) $Dest }
+foreach ($f in 'csvfab.py', 'csvfab.cmd', 'server.py', 'viewer.htm', 'papaparse.min.js', 'LICENSE') { Copy-Item (Join-Path $Src $f) $Dest }
 Copy-Item (Join-Path $Src 'icons\csvfab.svg'), (Join-Path $Src 'icons\csvfab.ico') "$Dest\icons"
 
 # Start menu shortcut: pythonw, so no console window flashes.
 $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($Link)
 $sh.TargetPath = $pyw
-$sh.Arguments = "`"$Dest\csvfab`""
+$sh.Arguments = "`"$Dest\csvfab.py`""
 $sh.WorkingDirectory = $Dest
 $sh.IconLocation = "$Dest\icons\csvfab.ico"
 $sh.Description = 'csvfab — CSV editor'
 $sh.Save()
 
 # "Open with" for .csv and .tsv (it does not take over the default app).
-$cmd = "`"$pyw`" `"$Dest\csvfab`" `"%1`""
+$cmd = "`"$pyw`" `"$Dest\csvfab.py`" `"%1`""
 New-Item -Force "$Classes\csvfab.table\shell\open\command" | Out-Null
 Set-Item "$Classes\csvfab.table" 'CSV table (csvfab)'
 Set-Item "$Classes\csvfab.table\shell\open\command" $cmd
