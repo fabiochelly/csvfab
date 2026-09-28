@@ -218,7 +218,7 @@ function clearDupMarks(e) {
 }
 function dupCls(t, r, prev) {
     const g = t.dupMarks && t.dupMarks.group.get(r);
-    if (g === undefined) return '';
+    if (g == null) return '';             // no marks at all (dupMarks null) or a row outside every group
     return ' dup ' + (g % 2 ? 'dup-b' : 'dup-a') + (t.onlyDups && prev && t.dupMarks.group.get(prev) !== g ? ' dup-first' : '');
 }
 function openDedupe() {
