@@ -1,0 +1,30 @@
+# Maintainer: Fabio Chelly
+pkgname=csvfab
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
+arch=('any')
+url="https://github.com/fabiochelly/csvfab"
+license=('MIT')
+depends=('python')
+optdepends=('chromium: the app window (any Chromium-based browser works)'
+            'google-chrome: the app window'
+            'brave-bin: the app window'
+            'microsoft-edge-stable-bin: the app window')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('8301879ba2224f4f20a5034290e53a2073895166bc271b296479f229f544772f')
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 csvfab -t "$pkgdir/usr/share/csvfab/"
+    install -Dm644 server.py viewer.htm papaparse.min.js -t "$pkgdir/usr/share/csvfab/"
+    install -Dm644 icons/csvfab.svg -t "$pkgdir/usr/share/csvfab/icons/"
+    install -Dm644 icons/csvfab.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/csvfab.svg"
+    for s in 16 24 32 48 64 128 256 512; do
+        install -Dm644 "icons/csvfab-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/csvfab.png"
+    done
+    install -Dm644 csvfab.desktop -t "$pkgdir/usr/share/applications/"
+    install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /usr/share/csvfab/csvfab "$pkgdir/usr/bin/csvfab"   # the launcher follows the link back to its files
+}

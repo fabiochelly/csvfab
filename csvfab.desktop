@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=csvfab
+GenericName=CSV Editor
+GenericName[fr]=Éditeur CSV
+Comment=Open, filter, clean and rewrite large CSV files in place
+Comment[fr]=Ouvrir, filtrer, nettoyer et réécrire de gros fichiers CSV
+Exec=csvfab %F
+Icon=csvfab
+Terminal=false
+Categories=Office;Spreadsheet;
+Keywords=csv;tsv;spreadsheet;table;
+MimeType=text/csv;text/tab-separated-values;text/comma-separated-values;application/csv;
+StartupWMClass=chrome-127.0.0.1__-Default
+StartupNotify=true

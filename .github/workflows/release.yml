@@ -1,0 +1,54 @@
+# On a v* tag: the source archives (for install.sh / install.ps1), the Windows
+# installer (Inno Setup), SHA256SUMS, and a GitHub release holding them all.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+
+jobs:
+  archives:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the version
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          grep -q "VERSION = \"$V\"" csvfab && grep -q "VERSION = \"$V\"" server.py \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION in csvfab / server.py"; exit 1; }
+      - name: Build
+        run: |
+          V="${GITHUB_REF_NAME#v}"; mkdir dist
+          git archive --format=tar.gz --prefix=csvfab/ -o "dist/csvfab-$V.tar.gz" HEAD
+          git archive --format=zip    --prefix=csvfab/ -o "dist/csvfab-$V.zip" HEAD
+          cp "dist/csvfab-$V.tar.gz" dist/csvfab.tar.gz      # stable names: releases/latest/download/…
+          cp "dist/csvfab-$V.zip" dist/csvfab.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: archives, path: dist/ }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $v = "$env:GITHUB_REF_NAME".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" packaging\windows\csvfab.iss
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: dist/ }
+
+  release:
+    needs: [archives, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "csvfab ${GITHUB_REF_NAME#v}" --generate-notes

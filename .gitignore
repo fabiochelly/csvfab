@@ -1,0 +1,22 @@
+# Data never belongs in the repository: sample and personal CSVs, their backups.
+*.csv
+*.tsv
+*.bak
+*.xlsx
+*.part
+
+__pycache__/
+*.pyc
+
+# Build outputs
+/dist/
+/packaging/aur/pkg/
+/packaging/aur/src/
+/packaging/aur/*.tar.*
+
+# Local notes for Claude Code: they describe this machine, not the project.
+CLAUDE.md
+
+# Lock files left by LibreOffice / OnlyOffice while a document is open
+.~lock.*
+~$*
