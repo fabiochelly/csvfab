@@ -60,11 +60,12 @@ function openColPanel(e, col) {
         if (lo && kind === 'n') range = `<div class="cp-pair">${line('min', lo[1])}${line('max', hi[1])}</div>`
             + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`;
         else if (lo && kind === 'd') range = line('min', lo[1]) + line('max', hi[1]);
-        if (lo && (kind === 'n' || kind === 'd') && hi[0] > lo[0]) range += histogram(entries, key, lo, hi);
         else if (lo) range = line('min', ...txt(lo)) + line('max', ...txt(hi));
+        if (lo && (kind === 'n' || kind === 'd') && hi[0] > lo[0]) range += histogram(entries, key, lo, hi);
     }
     const total = t.allData.length;
-    const notes = [empty ? `${fmt(empty)} empty` : '', scope !== total ? `${fmt(scope)} of ${fmt(total)} rows (filtered)` : ''].filter(Boolean);
+    /* No empty count here: the value list below has it, as its (Empty) entry. */
+    const notes = scope !== total ? [`${fmt(scope)} of ${fmt(total)} rows (filtered)`] : [];
     const prof = `<div class="cp-head"><span class="cp-type t-${kind}">${{ n: 'Numbers', d: 'Dates', t: 'Text' }[kind]}</span>`
         + `<span><b>${fmt(distinct)}</b> distinct value${distinct === 1 ? '' : 's'} on <b>${fmt(filled)}</b></span></div>`
         + (notes.length ? `<div class="cp-note">${notes.join(' · ')}</div>` : '')
