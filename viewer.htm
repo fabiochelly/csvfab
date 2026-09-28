@@ -35,28 +35,75 @@
             --pink-rgb: 247, 120, 186; --pink-txt: #ff9bce;
             --gray-rgb: 110, 118, 129; --gray-hi-rgb: 173, 186, 199; --hi-rgb: 255, 255, 255;
             --menu-bg: #238636; --menu-bg-hover: #2ea043; --menu-fg: #ffffff;
-            --status-a: #0b0f15; --status-b: #06090d;
+            --status-a: #0b0f15; --status-b: #06090d; --status-brd: #30363d; --status-sep: #30363d;
+            --status-fg: #8b949e; --stat-filt: #f0883e; --stat-total: #3fb950;
             --idx-hover: #2d333b; --row-alt: #121820; --row-hover: #1f242c;
             --row-h: 35px;
         }
+        /* Tokyo Night, backgrounds a notch darker than the stock "night" variant. */
         :root[data-theme="tokyonight"] {
-            --bg: #1a1b26; --bg-rgb: 26, 27, 38; --bg-deep: #16161e; --bg-deep-rgb: 22, 22, 30;
-            --surf: #1f2335; --surf-2: #292e42; --surf-3: #343a55; --bar-2: #1f2335; --filter-bg: #1c1e2d;
-            --brd: #292e42; --brd-2: #3b4261; --scroll: #3b4261;
+            --bg: #15161e; --bg-rgb: 21, 22, 30; --bg-deep: #101014; --bg-deep-rgb: 16, 16, 20;
+            --surf: #1a1b26; --surf-2: #232433; --surf-3: #2f334d; --bar-2: #1a1b26; --filter-bg: #171824;
+            --brd: #232433; --brd-2: #3b4261; --scroll: #3b4261;
             --txt: #c0caf5; --txt-hi: #c0caf5; --txt-strong: #e3e8ff; --txt-mut: #a9b1d6; --txt-sub: #737aa2; --txt-dim: #565f89; --txt-faint: #444b6a;
-            --prim: #7aa2f7; --prim-hover: #8db0fa; --prim-rgb: 122, 162, 247; --on-prim: #16161e;
+            --prim: #7aa2f7; --prim-hover: #8db0fa; --prim-rgb: 122, 162, 247; --on-prim: #101014;
             --accent-rgb: 122, 162, 247; --accent-2: #7dcfff;
-            --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #16161e; --mark-txt: #e0af68;
-            --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #16161e;
+            --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #101014; --mark-txt: #e0af68;
+            --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #101014;
             --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
             --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
             --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 125, 207, 255; --cyan-txt: #7dcfff;
             --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
             --gray-rgb: 86, 95, 137; --gray-hi-rgb: 169, 177, 214; --hi-rgb: 192, 202, 245;
-            --menu-bg: #9ece6a; --menu-bg-hover: #b3dc85; --menu-fg: #16161e;
-            --status-a: #16161e; --status-b: #13131a;
-            --idx-hover: #2f3450; --row-alt: #1c1d2a; --row-hover: #262a3d;
+            --menu-bg: #9ece6a; --menu-bg-hover: #b3dc85; --menu-fg: #101014;
+            --status-a: #121218; --status-b: #0e0e13; --status-brd: #232433; --status-sep: #2f334d;
+            --status-fg: #737aa2; --stat-filt: #ff9e64; --stat-total: #9ece6a;
+            --idx-hover: #292e42; --row-alt: #181924; --row-hover: #202333;
         }
+        /* Catppuccin Mocha on its darkest layers (crust / mantle). */
+        :root[data-theme="catppuccin"] {
+            --bg: #11111b; --bg-rgb: 17, 17, 27; --bg-deep: #0b0b12; --bg-deep-rgb: 11, 11, 18;
+            --surf: #181825; --surf-2: #1e1e2e; --surf-3: #313244; --bar-2: #181825; --filter-bg: #151522;
+            --brd: #232334; --brd-2: #45475a; --scroll: #45475a;
+            --txt: #cdd6f4; --txt-hi: #cdd6f4; --txt-strong: #eef1ff; --txt-mut: #a6adc8; --txt-sub: #9399b2; --txt-dim: #7f849c; --txt-faint: #585b70;
+            --prim: #89b4fa; --prim-hover: #a0c3fb; --prim-rgb: 137, 180, 250; --on-prim: #11111b;
+            --accent-rgb: 137, 180, 250; --accent-2: #89dceb;
+            --warn: #f9e2af; --warn-hover: #f5d78f; --warn-rgb: 249, 226, 175; --on-warn: #11111b; --mark-txt: #f9e2af;
+            --danger: #f38ba8; --danger-hover: #f5a0b8; --danger-rgb: 243, 139, 168; --danger-txt: #f38ba8; --on-danger: #11111b;
+            --ok: #a6e3a1; --ok-rgb: 166, 227, 161; --ok-txt: #a6e3a1;
+            --orange: #fab387; --orange-rgb: 250, 179, 135; --orange-txt: #fab387;
+            --violet-rgb: 203, 166, 247; --violet-txt: #cba6f7; --cyan-rgb: 148, 226, 213; --cyan-txt: #94e2d5;
+            --pink-rgb: 245, 194, 231; --pink-txt: #f5c2e7;
+            --gray-rgb: 108, 112, 134; --gray-hi-rgb: 166, 173, 200; --hi-rgb: 205, 214, 244;
+            --menu-bg: #a6e3a1; --menu-bg-hover: #bdebb9; --menu-fg: #11111b;
+            --status-a: #0e0e17; --status-b: #0b0b12; --status-brd: #232334; --status-sep: #313244;
+            --status-fg: #9399b2; --stat-filt: #fab387; --stat-total: #a6e3a1;
+            --idx-hover: #2a2b3c; --row-alt: #141421; --row-hover: #1f1f30;
+        }
+        /* VS Code Dark+: #1e1e1e editor, #252526 panels, and the blue status bar. */
+        :root[data-theme="vscode"] {
+            --bg: #1e1e1e; --bg-rgb: 30, 30, 30; --bg-deep: #181818; --bg-deep-rgb: 24, 24, 24;
+            --surf: #252526; --surf-2: #2d2d2d; --surf-3: #3c3c3c; --bar-2: #252526; --filter-bg: #202020;
+            --brd: #333333; --brd-2: #474747; --scroll: #4f4f4f;
+            --txt: #cccccc; --txt-hi: #d4d4d4; --txt-strong: #ffffff; --txt-mut: #9d9d9d; --txt-sub: #8b8b8b; --txt-dim: #6e6e6e; --txt-faint: #5a5a5a;
+            --prim: #0e639c; --prim-hover: #1177bb; --prim-rgb: 14, 99, 156; --on-prim: #ffffff;
+            --accent-rgb: 0, 122, 204; --accent-2: #3794ff;
+            --warn: #cca700; --warn-hover: #b89600; --warn-rgb: 204, 167, 0; --on-warn: #000000; --mark-txt: #ffd700;
+            --danger: #f14c4c; --danger-hover: #d63d3d; --danger-rgb: 241, 76, 76; --danger-txt: #f48771; --on-danger: #ffffff;
+            --ok: #89d185; --ok-rgb: 137, 209, 133; --ok-txt: #89d185;
+            --orange: #ce9178; --orange-rgb: 206, 145, 120; --orange-txt: #ce9178;
+            --violet-rgb: 197, 134, 192; --violet-txt: #c586c0; --cyan-rgb: 78, 201, 176; --cyan-txt: #4ec9b0;
+            --pink-rgb: 209, 105, 105; --pink-txt: #d16969;
+            --gray-rgb: 128, 128, 128; --gray-hi-rgb: 204, 204, 204; --hi-rgb: 255, 255, 255;
+            --menu-bg: #16825d; --menu-bg-hover: #1a9870; --menu-fg: #ffffff;
+            --status-a: #007acc; --status-b: #007acc; --status-brd: #007acc; --status-sep: rgba(255, 255, 255, .35);
+            --status-fg: #ffffff; --stat-filt: #ffe08a; --stat-total: #c9f7c9;
+            --idx-hover: #2d2d30; --row-alt: #212121; --row-hover: #2a2d2e;
+        }
+        /* On VS Code's blue status bar, the format pills turn to white, as its status items. */
+        :root[data-theme="vscode"] .sb-pill { color: #fff !important; background: rgba(255, 255, 255, .12) !important; border-color: rgba(255, 255, 255, .3) !important; }
+        :root[data-theme="vscode"] .sb-pill:hover { background: rgba(255, 255, 255, .22) !important; }
+        :root[data-theme="vscode"] #irr-chip { color: #fff; border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .12); }
 
         /* The tab bar, toolbar and replace bar, stacked above the grid. */
         #chrome { position: relative; z-index: 1000; }
@@ -302,7 +349,7 @@
         #irr-chip.on { background: var(--warn); color: var(--on-warn); }
         /* Status bar: messages and warnings live at the bottom, so the toolbar keeps to one line. */
         #statusbar { height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 14px; padding: 0 12px 0 18px;
-            background: linear-gradient(180deg, var(--status-a), var(--status-b)); border-top: 1px solid var(--brd);
+            background: linear-gradient(180deg, var(--status-a), var(--status-b)); border-top: 1px solid var(--status-brd);
             font-family: 'Inter', sans-serif; font-size: 12px; font-feature-settings: 'tnum'; }
         /* How the file is read, as pills: one colour per delimiter, one per encoding. Click → Params. */
         #sb-fmt { display: flex; align-items: center; gap: 8px; flex: none; }
@@ -331,11 +378,11 @@
         #sb-menu { position: fixed; top: auto; min-width: 210px; z-index: 1600; }
         .sb-pill.open { border-color: var(--prim) !important; box-shadow: 0 0 0 3px rgba(var(--prim-rgb), .22); }
         .sb-pill.neutral .cap { opacity: .5; }
-        .sb-sep { width: 1px; height: 14px; background: var(--brd); margin: 0 2px; }
+        .sb-sep { width: 1px; height: 14px; background: var(--status-sep); margin: 0 2px; }
         #stats b { font-weight: 600; }
-        #stats .n-filt { color: var(--orange); }
-        #stats .n-total { color: var(--ok); }
-        #stats { flex: 1; min-width: 0; color: var(--txt-mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #stats .n-filt { color: var(--stat-filt); }
+        #stats .n-total { color: var(--stat-total); }
+        #stats { flex: 1; min-width: 0; color: var(--status-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         #progress-container { position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; z-index: 1001; pointer-events: none; }
         #progress-bar { width: 0%; height: 100%; background: var(--prim); box-shadow: 0 0 8px var(--prim); transition: width 0.1s linear, opacity 0.5s ease-out; opacity: 0; }
 
@@ -616,7 +663,13 @@
                 <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #0d1117 50%, #0d6efd 50%);"></span>GitHub Dark</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
             </div>
             <div class="dd-item theme-opt" data-theme-name="tokyonight" onclick="setTheme('tokyonight')" title="Tokyo Night (night variant)">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #bb9af7 50%);"></span>Tokyo Night</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
+                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #15161e 50%, #7aa2f7 50%);"></span>Tokyo Night</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
+            </div>
+            <div class="dd-item theme-opt" data-theme-name="catppuccin" onclick="setTheme('catppuccin')" title="Catppuccin Mocha, on its darkest layers">
+                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #11111b 50%, #cba6f7 50%);"></span>Catppuccin Mocha</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
+            </div>
+            <div class="dd-item theme-opt" data-theme-name="vscode" onclick="setTheme('vscode')" title="VS Code Dark+, blue status bar included">
+                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #1e1e1e 50%, #007acc 50%);"></span>VS Code</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
             </div>
             <div class="dd-sep"></div>
             <div class="dd-item quit" onclick="closeDDs(); quitApp()" title="Close the editor (asks first if a file has unsaved edits)">
