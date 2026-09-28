@@ -80,30 +80,27 @@
             --status-fg: #9399b2; --stat-filt: #fab387; --stat-total: #a6e3a1;
             --idx-hover: #2a2b3c; --row-alt: #141421; --row-hover: #1f1f30;
         }
-        /* VS Code Dark+: #1e1e1e editor, #252526 panels, and the blue status bar. */
+        /* VS Code as the user runs it: the Tokyo Night theme for VS Code — #1a1b26
+           editor, #16161e panels and status bar, #a9b1d6 text, #3d59a1 buttons. */
         :root[data-theme="vscode"] {
-            --bg: #1e1e1e; --bg-rgb: 30, 30, 30; --bg-deep: #181818; --bg-deep-rgb: 24, 24, 24;
-            --surf: #252526; --surf-2: #2d2d2d; --surf-3: #3c3c3c; --bar-2: #252526; --filter-bg: #202020;
-            --brd: #333333; --brd-2: #474747; --scroll: #4f4f4f;
-            --txt: #cccccc; --txt-hi: #d4d4d4; --txt-strong: #ffffff; --txt-mut: #9d9d9d; --txt-sub: #8b8b8b; --txt-dim: #6e6e6e; --txt-faint: #5a5a5a;
-            --prim: #0e639c; --prim-hover: #1177bb; --prim-rgb: 14, 99, 156; --on-prim: #ffffff;
-            --accent-rgb: 0, 122, 204; --accent-2: #3794ff;
-            --warn: #cca700; --warn-hover: #b89600; --warn-rgb: 204, 167, 0; --on-warn: #000000; --mark-txt: #ffd700;
-            --danger: #f14c4c; --danger-hover: #d63d3d; --danger-rgb: 241, 76, 76; --danger-txt: #f48771; --on-danger: #ffffff;
-            --ok: #89d185; --ok-rgb: 137, 209, 133; --ok-txt: #89d185;
-            --orange: #ce9178; --orange-rgb: 206, 145, 120; --orange-txt: #ce9178;
-            --violet-rgb: 197, 134, 192; --violet-txt: #c586c0; --cyan-rgb: 78, 201, 176; --cyan-txt: #4ec9b0;
-            --pink-rgb: 209, 105, 105; --pink-txt: #d16969;
-            --gray-rgb: 128, 128, 128; --gray-hi-rgb: 204, 204, 204; --hi-rgb: 255, 255, 255;
-            --menu-bg: #16825d; --menu-bg-hover: #1a9870; --menu-fg: #ffffff;
-            --status-a: #007acc; --status-b: #007acc; --status-brd: #007acc; --status-sep: rgba(255, 255, 255, .35);
-            --status-fg: #ffffff; --stat-filt: #ffe08a; --stat-total: #c9f7c9;
-            --idx-hover: #2d2d30; --row-alt: #212121; --row-hover: #2a2d2e;
+            --bg: #1a1b26; --bg-rgb: 26, 27, 38; --bg-deep: #16161e; --bg-deep-rgb: 22, 22, 30;
+            --surf: #16161e; --surf-2: #1e202e; --surf-3: #292e42; --bar-2: #16161e; --filter-bg: #14141b;
+            --brd: #202330; --brd-2: #363b54; --scroll: #363b54;
+            --txt: #a9b1d6; --txt-hi: #c0caf5; --txt-strong: #dfe3f5; --txt-mut: #787c99; --txt-sub: #737aa2; --txt-dim: #545c7e; --txt-faint: #3b4261;
+            --prim: #3d59a1; --prim-hover: #4a68b8; --prim-rgb: 61, 89, 161; --on-prim: #ffffff;
+            --accent-rgb: 122, 162, 247; --accent-2: #7dcfff;
+            --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #16161e; --mark-txt: #e0af68;
+            --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #16161e;
+            --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
+            --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
+            --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 42, 195, 222; --cyan-txt: #2ac3de;
+            --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
+            --gray-rgb: 84, 92, 126; --gray-hi-rgb: 169, 177, 214; --hi-rgb: 192, 202, 245;
+            --menu-bg: #9ece6a; --menu-bg-hover: #b3dc85; --menu-fg: #16161e;
+            --status-a: #16161e; --status-b: #16161e; --status-brd: #101014; --status-sep: #292e42;
+            --status-fg: #787c99; --stat-filt: #ff9e64; --stat-total: #9ece6a;
+            --idx-hover: #1e202e; --row-alt: #1c1d29; --row-hover: #1e202e;
         }
-        /* On VS Code's blue status bar, the format pills turn to white, as its status items. */
-        :root[data-theme="vscode"] .sb-pill { color: #fff !important; background: rgba(255, 255, 255, .12) !important; border-color: rgba(255, 255, 255, .3) !important; }
-        :root[data-theme="vscode"] .sb-pill:hover { background: rgba(255, 255, 255, .22) !important; }
-        :root[data-theme="vscode"] #irr-chip { color: #fff; border-color: rgba(255, 255, 255, .45); background: rgba(255, 255, 255, .12); }
 
         /* The tab bar, toolbar and replace bar, stacked above the grid. */
         #chrome { position: relative; z-index: 1000; }
@@ -125,6 +122,58 @@
         #modal-cols { width: 250px; top: 10%; left: 80px; transform: none; padding-bottom: 10px; }
         .col-label { display: block; margin-bottom: 6px; cursor: pointer; font-size: 13px; color: var(--txt-hi); user-select: none; }
         .col-label input { margin: 0 8px 0 0; vertical-align: -3px; }
+
+        /* --- Toasts: an action's outcome, with Undo while it is still the last edit --- */
+        #toasts { position: fixed; right: 16px; bottom: 48px; z-index: 2600; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+        .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 440px; box-sizing: border-box;
+            padding: 10px 10px 10px 12px; border-radius: 9px; background: var(--surf); border: 1px solid var(--brd); border-left: 3px solid var(--prim);
+            box-shadow: 0 12px 32px rgba(0,0,0,.45); font: 13px 'Inter', sans-serif; color: var(--txt-hi);
+            animation: toast-in .26s cubic-bezier(.2, .9, .3, 1.15); }
+        .toast.ok { border-left-color: var(--ok); } .toast.danger { border-left-color: var(--danger); } .toast.warn { border-left-color: var(--warn); }
+        .toast .ti { flex: none; width: 16px; height: 16px; color: var(--prim); }
+        .toast.ok .ti { color: var(--ok); } .toast.danger .ti { color: var(--danger); } .toast.warn .ti { color: var(--warn); }
+        .toast .tm { flex: 1; line-height: 1.4; }
+        .toast .tu { flex: none; font: 600 12.5px 'Inter', sans-serif; color: var(--accent-2); background: rgba(var(--accent-rgb), .12);
+            border: 1px solid rgba(var(--accent-rgb), .35); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+        .toast .tu:hover { background: rgba(var(--accent-rgb), .25); }
+        .toast .tx { flex: none; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 5px; color: var(--txt-dim); cursor: pointer; font-size: 15px; }
+        .toast .tx:hover { background: var(--surf-2); color: var(--txt-hi); }
+        .toast.out { animation: toast-out .2s ease-in forwards; }
+        @keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+        @keyframes toast-out { to { opacity: 0; transform: translateX(24px); } }
+
+        /* --- Command palette (Ctrl+K) --- */
+        #cmdk { display: none; position: fixed; inset: 0; z-index: 2700; background: rgba(var(--bg-deep-rgb), .55); }
+        #cmdk.open { display: block; animation: fadein .12s ease-out; }
+        .cmdk-box { width: min(660px, calc(100vw - 32px)); margin: 11vh auto 0; background: var(--surf); border: 1px solid var(--brd-2); border-radius: 14px;
+            box-shadow: 0 28px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(var(--accent-rgb), .08); overflow: hidden; font-family: 'Inter', sans-serif; animation: pop .16s ease-out; }
+        .cmdk-in-wrap { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--brd); }
+        .cmdk-in-wrap svg { width: 18px; height: 18px; color: var(--txt-dim); flex: none; }
+        #cmdk-in { flex: 1; height: 52px; background: transparent; border: none; outline: none; color: var(--txt-hi); font: 16px 'Inter', sans-serif; }
+        #cmdk-in::placeholder { color: var(--txt-dim); }
+        #cmdk-list { max-height: min(56vh, 480px); overflow-y: auto; padding: 6px; }
+        .cmdk-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--txt); font-size: 13.5px; position: relative; }
+        .cmdk-item.act { background: rgba(var(--accent-rgb), .14); color: var(--txt-hi); }
+        .cmdk-item.act::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--prim); }
+        .cmdk-item .cl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cmdk-item .cl b { color: var(--accent-2); font-weight: 700; }
+        .cmdk-item .cg { flex: none; font-size: 11px; color: var(--txt-dim); padding: 1px 7px; border-radius: 9px; background: rgba(var(--gray-rgb), .15); }
+        .cmdk-item kbd, .cmdk-foot kbd { font: 11px "Cascadia Code", monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .2); background: rgba(var(--hi-rgb), .06); color: var(--txt-mut); }
+        .cmdk-item .cur { font-size: 11px; color: var(--ok-txt); }
+        .cmdk-empty { padding: 22px; text-align: center; color: var(--txt-dim); font-size: 13px; }
+        .cmdk-foot { display: flex; gap: 18px; padding: 8px 16px; border-top: 1px solid var(--brd); font-size: 11.5px; color: var(--txt-dim); }
+        .cmdk-foot kbd { margin-right: 3px; }
+
+        /* --- Micro-animations: menus, panels and dialogs appear, tabs fade in, edited cells flash --- */
+        .dd-menu.open, #col-panel.open { animation: pop .14s ease-out; transform-origin: top left; }
+        #sb-menu.open { transform-origin: bottom left; }
+        .modal-box[style*="block"] { animation: pop .16s ease-out; }
+        @keyframes pop { from { opacity: 0; scale: .96; } }
+        #view-container.tabfade #mainTable { animation: fadein .2s ease-out; }
+        @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+        #tbody td.flash { animation: cellflash 1.2s ease-out; }
+        @keyframes cellflash { 0%, 25% { background-color: rgba(var(--warn-rgb), .38); } }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
         /* Frosted glass behind every dialog: the page stays visible, blurred and dimmed. */
         #modal-bg, #dlg-bg { position: fixed; inset: 0; background: rgba(var(--bg-deep-rgb), .45); -webkit-backdrop-filter: blur(6px) saturate(120%); backdrop-filter: blur(6px) saturate(120%); }
@@ -285,6 +334,7 @@
         tr.row-dragging { opacity: .45; }
         td.col-idx[draggable] { cursor: grab; }
         .cp-tools { display: flex; gap: 4px; padding: 2px 2px 6px; }
+        .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
         .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
         .cp-tools .btn:first-child, .cp-tools .btn:nth-child(2) { padding: 4px 7px; }
         #modal-split, #modal-merge { width: 560px; }
@@ -314,6 +364,12 @@
         th.drop-before { box-shadow: inset 3px 0 0 var(--prim); }
         th.drop-after { box-shadow: inset -3px 0 0 var(--prim); }
         th.dragging { opacity: .45; }
+        .ty { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; margin-right: 7px; padding: 0 3px; box-sizing: border-box;
+            border-radius: 4px; font: 700 10px "Cascadia Code", monospace; vertical-align: 1px; }
+        .ty svg { width: 11px; height: 11px; }
+        .ty-n { color: var(--cyan-txt); background: rgba(var(--cyan-rgb), .13); }
+        .ty-d { color: var(--violet-txt); background: rgba(var(--violet-rgb), .13); }
+        .ty-t { color: var(--txt-dim); background: rgba(var(--gray-rgb), .16); }
         .col-name { cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; }
         .col-name:hover { color: var(--txt-strong); }
         .sort-ind { color: var(--prim); font-size: 9px; margin-left: 6px; vertical-align: 1px; }
@@ -455,6 +511,10 @@
         .cp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .cp-search { width: 100%; margin: 4px 0 6px; font-size: 13px; padding: 5px 10px; }
         .cp-list { max-height: min(320px, calc(100vh - 300px)); overflow-y: auto; }
+        .cp-hist { display: block; width: 100%; height: 44px; margin-top: 8px; }
+        .cp-hist rect { fill: var(--prim); opacity: .75; }
+        .cp-hist rect:hover { opacity: 1; }
+        .cp-val { background: linear-gradient(90deg, rgba(var(--accent-rgb), .11) var(--f, 0%), transparent var(--f, 0%)) no-repeat; }
         .cp-val { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; user-select: none; }
         .cp-val:hover { background: var(--surf-2); }
         .cp-val .v { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -486,8 +546,38 @@
             margin-left: 6px; font-size: 11px; font-weight: bold; line-height: 1;
         }
 
-        #empty-state { display: none; padding: 60px 20px; text-align: center; color: var(--txt-dim); font-family: 'Inter', sans-serif; font-size: 15px; }
-        #empty-state kbd { background: var(--surf-2); border: 1px solid var(--brd); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+        /* --- Welcome screen (no file open) --- */
+        #empty-state { display: none; padding: 48px 20px 40px; font-family: 'Inter', sans-serif; color: var(--txt-mut); }
+        .wl { max-width: 660px; margin: 0 auto; text-align: center; animation: fadein .35s ease-out; }
+        .wl-logo { width: 76px; height: 76px; filter: drop-shadow(0 10px 30px rgba(var(--accent-rgb), .45)); animation: float 5s ease-in-out infinite; }
+        @keyframes float { 50% { transform: translateY(-6px); } }
+        .wl h1 { margin: 14px 0 4px; font-size: 34px; font-weight: 800; letter-spacing: -.02em;
+            background: linear-gradient(90deg, var(--prim), rgb(var(--violet-rgb)), rgb(var(--pink-rgb))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .wl-sub { margin: 0 0 26px; font-size: 14.5px; }
+        .wl-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 20px; border-radius: 16px; cursor: pointer;
+            border: 2px dashed rgba(var(--accent-rgb), .35); background: rgba(var(--accent-rgb), .04); transition: background .2s, border-color .2s, transform .2s; }
+        .wl-drop:hover { background: rgba(var(--accent-rgb), .1); border-color: rgba(var(--accent-rgb), .7); transform: translateY(-1px); }
+        .wl-drop svg { width: 34px; height: 34px; color: var(--prim); margin-bottom: 4px; transition: transform .25s; }
+        .wl-drop:hover svg { transform: translateY(-3px); }
+        .wl-drop b { color: var(--txt-hi); font-size: 15px; }
+        .wl-drop span { font-size: 12.5px; }
+        .wl-actions { display: flex; justify-content: center; gap: 10px; margin: 18px 0 30px; }
+        .wl-actions kbd, .wl-keys kbd { font: 11px "Cascadia Code", monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .25); background: rgba(var(--hi-rgb), .08); color: inherit; }
+        .wl-sec { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); margin: 0 4px 8px; }
+        .wl-recent { text-align: left; border: 1px solid var(--brd); border-radius: 12px; overflow: hidden; margin-bottom: 28px; background: var(--surf); }
+        .wl-file { display: grid; grid-template-columns: 18px 1fr auto 20px; grid-template-rows: auto auto; column-gap: 12px; padding: 9px 12px; cursor: pointer; border-top: 1px solid var(--brd); align-items: center; }
+        .wl-file:first-child { border-top: none; }
+        .wl-file:hover { background: var(--surf-2); }
+        .wl-file svg { grid-row: span 2; width: 18px; height: 18px; color: rgb(var(--ok-rgb)); }
+        .wl-file .n { color: var(--txt-hi); font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .wl-file .d { grid-column: 2; font-size: 11.5px; color: var(--txt-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+        .wl-file .m { grid-column: 3; grid-row: 1 / span 2; font-size: 11.5px; color: var(--txt-dim); white-space: nowrap; }
+        .wl-file .x { grid-column: 4; grid-row: 1 / span 2; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 5px; color: var(--txt-dim); visibility: hidden; }
+        .wl-file:hover .x { visibility: visible; }
+        .wl-file .x:hover { background: var(--surf-3); color: var(--txt-hi); }
+        .kbs { display: inline-flex; align-items: center; gap: 2px; }
+        .wl-keys { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px 28px; text-align: left; font-size: 12.5px; max-width: 520px; margin: 0 auto; }
+        .wl-keys div { display: flex; justify-content: space-between; gap: 10px; }
 
         /* Style du texte surligné (Filtre actif) */
         mark { background: rgba(var(--warn-rgb), 0.25); color: var(--mark-txt); border-radius: 3px; padding: 0 2px; }
@@ -605,6 +695,17 @@
 </div>
 
 <div id="col-panel"></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="cmdk" onmousedown="if (event.target === this) closePalette()">
+    <div class="cmdk-box" role="dialog" aria-label="Command palette">
+        <div class="cmdk-in-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input id="cmdk-in" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command, a column, a tab, a recent file…">
+        </div>
+        <div id="cmdk-list"></div>
+        <div class="cmdk-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> run</span><span><kbd>Esc</kbd> close</span></div>
+    </div>
+</div>
 
 <div id="chrome">
 <div id="tabbar">
@@ -629,6 +730,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width: 18px; height: 18px;"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg>
         </button>
         <div class="dd-menu" id="main-menu">
+            <div class="dd-item" onclick="closeDDs(); openPalette()" title="Every action, setting, column, tab and recent file, one search away">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>Command palette…</span><span class="k">Ctrl+K</span>
+            </div>
+            <div class="dd-sep"></div>
             <div class="dd-item" onclick="closeDDs(); openFiles()" title="Open CSV files. When the browser allows it, the files stay writable and Save overwrites them in place.">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Open</span><span class="k">Ctrl+O</span>
             </div>
@@ -668,8 +773,8 @@
             <div class="dd-item theme-opt" data-theme-name="catppuccin" onclick="setTheme('catppuccin')" title="Catppuccin Mocha, on its darkest layers">
                 <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #11111b 50%, #cba6f7 50%);"></span>Catppuccin Mocha</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
             </div>
-            <div class="dd-item theme-opt" data-theme-name="vscode" onclick="setTheme('vscode')" title="VS Code Dark+, blue status bar included">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #1e1e1e 50%, #007acc 50%);"></span>VS Code</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
+            <div class="dd-item theme-opt" data-theme-name="vscode" onclick="setTheme('vscode')" title="VS Code with its Tokyo Night theme">
+                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #3d59a1 50%);"></span>VS Code</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
             </div>
             <div class="dd-sep"></div>
             <div class="dd-item quit" onclick="closeDDs(); quitApp()" title="Close the editor (asks first if a file has unsaved edits)">
@@ -728,11 +833,7 @@
 </div>
 
 <div id="view-container">
-    <div id="empty-state">
-        Drop CSV files here, or use <b>Menu › Open</b>.<br>
-        <span style="font-size:13px;">Several files can be opened at once — each one gets its own tab.<br>
-        Switch with <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> or <kbd>Alt</kbd>+<kbd>1..9</kbd>.</span>
-    </div>
+    <div id="empty-state"></div>
     <table id="mainTable">
         <thead id="thead"></thead>
         <tbody id="tbody"></tbody>
@@ -761,6 +862,7 @@
     let activeTabId = null;
     let tabSeq = 0;
     let lastCheckedCol = null;
+    const flashCells = new Map();            // row object → Set of columns just changed (they flash once)
     let sel = null;                           // range selection { tab, ar, ac (anchor), fr, fc (active cell) } — view row, column
     let keepSel = false, selDragging = false;
     let idxColW = 0;   // outer width of the row-number column, the same for every tab
@@ -790,7 +892,7 @@
             delimiter: '', detectedDelim: '', detectedEol: '\n',
             encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
             headerMode: 'auto', syntheticHeader: false,
-            globalQuery: '', colFilters: {}, valFilters: {}, onlyIrregular: false, quoteErrors: 0,   // valFilters: {col: Set of EXCLUDED values}
+            globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, onlyIrregular: false, quoteErrors: 0,   // valFilters: {col: Set of EXCLUDED values}
             useRegex: false, useSlug: false, useReverse: false,
             scrollTop: 0, lastUsed: Date.now()
         };
@@ -827,6 +929,7 @@
         const t = tabs.find(x => x.id === id);
         if (!t) return;
         sel = null;
+        container.classList.remove('tabfade'); void container.offsetWidth; container.classList.add('tabfade');   // replay the fade
         const prev = T();
         if (prev && prev !== t) collectUIState(prev);
 
@@ -1026,6 +1129,7 @@
         });
         renderTabBar();
         activateTab(first.id);          // only this one gets parsed now
+        recordRecent(entries);
         document.getElementById('loader').value = '';
     }
 
@@ -1237,7 +1341,8 @@
                 t.loading = false; t.loaded = true; t.rowCount = t.allData.length; t.lastUsed = Date.now();
                 if (!tabs.some(x => x.loading)) endProgress();
                 if (active()) {
-                    if (convertHeader(t, wantsSynthetic(t, t.headerMode))) renderHeader();
+                    convertHeader(t, wantsSynthetic(t, t.headerMode));
+                    renderHeader();                   // again now that the rows are in: the type icons need them
                     refreshParseOpts();
                     applyFilters();
                     container.scrollTop = t.scrollTop; render();
@@ -1349,7 +1454,7 @@
     function reread(t) {
         t.detectedDelim = ''; t.detectedEol = '\n';
         t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null;
-        t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.scrollTop = 0;
+        t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.scrollTop = 0;
         updateSaveBtn(); refreshParseOpts(); parseTab(t);
     }
 
@@ -1673,6 +1778,23 @@
     refreshParseOpts();
 
     // --- Header & Columns Management ---
+    /* Each column's kind — numbers, dates or text — from its first 400 rows
+       (≥ 90 % of the non-empty cells, as for sorting), shown as an icon. */
+    function columnKinds(t) {
+        const rows = t.allData.slice(0, 400);
+        return t.headers.map((_, c) => {
+            const k = { n: 0, d: 0, t: 0 }; let f = 0;
+            for (const r of rows) { const ty = cellType(r.data[c]); if (ty) { k[ty]++; f++; } }
+            return !f ? '' : k.n / f >= 0.9 ? 'n' : k.d / f >= 0.9 ? 'd' : 't';
+        });
+    }
+    function typeIcon(k) {
+        if (k === 'n') return '<span class="ty ty-n" title="Numbers">#</span>';
+        if (k === 'd') return '<span class="ty ty-d" title="Dates"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>';
+        if (k === 't') return '<span class="ty ty-t" title="Text">Aa</span>';
+        return '';
+    }
+
     function renderHeader() {
         const t = T(); if (!t) { thead.innerHTML = ''; return; }
         let hCells = `<th class="col-idx" onclick="openColManager()" title="Manage Columns" style="cursor:pointer;">
@@ -1681,10 +1803,11 @@
         let fCells = `<th class="col-idx"></th>`;
 
         const genCls = t.syntheticHeader ? ' gen-head' : '';
+        const kinds = t.loaded ? columnKinds(t) : [];
         t.headers.forEach((h, i) => {
             hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
                 <div class="col-title">
-                    <span class="col-name" draggable="true" onclick="titleClick(${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort (again: reverse) · Double-click: rename · Drag: move">${esc(h)}${t.sort && t.sort.col === i ? `<span class="sort-ind">${t.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</span>
+                    <span class="col-name" draggable="true" onclick="titleClick(${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort (again: reverse) · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.sort && t.sort.col === i ? `<span class="sort-ind">${t.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</span>
                     <div class="col-actions">
                         <span class="c-btn" onclick="addColumn(${i})" title="Add column right">+</span>
                         <span class="c-btn del" onclick="deleteColumn(${i})" title="Delete column">−</span>
@@ -1713,8 +1836,28 @@
        value into every selected cell, or a block from there (new rows are
        added at the end when no filter hides any). One undo entry per paste.
     ----------------------------------------------------------------*/
-    function cellCls(i, c, rg, fp) {
+    /* Data bars: a numeric column's values drawn as bars in their cells, scaled on its min–max. */
+    function toggleDataBars(col) {
+        const t = T(); if (!t) return;
+        if (t.dataBars[col]) { delete t.dataBars[col]; render(); return; }
+        let min = Infinity, max = -Infinity;
+        for (const r of t.allData) { const v = cellStr(r.data[col]).trim(); if (v && isNumericLike(v)) { const x = numKey(v); if (!isNaN(x)) { if (x < min) min = x; if (x > max) max = x; } } }
+        if (min === Infinity) return;
+        t.dataBars[col] = { min: Math.min(0, min), max: Math.max(0, max) };
+        render();
+    }
+    function barStyle(t, c, v) {
+        const b = t.dataBars[c]; if (!b) return '';
+        v = cellStr(v).trim(); if (!v || !isNumericLike(v)) return '';
+        const x = numKey(v), span = (b.max - b.min) || 1;
+        if (isNaN(x)) return '';
+        const z = (0 - b.min) / span * 100, p = (x - b.min) / span * 100, a = Math.min(z, p), w = Math.abs(p - z);
+        const rgb = x < 0 ? 'var(--danger-rgb)' : 'var(--accent-rgb)';
+        return ` style="background-image: linear-gradient(90deg, transparent ${a.toFixed(1)}%, rgba(${rgb}, .28) ${a.toFixed(1)}%, rgba(${rgb}, .28) ${(a + w).toFixed(1)}%, transparent ${(a + w).toFixed(1)}%)"`;
+    }
+    function cellCls(i, c, rg, fp, row) {
         const k = [];
+        if (flashCells.size) { const f = flashCells.get(row); if (f && f.has(c)) k.push('flash'); }
         if (rg && i >= rg.r0 && i <= rg.r1 && c >= rg.c0 && c <= rg.c1) {
             k.push('sel');
             if (i === sel.fr && c === sel.fc) k.push('cur');
@@ -1815,6 +1958,7 @@
 
     /* Keys act on the grid only when nothing else has the focus. */
     function gridKeysAllowed(e) {
+        if (document.getElementById('cmdk').classList.contains('open')) return false;
         if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return false;
         if (document.getElementById('dlg') || colPanel || document.querySelector('.dd-menu.open')) return false;
         return ![...document.querySelectorAll('.modal-box')].some(m => m.style.display === 'block');
@@ -1884,7 +2028,7 @@
         for (let r = rg.r0; r <= rg.r1; r++) out.push(cols.map(c => tsvQuote(t.filteredData[r].data[c])).join('\t'));
         e.clipboardData.setData('text/plain', out.join('\r\n') + (out.length > 1 ? '\r\n' : ''));
         e.preventDefault();
-        setStats(`${t.name} | ${fmt(out.length)} × ${fmt(cols.length)} cells copied.`);
+        doneMsg(`${t.name} | ${fmt(out.length)} × ${fmt(cols.length)} cells copied.`);
     });
     document.addEventListener('paste', e => {
         const t = T(); if (!t || !t.loaded || !gridKeysAllowed(e) || !sel || sel.tab !== t.id) return;
@@ -1920,6 +2064,7 @@
             c1 = vis[Math.min(vis.length - 1, k0 + Math.max(...grid.map(l => l.length)) - 1)];
         }
         if (!before.length && !added.length) { setStats(`${t.name} | Nothing changed.`); return; }
+        flash(before.map(([row, c]) => [row, c]).concat(added.flatMap(row => row.data.map((_, c) => [row, c]))));
         t.allData.forEach((r, i) => r.id = i + 1); t.rowCount = t.allData.length;
         const n = before.length;
         t.modificationsLog.push({ id: '-', col: '---', old: verb, new: `${n} cells`, what: `${fmt(n)} cells ${verb}${added.length ? `, ${fmt(added.length)} rows added` : ''}`, undo: t => {
@@ -1990,7 +2135,7 @@
             const [v] = d.splice(from, 1); d.splice(to, 0, v);
         }
         t.hiddenCols = new Set([...t.hiddenCols].map(c => movedIndex(c, from, to)));
-        t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters);
+        t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars);
         if (t.sort) t.sort = { col: movedIndex(t.sort.col, from, to), dir: t.sort.dir };
         t.modificationsLog.push({ id: '-', col: h, old: 'moved', new: `${from} → ${to}`, what: `column "${h}" moved`, undo: t => {
             const [x] = t.headers.splice(to, 1); t.headers.splice(from, 0, x);
@@ -2014,7 +2159,7 @@
         t.headers = headers;
         const remap = m => { const o = {}; Object.keys(m).forEach(k => { const c = mapOld(+k); if (c >= 0) o[c] = m[k]; }); return o; };
         t.hiddenCols = new Set([...t.hiddenCols].map(mapOld).filter(c => c >= 0));
-        t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters);
+        t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars);
         if (t.sort) { const c = mapOld(t.sort.col); t.sort = c >= 0 ? { col: c, dir: t.sort.dir } : null; }
         t.modificationsLog.push({ id: '-', col: '---', old: 'columns', new: what, what, undo: t => {
             t.headers = prevHeaders; t.allData.forEach((r, i) => r.data = prevData[i]); viewRestore(t, view);
@@ -2309,6 +2454,7 @@
         t.colWidths = shiftKeys(t.colWidths, idx, +1);
         t.colFilters = shiftKeys(t.colFilters, idx, +1);
         t.valFilters = shiftKeys(t.valFilters, idx, +1);
+        t.dataBars = shiftKeys(t.dataBars, idx, +1);
 
         if (t.sort && t.sort.col > idx) t.sort.col++;
         t.modificationsLog.push({ id: '-', col: colName, old: '---', new: 'Column added', what: `column "${colName}" added`, undo: t => {
@@ -2340,6 +2486,7 @@
         t.colWidths = shiftKeys(t.colWidths, idx, -1);
         t.colFilters = shiftKeys(t.colFilters, idx, -1);
         t.valFilters = shiftKeys(t.valFilters, idx, -1);
+        t.dataBars = shiftKeys(t.dataBars, idx, -1);
 
         if (t.sort) t.sort = t.sort.col === idx ? null : (t.sort.col > idx ? { col: t.sort.col - 1, dir: t.sort.dir } : t.sort);
         t.modificationsLog.push({ id: '-', col: colName, old: 'Column deleted', new: '---', what: `column "${colName}" deleted`, undo: t => {
@@ -2461,6 +2608,213 @@
             t.allData.splice(t.allData.indexOf(newRow), 1);
         } });
         updateSaveBtn(); applyFilters(); renderTabBar();
+    }
+
+    /* ---------------------------------------------------------------
+       COMMAND PALETTE (Ctrl+K, Ctrl+Shift+P)
+       Rebuilt at each opening from the current state, so it only offers
+       what applies (Undo when there is something to undo, Save when a file
+       is loaded…). Fuzzy search: the letters typed must appear in order,
+       word starts and runs score higher. Without a query the per-column
+       commands stay out, to keep the list short.
+    ----------------------------------------------------------------*/
+    const THEMES = [['dark', 'GitHub Dark'], ['tokyonight', 'Tokyo Night'], ['catppuccin', 'Catppuccin Mocha'], ['vscode', 'VS Code']];
+    let pal = { items: [], shown: [], act: 0 };
+
+    function clearAllFilters() {
+        const t = T(); if (!t) return;
+        t.globalQuery = ''; t.colFilters = {}; t.valFilters = {}; t.onlyIrregular = false;
+        document.getElementById('global-search').value = '';
+        renderHeader(); applyColStyles(); applyFilters();
+    }
+    function goToColumn(c) {
+        const t = T(); if (!t || !t.loaded) return;
+        if (t.hiddenCols.has(c)) { t.hiddenCols.delete(c); applyColStyles(); }
+        const r = Math.min(t.filteredData.length - 1, Math.max(0, sel && sel.tab === t.id ? sel.fr : Math.floor(container.scrollTop / ROW_H)));
+        if (r < 0) { const th = thead.rows[0].cells[c + 1]; if (th) th.scrollIntoView({ inline: 'center', block: 'nearest' }); return; }
+        setSel(t, r, c, r, c); revealCell(r, c);
+    }
+    function openColPanelFor(c) {
+        goToColumn(c);
+        const btn = document.querySelectorAll('thead tr:first-child .col-menu')[c];
+        if (btn) setTimeout(() => openColPanel({ stopPropagation() { }, currentTarget: btn }, c), 30);
+    }
+
+    function paletteCommands() {
+        const t = T(), loaded = !!(t && t.loaded), C = [];
+        const add = (group, label, run, hint, ok = true) => { if (ok) C.push({ group, label, run, hint: hint || '' }); };
+        const noEv = { stopPropagation() { } };
+        add('File', 'Open files…', openFiles, 'Ctrl+O');
+        add('File', 'Save', () => saveInPlace(), 'Ctrl+S', loaded);
+        add('File', 'Save as… — another name, delimiter, encoding or Excel', openSaveModal, '', loaded);
+        add('File', 'Save as Excel workbook', () => saveExcel(), '', loaded);
+        add('File', 'Extract the rows shown to a new file', extractFiltered, '', loaded);
+        add('File', 'Discard all edits and reload from disk', discardEdits, '', loaded && isDirty(t));
+        add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
+        add('File', 'Quit csvfab', quitApp, 'Ctrl+Q');
+        add('Edit', 'Undo' + (loaded && isDirty(t) ? ` — ${t.modificationsLog[t.modificationsLog.length - 1].what || 'last edit'}` : ''), undo, 'Ctrl+Z', loaded && isDirty(t));
+        add('Edit', 'Find & replace', toggleSRBar, '', loaded);
+        add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
+        add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
+        add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
+        add('Rows', 'Remove duplicates…', openDedupe, '', loaded);
+        add('Rows', 'Delete hidden rows', deleteHiddenRows, '', loaded);
+        add('Rows', loaded && t.onlyIrregular ? 'Show all rows again' : 'Show only irregular rows', toggleIrregular, '', loaded);
+        add('Rows', 'Clear all filters', clearAllFilters, '', loaded && hasFilter(t));
+        add('Columns', 'Split a column…', () => openSplit(), '', loaded);
+        add('Columns', 'Merge columns…', () => openMerge(), '', loaded);
+        add('Columns', 'Show or hide columns…', openColManager, '', loaded);
+        THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));
+        const s = t || parseDefaults;
+        PARSE_DELIMS.forEach(([v, l]) => add('Reading', 'Delimiter: ' + l, () => setDelimiter(v), s.delimiter === v ? '✓' : ''));
+        add('Reading', 'Encoding: Auto', () => setEncoding(''), s.encoding === '' ? '✓' : '');
+        ENCODINGS.forEach(([v, l]) => add('Reading', 'Encoding: ' + l, () => setEncoding(v), s.encoding === v ? '✓' : ''));
+        PARSE_HEADERS.forEach(([v, l]) => add('Reading', 'Line 1: ' + l, () => applyHeaderMode(v), s.headerMode === v ? '✓' : ''));
+        if (loaded) add('Reading', `Line endings: switch to ${t.detectedEol === '\r\n' ? 'LF' : 'CRLF'}`, () => toggleEol(noEv));
+        tabs.forEach(x => add('Tab', 'Go to tab: ' + x.name, () => activateTab(x.id), x === t ? '✓' : ''));
+        recents.forEach((r, i) => add('Recent', 'Open recent: ' + r.name + (r.path ? '  ' + pathDir(r.path) : ''), () => openRecent(i)));
+        if (loaded) t.headers.forEach((h, c) => {
+            add('Column', `Go to column: ${h}`, () => goToColumn(c));
+            add('Column', `Sort ascending: ${h}`, () => sortBy(c, 1));
+            add('Column', `Sort descending: ${h}`, () => sortBy(c, -1));
+            add('Column', `Profile & filter by value: ${h}`, () => openColPanelFor(c));
+        });
+        return C;
+    }
+
+    function fuzzy(q, text) {
+        const s = removeAccents(text.toLowerCase());
+        let from = 0, prev = -2, score = 0; const hits = [];
+        for (const ch of q) {
+            const k = s.indexOf(ch, from);
+            if (k < 0) return null;
+            score += (k === prev + 1 ? 6 : 1) + (k === 0 || /[\s:—\-_(]/.test(s[k - 1]) ? 5 : 0);
+            hits.push(k); prev = k; from = k + 1;
+        }
+        return { score: score - hits[0] * 0.05 - s.length * 0.01, hits };
+    }
+
+    function openPalette() {
+        closeDDs(); closeColPanel();
+        pal = { items: paletteCommands(), shown: [], act: 0 };
+        const box = document.getElementById('cmdk'), inp = document.getElementById('cmdk-in');
+        inp.value = '';
+        box.classList.add('open');
+        renderPalette();
+        inp.focus();
+    }
+    function closePalette() { document.getElementById('cmdk').classList.remove('open'); }
+
+    function renderPalette() {
+        const q = removeAccents(document.getElementById('cmdk-in').value.trim().toLowerCase());
+        let list;
+        if (!q) list = pal.items.filter(c => c.group !== 'Column').map(c => ({ c, hits: [] }));
+        else list = pal.items.map(c => { const f = fuzzy(q, c.label); return f && { c, hits: f.hits, score: f.score }; }).filter(Boolean).sort((a, b) => b.score - a.score);
+        pal.shown = list.slice(0, 120);
+        pal.act = Math.min(pal.act, Math.max(0, pal.shown.length - 1));
+        const mark = (label, hits) => { const H = new Set(hits); return [...label].map((ch, i) => H.has(i) ? `<b>${esc(ch)}</b>` : esc(ch)).join(''); };
+        document.getElementById('cmdk-list').innerHTML = pal.shown.length
+            ? pal.shown.map(({ c, hits }, i) => `<div class="cmdk-item${i === pal.act ? ' act' : ''}" data-i="${i}" onmousemove="palHover(${i})" onclick="runPalette(${i})">`
+                + `<span class="cl">${mark(c.label, hits)}</span>${c.hint === '✓' ? '<span class="cur">✓ current</span>' : c.hint ? `<kbd>${esc(c.hint)}</kbd>` : ''}<span class="cg">${esc(c.group)}</span></div>`).join('')
+            : '<div class="cmdk-empty">No command matches.</div>';
+        const a = document.querySelector('.cmdk-item.act'); if (a) a.scrollIntoView({ block: 'nearest' });
+    }
+    function palHover(i) { if (i === pal.act) return; pal.act = i; document.querySelectorAll('.cmdk-item').forEach((el, k) => el.classList.toggle('act', k === i)); }
+    function runPalette(i) {
+        const it = pal.shown[i]; if (!it) return;
+        closePalette();
+        it.c.run();                               // synchronous: a picker opened here keeps the key press's user activation
+    }
+    document.getElementById('cmdk-in').addEventListener('input', () => { pal.act = 0; renderPalette(); });
+    document.getElementById('cmdk-in').addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const n = pal.shown.length; if (!n) return;
+            pal.act = (pal.act + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; renderPalette();
+        } else if (e.key === 'Enter') { e.preventDefault(); runPalette(pal.act); }
+        else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); closePalette(); }
+    });
+    window.addEventListener('keydown', e => {
+        if (document.getElementById('dlg')) return;
+        const k = e.key.toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && ((k === 'k' && !e.shiftKey) || (k === 'p' && e.shiftKey))) { e.preventDefault(); openPalette(); }
+    });
+
+    /* ---------------------------------------------------------------
+       RECENT FILES & WELCOME SCREEN
+       Recents live in IndexedDB: bridge paths, and file handles (IndexedDB
+       can store those; reopening one only asks for access again). Newest
+       first, 12 at most, one entry per file.
+    ----------------------------------------------------------------*/
+    let recents = [];
+    idbGet('recents').then(l => { recents = l || []; renderWelcome(); });
+    async function recordRecent(entries) {
+        let list = recents.slice();
+        for (const e of entries) {
+            if (!e.path && !e.handle) continue;               // a read-only copy cannot be reopened
+            const item = { kind: e.path ? 'path' : 'handle', path: e.path || null, handle: e.handle || null, name: e.name, size: e.size || 0, at: Date.now() };
+            const keep = [];
+            for (const x of list) {
+                let same = false;
+                if (item.kind === 'path') same = x.path === item.path;
+                else if (x.kind === 'handle' && x.handle) { try { same = await x.handle.isSameEntry(item.handle); } catch (err) { } }
+                if (!same) keep.push(x);
+            }
+            list = [item, ...keep];
+        }
+        recents = list.slice(0, 12);
+        await idbSet('recents', recents);
+        renderWelcome();
+    }
+    async function openRecent(i) {
+        const r = recents[i]; if (!r) return;
+        if (r.kind === 'path') return addPathTabs([r.path]);
+        try { if (await r.handle.queryPermission({ mode: 'readwrite' }) !== 'granted') await r.handle.requestPermission({ mode: 'readwrite' }); } catch (e) { }
+        try { await r.handle.getFile(); } catch (e) { toast(`${r.name} is no longer where it was.`, { kind: 'warn' }); return forgetRecent(i); }
+        await addHandles([r.handle], null);
+    }
+    async function forgetRecent(i) { recents.splice(i, 1); await idbSet('recents', recents); renderWelcome(); }
+
+    function relTime(ms) {
+        const d = (Date.now() - ms) / 1000;
+        if (d < 60) return 'just now';
+        if (d < 3600) return `${Math.floor(d / 60)} min ago`;
+        if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
+        if (d < 7 * 86400) return `${Math.floor(d / 86400)} d ago`;
+        return new Date(ms).toLocaleDateString('fr-FR');
+    }
+    function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
+
+    function renderWelcome() {
+        const k = (a, b) => `<div><span>${a}</span><span>${b}</span></div>`, kb = x => '<span class="kbs">' + x.split('+').map(p => `<kbd>${p}</kbd>`).join('+') + '</span>';
+        emptyState.innerHTML = `<div class="wl">
+            <img class="wl-logo" src="icons/csvfab.svg" alt="">
+            <h1>csvfab</h1>
+            <p class="wl-sub">Open, filter, clean and rewrite CSV files — in place.</p>
+            <div class="wl-drop" onclick="openFiles()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <b>Drop CSV files here</b><span>or click to choose them — several at once, each in its own tab</span>
+            </div>
+            <div class="wl-actions">
+                <button class="btn" onclick="openFiles()">Open files ${kb('Ctrl+O')}</button>
+                <button class="btn btn-outline" onclick="openPalette()">Command palette ${kb('Ctrl+K')}</button>
+            </div>
+            ${recents.length ? `<div class="wl-sec">Recent</div><div class="wl-recent">${recents.map((r, i) => `
+                <div class="wl-file" onclick="openRecent(${i})" title="${esc(r.path || 'Opened with the file picker: reopening asks for access again')}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h8"/></svg>
+                    <span class="n">${esc(r.name)}</span>
+                    <span class="m">${fmtBytes(r.size)} · ${relTime(r.at)}</span>
+                    <span class="x" onclick="event.stopPropagation(); forgetRecent(${i})" title="Remove from the list">×</span>
+                    <span class="d">${esc(r.path ? pathDir(r.path) : 'file picker')}</span>
+                </div>`).join('')}</div>` : ''}
+            <div class="wl-keys">
+                ${k('Command palette', kb('Ctrl+K'))}${k('Save', kb('Ctrl+S'))}
+                ${k('Undo', kb('Ctrl+Z'))}${k('Copy / paste a range', kb('Ctrl+C') + ' ' + kb('Ctrl+V'))}
+                ${k('Fill a series down', kb('Ctrl+D'))}${k('Switch tab', kb('Alt+←') + ' ' + kb('Alt+→'))}
+            </div>
+        </div>`;
     }
 
     /* The ⋮ button of a row number: a small menu of row actions. */
@@ -2600,6 +2954,7 @@
             if (lo && kind === 'n') range = `<div class="cp-pair">${line('min', lo[1])}${line('max', hi[1])}</div>`
                 + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`;
             else if (lo && kind === 'd') range = line('min', lo[1]) + line('max', hi[1]);
+            if (lo && (kind === 'n' || kind === 'd') && hi[0] > lo[0]) range += histogram(entries, key, lo, hi);
             else if (lo) range = line('min', ...txt(lo)) + line('max', ...txt(hi));
         }
         const total = t.allData.length;
@@ -2609,7 +2964,7 @@
             + (notes.length ? `<div class="cp-note">${notes.join(' · ')}</div>` : '')
             + range;
 
-        colPanel = { t, col, entries, excluded: new Set(t.valFilters[col] || []), shown: [], query: '' };
+        colPanel = { t, col, entries, maxCount: Math.max(1, ...entries.slice(0, 1).map(e => e[1])), excluded: new Set(t.valFilters[col] || []), shown: [], query: '' };
         const panel = document.getElementById('col-panel');
         panel.innerHTML = `
             <div class="cp-tools">
@@ -2617,6 +2972,7 @@
                 <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col + 1})" ${col === t.headers.length - 1 ? 'disabled' : ''} title="Move right">▶</button>
                 <button class="btn btn-outline" onclick="closeColPanel(); openSplit(${col})">Split…</button>
                 <button class="btn btn-outline" onclick="closeColPanel(); openMerge(${col})">Merge…</button>
+                ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})" title="Draw each value as a bar in its cell">Bars</button>` : ''}
             </div>
             <div class="dd-sep"></div>
             <div class="cp-prof">${prof}</div>
@@ -2638,6 +2994,20 @@
         panel.querySelector('.cp-search').focus();
     }
 
+    /* Distribution of a numeric or date column: 28 bins between min and max. */
+    function histogram(entries, key, lo, hi) {
+        const B = 28, bins = new Array(B).fill(0), span = hi[0] - lo[0];
+        for (const [v, n] of entries) {
+            if (!cellType(v)) continue;
+            const k = key(v.trim()); if (typeof k !== 'number' || isNaN(k)) continue;
+            bins[Math.min(B - 1, Math.floor((k - lo[0]) / span * B))] += n;
+        }
+        const max = Math.max(...bins), W = 100 / B;
+        return `<svg class="cp-hist" viewBox="0 0 100 40" preserveAspectRatio="none">`
+            + bins.map((c, i) => c ? `<rect x="${(i * W + .3).toFixed(2)}" y="${(40 - Math.max(1.5, c / max * 38)).toFixed(2)}" width="${(W - .6).toFixed(2)}" height="${Math.max(1.5, c / max * 38).toFixed(2)}" rx=".6"><title>${fmt(c)} value${c === 1 ? '' : 's'}</title></rect>` : '').join('')
+            + '</svg>';
+    }
+
     function renderColValues() {
         const p = colPanel; if (!p) return;
         const q = removeAccents(p.query.trim().toLowerCase());
@@ -2647,7 +3017,7 @@
         const allOn = match.every(([v]) => !p.excluded.has(v));
         document.getElementById('cp-list').innerHTML = !match.length ? '<div class="cp-more">No value matches.</div>'
             : `<label class="cp-val"><input type="checkbox" ${allOn ? 'checked' : ''} onchange="colPanelAll(this.checked)"><span class="v">${q ? '(Select all matches)' : '(Select all)'}</span><span class="n">${fmt(match.length)}</span></label>`
-            + p.shown.map(([v, n], i) => `<label class="cp-val"><input type="checkbox" ${p.excluded.has(v) ? '' : 'checked'} onchange="colPanelToggle(${i}, this.checked)">`
+            + p.shown.map(([v, n], i) => `<label class="cp-val" style="--f: ${(n / p.maxCount * 100).toFixed(1)}%"><input type="checkbox" ${p.excluded.has(v) ? '' : 'checked'} onchange="colPanelToggle(${i}, this.checked)">`
                 + `<span class="v${v.trim() ? '' : ' empty'}" title="${esc(v)}">${v.trim() ? esc(v) : (v ? '(Blank)' : '(Empty)')}</span><span class="n">${fmt(n)}</span></label>`).join('')
             + (match.length > CP_MAX ? `<div class="cp-more">${fmt(match.length - CP_MAX)} more values — search to reach them.</div>` : '');
     }
@@ -2872,7 +3242,7 @@
                     <span class="row-num">${displayId}</span>
                     <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/></svg></span>
                 </td>
-                ${r.data.map((c, cIdx) => `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`).join('')}
+                ${r.data.map((c, cIdx) => `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r)}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`).join('')}
             </tr>`;
         }
 
@@ -3009,6 +3379,7 @@
             row.data[c] = v;
         }
         if (!before.length) { setStats(`${t.name} | Nothing changed.`); return 0; }
+        flash(before.map(([row, c]) => [row, c]));
         t.modificationsLog.push({ id: '-', col: '---', old: verb, new: `${before.length} cells`, what: `${fmt(before.length)} cells ${verb}`, undo: () => {
             for (let k = before.length - 1; k >= 0; k--) { const [row, c, v] = before[k]; row.data[c] = v; }
         } });
@@ -3339,7 +3710,7 @@
         await refreshStamp(t);
         adoptFormat(t, delim, we.enc);
         updateSaveBtn(); renderTabBar();
-        setStats(`${t.name} | Saved as a new file — ${fmt(t.allData.length)} rows written, ${from} left as it was.`);
+        doneMsg(`${t.name} | Saved as a new file — ${fmt(t.allData.length)} rows written, ${from} left as it was.`);
         return true;
     }
 
@@ -3385,7 +3756,7 @@
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
                 endProgress();
-                setStats(`${t.name} | Workbook written: ${baseName(dest)} — ${fmt(j.rows)} rows${limits(j)}.`);
+                doneMsg(`${t.name} | Workbook written: ${baseName(dest)} — ${fmt(j.rows)} rows${limits(j)}.`);
             } else {
                 const r = await srvFetch(q, { method: 'POST', body });
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3397,7 +3768,7 @@
                 await w.write(blob);
                 await w.close();
                 endProgress();
-                setStats(`${t.name} | Workbook written: ${handle.name} — ${fmt(j.rows || 0)} rows${limits(j)}.`);
+                doneMsg(`${t.name} | Workbook written: ${handle.name} — ${fmt(j.rows || 0)} rows${limits(j)}.`);
             }
         } catch (err) {
             endProgress();
@@ -3576,7 +3947,7 @@
             t.backedUp = true; t.size = j.size; t.modificationsLog = [];
             await refreshStamp(t);
             updateSaveBtn(); renderTabBar();
-            setStats(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written`
+            doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written`
                 + (j.backup ? ` · backup ${j.backup}` : '') + '.');
             return true;
         }
@@ -3601,7 +3972,7 @@
         try { t.size = (await t.handle.getFile()).size; } catch (e) { }
         await refreshStamp(t);
         updateSaveBtn(); renderTabBar();
-        setStats(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written.`);
+        doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written.`);
         return true;
     }
 
@@ -3640,7 +4011,7 @@
             if (!dest) { uiAlert('No free file name found beside the source.'); return; }
             const j = await srvWrite(t, dest, false, delim, rows);
             if (!j) return;
-            setStats(`${t.name} | ${fmt(rows.length)} rows extracted to ${baseName(dest)}.`);
+            doneMsg(`${t.name} | ${fmt(rows.length)} rows extracted to ${baseName(dest)}.`);
             await addPathTabs([dest]);
             return;
         }
@@ -3655,7 +4026,7 @@
             });
         } catch (e) { return; }                     // picker dismissed
         if (!await writeToHandle(t, handle, rows, t.headers.map((_, i) => i), delim)) return;
-        setStats(`${t.name} | ${fmt(rows.length)} rows extracted to ${handle.name}.`);
+        doneMsg(`${t.name} | ${fmt(rows.length)} rows extracted to ${handle.name}.`);
         await addHandles([handle], null);
     }
 
@@ -3688,6 +4059,7 @@
             });
         });
 
+        if (repCount) flash(before.map(([row, c]) => [row, c]));
         if (repCount) t.modificationsLog.push({ id: '-', col: '(find & replace)', old: fText, new: rText + ` — ${repCount} cells`, what: `${fmt(repCount)} cells replaced`,
             undo: () => { for (const [r, c, v] of before) r.data[c] = v; } });
         updateSaveBtn(); renderTabBar();
@@ -3697,6 +4069,51 @@
             : 'No match in the filtered rows.';
         render();
         updateStats();
+    }
+
+    /* ---------------------------------------------------------------
+       TOASTS
+       toast(msg, {kind, undo: {t, entry}}): a card in the bottom right that
+       leaves by itself (hover keeps it). Its Undo only acts if that entry is
+       still the last edit of the active tab — otherwise it would undo
+       something else. Every new undoable edit toasts through
+       updateSaveBtn(), except single-cell edits (one toast per keystroke
+       would be noise); saves and exports toast through doneMsg().
+    ----------------------------------------------------------------*/
+    const TOAST_ICONS = {
+        ok: '<path d="M20 6 9 17l-5-5"/>',
+        danger: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+        warn: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+        info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>'
+    };
+    function toast(msg, o = {}) {
+        const box = document.getElementById('toasts'), kind = o.kind || 'info';
+        const el = document.createElement('div');
+        el.className = 'toast ' + kind;
+        el.innerHTML = `<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${TOAST_ICONS[kind] || TOAST_ICONS.info}</svg>`
+            + `<span class="tm">${esc(msg)}</span>` + (o.undo ? '<button class="tu">Undo</button>' : '') + '<span class="tx" title="Dismiss">×</span>';
+        const leave = () => { if (el.classList.contains('out')) return; el.classList.add('out'); setTimeout(() => el.remove(), 200); };
+        let timer = setTimeout(leave, o.ms || 6000);
+        el.onmouseenter = () => clearTimeout(timer);
+        el.onmouseleave = () => { timer = setTimeout(leave, 2500); };
+        el.querySelector('.tx').onclick = leave;
+        if (o.undo) el.querySelector('.tu').onclick = () => {
+            const { t, entry } = o.undo;
+            if (T() === t && t.modificationsLog[t.modificationsLog.length - 1] === entry) undo();
+            else setStats('That edit is no longer the last one: use Ctrl+Z to step back to it.');
+            leave();
+        };
+        box.appendChild(el);
+        while (box.children.length > 4) box.firstElementChild.remove();
+    }
+    /* Status bar + toast for an outcome worth noticing (saves, exports, copy). */
+    function doneMsg(msg) { setStats(msg); toast(msg.split(' | ').slice(1).join(' | ') || msg, { kind: 'ok' }); }
+
+    /* Cells that just changed flash once (paste, fill, replace, bulk edits). */
+    function flash(pairs) {
+        for (const [row, c] of pairs) { if (!flashCells.has(row)) flashCells.set(row, new Set()); flashCells.get(row).add(c); }
+        clearTimeout(flash.timer);
+        flash.timer = setTimeout(() => flashCells.clear(), 1300);   // the CSS animation has run by then; no re-render needed
     }
 
     // --- UI State & Modals ---
@@ -3710,6 +4127,13 @@
         document.getElementById('save-split').classList.toggle('dirty', n > 0);
         document.getElementById('btn-discard').style.display = n > 0 ? '' : 'none';
         document.getElementById('menu-undo').classList.toggle('disabled', !(n > 0));
+        /* A new undoable edit since last time: announce it, with Undo. */
+        if (t) {
+            const last = t.modificationsLog[n - 1];
+            if (n > (t._seenLog || 0) && last && last !== t._seenLast && last.what && !/^edit in /.test(last.what))
+                toast(last.what.charAt(0).toUpperCase() + last.what.slice(1), { undo: { t, entry: last }, kind: /delet|remov|clear/i.test(last.what) ? 'danger' : 'ok' });
+            t._seenLog = n; t._seenLast = last;
+        }
     }
 
     /* Back to the file as it is on disk: the edits only ever lived in memory,
@@ -3724,10 +4148,10 @@
        stops being yellow. Saving clears the log — there is no undo past it.
     ----------------------------------------------------------------*/
     function viewSnap(t) {
-        return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, sort: t.sort ? { ...t.sort } : null };
+        return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? { ...t.sort } : null };
     }
     function viewRestore(t, v) {
-        t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.sort = v.sort;
+        t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.dataBars = v.bars; t.sort = v.sort;
     }
     function undo() {
         const t = T(); if (!t || !t.loaded) return;
@@ -3752,7 +4176,7 @@
     }
     function reloadKeepingView(t, colsChanged) {
         t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null;
-        if (colsChanged) { t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; }
+        if (colsChanged) { t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; }
         updateSaveBtn(); renderTabBar();
         parseTab(t);
     }
