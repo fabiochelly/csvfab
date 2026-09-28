@@ -11,6 +11,6 @@ pkgbase = csvfab
 	optdepends = brave-bin: the app window
 	optdepends = microsoft-edge-stable-bin: the app window
 	source = csvfab-1.0.1.tar.gz::https://github.com/fabiochelly/csvfab/archive/refs/tags/v1.0.1.tar.gz
-	sha256sums = 8301879ba2224f4f20a5034290e53a2073895166bc271b296479f229f544772f
+	sha256sums = 7a932edaee7f7a96ef173deec3e0894446c6b183fd84a7882390a71dfa27925f
 
 pkgname = csvfab

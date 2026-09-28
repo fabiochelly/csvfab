@@ -12,7 +12,7 @@ optdepends=('chromium: the app window (any Chromium-based browser works)'
             'brave-bin: the app window'
             'microsoft-edge-stable-bin: the app window')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('8301879ba2224f4f20a5034290e53a2073895166bc271b296479f229f544772f')
+sha256sums=('7a932edaee7f7a96ef173deec3e0894446c6b183fd84a7882390a71dfa27925f')
 
 package() {
     cd "$pkgname-$pkgver"
