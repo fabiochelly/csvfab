@@ -101,6 +101,49 @@
             --status-fg: #787c99; --stat-filt: #ff9e64; --stat-total: #9ece6a;
             --idx-hover: #1e202e; --row-alt: #1c1d29; --row-hover: #1e202e;
         }
+        /* GitHub Light. Light palettes: dark text, darker accents (to stay readable on
+           white), --hi-rgb dark (it tints overlays), and light native widgets. */
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #ffffff; --bg-rgb: 255, 255, 255; --bg-deep: #f6f8fa; --bg-deep-rgb: 246, 248, 250;
+            --surf: #f6f8fa; --surf-2: #eaeef2; --surf-3: #d0d7de; --bar-2: #f6f8fa; --filter-bg: #f6f8fa;
+            --brd: #d0d7de; --brd-2: #afb8c1; --scroll: #c1c8cf;
+            --txt: #1f2328; --txt-hi: #1f2328; --txt-strong: #000000; --txt-mut: #59636e; --txt-sub: #6e7781; --txt-dim: #6e7781; --txt-faint: #8c959f;
+            --prim: #0969da; --prim-hover: #0860ca; --prim-rgb: 9, 105, 218; --on-prim: #ffffff;
+            --accent-rgb: 9, 105, 218; --accent-2: #0969da;
+            --warn: #bf8700; --warn-hover: #a37200; --warn-rgb: 212, 167, 44; --on-warn: #ffffff; --mark-txt: #7d4e00;
+            --danger: #cf222e; --danger-hover: #a40e26; --danger-rgb: 207, 34, 46; --danger-txt: #cf222e; --on-danger: #ffffff;
+            --ok: #1a7f37; --ok-rgb: 26, 127, 55; --ok-txt: #1a7f37;
+            --orange: #bc4c00; --orange-rgb: 188, 76, 0; --orange-txt: #bc4c00;
+            --violet-rgb: 130, 80, 223; --violet-txt: #8250df; --cyan-rgb: 27, 124, 131; --cyan-txt: #1b7c83;
+            --pink-rgb: 191, 57, 137; --pink-txt: #bf3989;
+            --gray-rgb: 110, 119, 129; --gray-hi-rgb: 87, 96, 106; --hi-rgb: 31, 35, 40;
+            --menu-bg: #1f883d; --menu-bg-hover: #1a7f37; --menu-fg: #ffffff;
+            --status-a: #f6f8fa; --status-b: #f6f8fa; --status-brd: #d0d7de; --status-sep: #d0d7de;
+            --status-fg: #59636e; --stat-filt: #bc4c00; --stat-total: #1a7f37;
+            --idx-hover: #dde3ea; --row-alt: #f6f8fa; --row-hover: #eaf1fb;
+        }
+        /* Catppuccin Latte. */
+        :root[data-theme="latte"] {
+            color-scheme: light;
+            --bg: #eff1f5; --bg-rgb: 239, 241, 245; --bg-deep: #e6e9ef; --bg-deep-rgb: 230, 233, 239;
+            --surf: #e6e9ef; --surf-2: #dce0e8; --surf-3: #ccd0da; --bar-2: #e6e9ef; --filter-bg: #e9ecf1;
+            --brd: #ccd0da; --brd-2: #bcc0cc; --scroll: #bcc0cc;
+            --txt: #4c4f69; --txt-hi: #4c4f69; --txt-strong: #2b2d3f; --txt-mut: #5c5f77; --txt-sub: #6c6f85; --txt-dim: #7c7f93; --txt-faint: #9ca0b0;
+            --prim: #1e66f5; --prim-hover: #1756d6; --prim-rgb: 30, 102, 245; --on-prim: #ffffff;
+            --accent-rgb: 30, 102, 245; --accent-2: #1e66f5;
+            --warn: #df8e1d; --warn-hover: #c77d15; --warn-rgb: 223, 142, 29; --on-warn: #ffffff; --mark-txt: #8a5a0b;
+            --danger: #d20f39; --danger-hover: #b50d31; --danger-rgb: 210, 15, 57; --danger-txt: #d20f39; --on-danger: #ffffff;
+            --ok: #40a02b; --ok-rgb: 64, 160, 43; --ok-txt: #2f7d1f;
+            --orange: #fe640b; --orange-rgb: 254, 100, 11; --orange-txt: #c9500a;
+            --violet-rgb: 136, 57, 239; --violet-txt: #8839ef; --cyan-rgb: 23, 146, 153; --cyan-txt: #137a80;
+            --pink-rgb: 234, 118, 203; --pink-txt: #b8489a;
+            --gray-rgb: 124, 127, 147; --gray-hi-rgb: 92, 95, 119; --hi-rgb: 76, 79, 105;
+            --menu-bg: #8839ef; --menu-bg-hover: #7a2fd6; --menu-fg: #ffffff;
+            --status-a: #e6e9ef; --status-b: #dce0e8; --status-brd: #ccd0da; --status-sep: #bcc0cc;
+            --status-fg: #6c6f85; --stat-filt: #c9500a; --stat-total: #2f7d1f;
+            --idx-hover: #ccd0da; --row-alt: #e9ecf1; --row-hover: #dce0e8;
+        }
 
         /* The tab bar, toolbar and replace bar, stacked above the grid. */
         #chrome { position: relative; z-index: 1000; }
@@ -205,7 +248,7 @@
         .sr-chk { display: flex; align-items: center; gap: 6px; font-family: 'Inter', sans-serif; font-size: 13px; cursor: pointer; white-space: nowrap; }
         /* Native selects draw their arrow flush against the edge: the app's own chevron instead (two classes, to beat .bs-input declared later). */
         .bs-input.bs-select { cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 2.25rem;
-            background: var(--bg-deep) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23c9d1d9' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") no-repeat right 0.75rem center / 16px 12px; }
+            background: var(--bg-deep) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%238b949e' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") no-repeat right 0.75rem center / 16px 12px; }
         #sr-col { max-width: 220px; }
         #sr-bar { display: none; height: 50px; padding: 0 20px; background: var(--bar-2); border-bottom: 1px solid var(--brd); align-items: center; gap: 15px; z-index: 999; }
 
@@ -413,7 +456,13 @@
             font-size: 11.5px; font-weight: 500; color: var(--txt-mut); background: rgba(var(--gray-rgb), .12); border: 1px solid rgba(var(--gray-rgb), .25);
             transition: background .15s, border-color .15s; }
         .sb-pill:hover { background: rgba(var(--gray-rgb), .22); border-color: rgba(var(--gray-rgb), .45); }
-        .sb-pill .cap { font-family: "Cascadia Code", "Consolas", monospace; font-weight: 700; font-size: 12px; min-width: 9px; text-align: center; }
+        /* The delimiter itself in a thin frame of the pill's own colour, so a lone "," reads as a character. */
+        .sb-pill .cap { font-family: "Cascadia Code", "Consolas", monospace; font-weight: 700; font-size: 12px; line-height: 14px; min-width: 8px; text-align: center;
+            padding: 0 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, currentColor 45%, transparent); }
+        .sb-theme { flex: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; margin-left: 4px;
+            box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .3), 0 0 0 3px transparent; transition: box-shadow .15s, transform .15s; }
+        .sb-theme:hover { transform: scale(1.1); box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .5); }
+        .sb-theme.open { box-shadow: 0 0 0 1px var(--prim), 0 0 0 4px rgba(var(--prim-rgb), .25); }
         .sb-pill .auto { font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
         .sb-opt { gap: 28px; }
         .sb-opt.on { color: var(--txt-strong); font-weight: 500; }
@@ -763,20 +812,6 @@
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>Delete hidden rows</span>
             </div>
             <div class="dd-sep"></div>
-            <div class="dd-head">Theme</div>
-            <div class="dd-item theme-opt" data-theme-name="dark" onclick="setTheme('dark')" title="The default dark theme, after GitHub's">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #0d1117 50%, #0d6efd 50%);"></span>GitHub Dark</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
-            </div>
-            <div class="dd-item theme-opt" data-theme-name="tokyonight" onclick="setTheme('tokyonight')" title="Tokyo Night (night variant)">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #15161e 50%, #7aa2f7 50%);"></span>Tokyo Night</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
-            </div>
-            <div class="dd-item theme-opt" data-theme-name="catppuccin" onclick="setTheme('catppuccin')" title="Catppuccin Mocha, on its darkest layers">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #11111b 50%, #cba6f7 50%);"></span>Catppuccin Mocha</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
-            </div>
-            <div class="dd-item theme-opt" data-theme-name="vscode" onclick="setTheme('vscode')" title="VS Code with its Tokyo Night theme">
-                <span class="lbl"><span class="swatch" style="background: linear-gradient(135deg, #1a1b26 50%, #3d59a1 50%);"></span>VS Code</span><svg class="chk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.5 3.5L13 4.5"/></svg>
-            </div>
-            <div class="dd-sep"></div>
             <div class="dd-item quit" onclick="closeDDs(); quitApp()" title="Close the editor (asks first if a file has unsaved edits)">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>Quit</span><span class="k">Ctrl+Q</span>
             </div>
@@ -862,6 +897,12 @@
     let activeTabId = null;
     let tabSeq = 0;
     let lastCheckedCol = null;
+    /* Themes (palettes in the <style>), declared up here: the status bar uses them from the first render. */
+    const THEMES = [['dark', 'GitHub Dark'], ['tokyonight', 'Tokyo Night'], ['catppuccin', 'Catppuccin Mocha'], ['vscode', 'VS Code'],
+        ['light', 'GitHub Light'], ['latte', 'Catppuccin Latte']];
+    const THEME_SWATCH = { dark: ['#0d1117', '#238636'], tokyonight: ['#15161e', '#7aa2f7'], catppuccin: ['#11111b', '#cba6f7'],
+        vscode: ['#1a1b26', '#007acc'], light: ['#ffffff', '#0969da'], latte: ['#eff1f5', '#8839ef'] };
+    const swatchCss = n => `background: linear-gradient(135deg, ${THEME_SWATCH[n][0]} 50%, ${THEME_SWATCH[n][1]} 50%);`;
     const flashCells = new Map();            // row object → Set of columns just changed (they flash once)
     let sel = null;                           // range selection { tab, ar, ac (anchor), fr, fc (active cell) } — view row, column
     let keepSel = false, selDragging = false;
@@ -1482,17 +1523,14 @@
         if (k === 'o') { e.preventDefault(); openFiles(); }
         else if (k === 'q') { e.preventDefault(); quitApp(); }
     });
-    /* Themes: a data-theme attribute on <html> swaps the colour variables (see :root). */
+    /* Themes: a data-theme attribute on <html> swaps the colour variables (see :root).
+       Picked from the round two-colour swatch at the right end of the status bar. */
     function currentTheme() { return document.documentElement.dataset.theme || 'dark'; }
     function setTheme(name) {
         if (name === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = name;
         try { localStorage.setItem('csvfab-theme', name); } catch (e) { }
-        markTheme();
+        refreshParseOpts();                       // the status bar swatch, and the theme menu if it is open
     }
-    function markTheme() {
-        document.querySelectorAll('.theme-opt').forEach(el => el.classList.toggle('on', el.dataset.themeName === currentTheme()));
-    }
-    markTheme();
 
     let quitting = false;
     async function quitApp() {
@@ -1705,6 +1743,8 @@
                 + item('e', -1, det ? `Auto (${det})` : 'Auto', s.encoding === '', ['auto', 'c-auto'])
                 + ENCODINGS.map(([v, l], i) => item('e', i, l, v === s.encoding, ENC_BADGE[v])).join('');
         }
+        if (kind === 't') return '<div class="dd-head">Theme</div>' + THEMES.map(([id, label]) =>
+            `<div class="dd-item theme-opt${id === currentTheme() ? ' on' : ''}" onclick="setTheme('${id}')"><span class="lbl"><span class="swatch" style="${swatchCss(id)}"></span>${esc(label)}</span>${CHECK_SVG}</div>`).join('');
         return '<div class="dd-head">Line 1</div>' + PARSE_HEADERS.map(([v, l], i) => item('h', i, l, v === s.headerMode, HEAD_BADGE[v])).join('');
     }
 
@@ -1753,13 +1793,14 @@
             + pill(ecls, `${enc ? esc(encName(enc)) + (loaded && t.bom && enc === 'utf-8' ? ' BOM' : '') : 'Encoding'}${autoTag(!s.encoding)}`, 'Encoding — click to change', "openSbMenu(event, 'e')")
             + pill('', `${head}${autoTag(s.headerMode === 'auto')}`, 'Header line — click to change', "openSbMenu(event, 'h')")
             + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
-                'Line endings — click to switch between CRLF and LF; the next Save writes them', 'toggleEol(event)') : '');
+                'Line endings — click to switch between CRLF and LF; the next Save writes them', 'toggleEol(event)') : '')
+            + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])} — click to change" style="${swatchCss(currentTheme())}"></span>`;
     }
 
     /* Toolbar dropdowns (.dd): a button followed by its .dd-menu. One open at a time. */
     function closeDDs() {
         document.querySelectorAll('.dd-menu.open').forEach(m => { m.classList.remove('open'); m.previousElementSibling.classList.remove('open'); });
-        document.querySelectorAll('.sb-pill.open, .row-btn.open').forEach(p => p.classList.remove('open'));
+        document.querySelectorAll('.sb-pill.open, .sb-theme.open, .row-btn.open').forEach(p => p.classList.remove('open'));
     }
     function toggleDD(e, btn) {
         e.stopPropagation();
@@ -2618,7 +2659,6 @@
        word starts and runs score higher. Without a query the per-column
        commands stay out, to keep the list short.
     ----------------------------------------------------------------*/
-    const THEMES = [['dark', 'GitHub Dark'], ['tokyonight', 'Tokyo Night'], ['catppuccin', 'Catppuccin Mocha'], ['vscode', 'VS Code']];
     let pal = { items: [], shown: [], act: 0 };
 
     function clearAllFilters() {
