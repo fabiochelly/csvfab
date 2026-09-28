@@ -43,7 +43,7 @@
 </div>
 
 <div id="modal-dedupe" class="modal-box">
-    <h4>Remove duplicates</h4>
+    <h4>Duplicates</h4>
     <span class="fld-label">Rows are duplicates when these columns match (none ticked: the whole row). Rows where they are all empty are always kept.</span>
     <div id="dedupe-cols"></div>
     <span class="fld-label">Compare values</span>
@@ -56,6 +56,7 @@
     <div id="dedupe-note"></div>
     <div class="modal-actions">
         <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn btn-outline" id="dedupe-show" onclick="markDuplicates()" title="Mark every row of each duplicate group, the first one included, and show them side by side — nothing is deleted">Mark them</button>
         <button class="btn" id="dedupe-go" onclick="applyDedupe()">Delete duplicates</button>
     </div>
 </div>
@@ -126,6 +127,105 @@
     </div>
 </div>
 
+<div id="modal-lookup" class="modal-box">
+    <h4>Look up values in another tab</h4>
+    <div class="row2 lk-keys">
+        <div><span class="fld-label">Key in this tab</span><select id="lk-key" class="bs-input bs-select" onchange="lookup.userKey = true; lookupRefresh()"></select></div>
+        <div><span class="fld-label">Look up in the tab</span><select id="lk-src" class="bs-input bs-select" onchange="lookupSource()"></select></div>
+        <div><span class="fld-label">…on its column</span><select id="lk-skey" class="bs-input bs-select" onchange="lookupRefresh()"></select></div>
+    </div>
+    <div class="opts">
+        <label class="col-label"><input type="radio" name="lk-match" value="exact" onchange="lookupRefresh()"> Exact keys</label>
+        <label class="col-label"><input type="radio" name="lk-match" value="loose" checked onchange="lookupRefresh()"> Ignoring case and surrounding spaces</label>
+        <label class="col-label" title="Accents removed, lower case, every run of symbols and spaces turned into one space"><input type="radio" name="lk-match" value="slug" onchange="lookupRefresh()"> Slugified</label>
+    </div>
+    <span class="fld-label">Columns to bring over — added right after the key, in the order ticked</span>
+    <div id="lk-cols"></div>
+    <div class="stat-line" id="lk-stats"></div>
+    <div class="pv-wrap"><table class="pv" id="lk-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="lookup = null; closeAllModals()">Cancel</button>
+        <button class="btn" id="lk-go" onclick="applyLookup()">Add the columns</button>
+    </div>
+</div>
+
+<div id="modal-convert" class="modal-box">
+    <h4>Convert formats</h4>
+    <span class="fld-label">Column</span>
+    <select id="cv-col" class="bs-input bs-select" style="width: 100%;" onchange="convertColChanged()"></select>
+    <span class="fld-label">Its values are</span>
+    <div class="opts" style="margin-top: 0;">
+        <label class="col-label"><input type="radio" name="cv-kind" value="date" checked onchange="convertRefresh()"> Dates</label>
+        <label class="col-label"><input type="radio" name="cv-kind" value="num" onchange="convertRefresh()"> Numbers</label>
+        <label class="col-label"><input type="radio" name="cv-kind" value="phone" onchange="convertRefresh()"> Phone numbers</label>
+    </div>
+    <div class="cv-grid" id="cv-o-date">
+        <span>Read as</span>
+        <select id="cv-dorder" class="bs-input bs-select" onchange="convertRefresh()"><option value="dmy">day first — 15/06/2024</option><option value="mdy">month first — 06/15/2024</option></select>
+        <span></span><span class="cv-note" id="cv-dnote"></span>
+        <span>Write as</span>
+        <select id="cv-dout" class="bs-input bs-select" onchange="convertRefresh()">
+            <option value="iso">2024-06-15 (ISO)</option><option value="dmy">15/06/2024</option><option value="mdy">06/15/2024</option>
+            <option value="dmyd">15.06.2024</option><option value="dmyh">15-06-2024</option>
+        </select>
+    </div>
+    <div class="cv-grid" id="cv-o-num">
+        <span>Decimal separator</span>
+        <select id="cv-ndec" class="bs-input bs-select" onchange="convertRefresh()"><option value=",">comma — 1 234,50</option><option value=".">point — 1,234.50</option></select>
+        <span>Write as</span>
+        <select id="cv-nout" class="bs-input bs-select" onchange="convertRefresh()">
+            <option value="point">1234.5</option><option value="comma">1234,5</option><option value="fr">1 234,5</option><option value="en">1,234.5</option>
+        </select>
+        <span>Decimals</span>
+        <select id="cv-nfix" class="bs-input bs-select" onchange="convertRefresh()">
+            <option value="">as they are</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+        </select>
+    </div>
+    <div class="cv-grid" id="cv-o-phone">
+        <span>Country code</span>
+        <input type="text" id="cv-cc" class="bs-input" value="33" spellcheck="false" oninput="convertRefresh()" title="Given to national numbers, those starting with 0">
+        <span>Write as</span>
+        <select id="cv-pout" class="bs-input bs-select" onchange="convertRefresh()">
+            <option value="e164">+33612345678 (E.164)</option><option value="intl">+33 6 12 34 56 78</option><option value="nat">06 12 34 56 78</option>
+        </select>
+    </div>
+    <div class="stat-line" id="cv-stats"></div>
+    <div class="pv-wrap"><table class="pv" id="cv-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn btn-outline" id="cv-show" onclick="showUnrecognised()" title="Filter the grid down to the rows whose cell was not recognised">Show unrecognised</button>
+        <button class="btn" id="cv-go" onclick="applyConvert()">Convert</button>
+    </div>
+</div>
+
+<div id="modal-formula" class="modal-box">
+    <h4>Computed column</h4>
+    <span class="fld-label">Formula — <code>{Column}</code> is the row's cell, the rest is JavaScript</span>
+    <textarea id="fx-expr" class="bs-input" rows="3" spellcheck="false" placeholder='e.g.  {firstName} + " " + {lastName}' oninput="fxRefresh()"></textarea>
+    <div class="chips" id="fx-cols"></div>
+    <details class="fx-help">
+        <summary>Examples and functions</summary>
+        <div id="fx-ex"></div>
+        <div class="fx-fns">
+            <b>Numbers</b> num(v) — reads 1 234,50 and 1,234.50 · round(n, d) · fixed(n, d) — text with d decimals<br>
+            <b>Dates</b> date(v) · today() · days(a, b) · addDays(d, n) · year(d) · month(d) · day(d) · fmtDate(d, "dd/mm/yyyy") — yyyy yy mm dd hh mi ss<br>
+            <b>Text</b> upper · lower · trim · capitalize · slug · len · left(s, n) · right(s, n) · pad(s, n, "0") · extract(s, regex, group) · replace(s, regex, by) · contains(s, part)<br>
+            <b>Values</b> empty(v) · first(a, b, …) — first non-empty · join(sep, a, b, …) — skips empty values · <code>row</code> — the row number<br>
+            A number result is written with a decimal comma in a <code>;</code>-separated file, a point otherwise; a date as yyyy-mm-dd.
+        </div>
+    </details>
+    <div class="row2" style="margin-top: 12px;">
+        <div style="flex: 1;"><span class="fld-label">Name</span><input type="text" id="fx-name" class="bs-input" style="width: 100%;" value="Computed" spellcheck="false" oninput="fxRefresh()"></div>
+        <div style="flex: 1;"><span class="fld-label">Write to</span><select id="fx-dest" class="bs-input bs-select" style="width: 100%;" onchange="fxRefresh()"></select></div>
+    </div>
+    <div class="stat-line" id="fx-stats"></div>
+    <div class="pv-wrap"><table class="pv" id="fx-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn" id="fx-go" onclick="applyFormula()">Apply</button>
+    </div>
+</div>
+
 <div id="col-panel"></div>
 <div id="toasts" aria-live="polite"></div>
 <div id="cmdk" onmousedown="if (event.target === this) closePalette()">
@@ -185,11 +285,20 @@
             <div class="dd-item" onclick="closeDDs(); openMerge()" title="Join several columns into one">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v6a4 4 0 0 0 4 4 4 4 0 0 0 4-4V4"></path><line x1="12" y1="14" x2="12" y2="20"></line></svg>Merge columns…</span>
             </div>
+            <div class="dd-item" onclick="closeDDs(); openFormula()" title="A new column computed from the others by a formula">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h-2.5a2 2 0 0 0-2 1.8L8 20"></path><line x1="6" y1="10" x2="14" y2="10"></line><path d="M15 14l5 5M20 14l-5 5"></path></svg>Computed column…</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openLookup()" title="Bring columns over from another open tab, matching rows on a key column (like VLOOKUP)">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Look up from another tab…</span>
+            </div>
             <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
             </div>
-            <div class="dd-item" onclick="closeDDs(); openDedupe()" title="Delete rows that repeat others, on the columns you choose">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Remove duplicates</span>
+            <div class="dd-item" onclick="closeDDs(); openConvert()" title="Rewrite a column's dates, numbers or phone numbers into one format">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>Convert formats…</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openDedupe()" title="Mark or delete rows that repeat others, on the columns you choose">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Duplicates…</span>
             </div>
             <div class="dd-item" onclick="closeDDs(); deleteHiddenRows()" title="Delete every row the current filters hide — only the rows shown are kept">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>Delete hidden rows</span>
@@ -261,6 +370,7 @@
 <div id="statusbar">
     <div id="stats">Ready.</div>
     <span id="irr-chip" onclick="toggleIrregular()" style="display:none;"></span>
+    <span id="dup-chip" onclick="toggleDupView()" style="display:none;"></span>
     <div id="sb-fmt"></div>
 </div>
 <div class="dd-menu" id="sb-menu"></div>

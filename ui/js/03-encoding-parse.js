@@ -107,6 +107,17 @@ async function confirmEncodable(t, rows, enc) {
     return !n || await uiConfirm(`${fmt(n)} cells contain characters ${encName(enc)} cannot represent (e.g. "${first}").\n\nThey will be written as "?".`, { ok: 'Write them as "?"' });
 }
 
+/* The rows of any tab, active or not, read back from disk if RAM eviction
+   released them (null if the file cannot be read). The array is handed
+   over before evictIfNeeded() runs: unloadTab() replaces t.allData rather
+   than emptying it, so the caller's reference stays whole even if the tab
+   is released again at once. */
+function tabRows(t) {
+    if (t.loaded) return Promise.resolve(t.allData);
+    return new Promise(res => { (t.waiters = t.waiters || []).push(res); if (!t.loading) parseTab(t); });
+}
+function settleWaiters(t, rows) { if (t.waiters) t.waiters.splice(0).forEach(f => f(rows)); }
+
 async function parseTab(t) {
     t.loading = true; t.error = null; t.loaded = false;
     t.allData = []; t.filteredData = []; t.quoteErrors = 0;
@@ -134,7 +145,7 @@ async function parseTab(t) {
     catch (err) {                       // handle revoked, file moved or deleted
         t.loading = false; t.error = err;
         if (active()) { endProgress(); setStats(`Cannot read ${t.name} (${err.message || err})`); }
-        renderTabBar(); return;
+        settleWaiters(t, null); renderTabBar(); return;
     }
 
     const total = text != null ? text.length : t.size;
@@ -175,12 +186,13 @@ async function parseTab(t) {
                 container.scrollTop = t.scrollTop; render();
             }
             renderTabBar();
+            settleWaiters(t, t.allData);          // before eviction, which may release this very tab again
             evictIfNeeded();
         },
         error: function (err) {
             t.loading = false; t.error = err;
             if (active()) { endProgress(); setStats(`Cannot read ${t.name} (${err})`); }
-            renderTabBar();
+            settleWaiters(t, null); renderTabBar();
         }
     });
 }

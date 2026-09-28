@@ -10,7 +10,7 @@ let pal = { items: [], shown: [], act: 0 };
 
 function clearAllFilters() {
     const t = T(); if (!t) return;
-    t.globalQuery = ''; t.colFilters = {}; t.valFilters = {}; t.onlyIrregular = false;
+    t.globalQuery = ''; t.colFilters = {}; t.valFilters = {}; t.onlyIrregular = false; t.onlyDups = false;
     document.getElementById('global-search').value = '';
     renderHeader(); applyColStyles(); applyFilters();
 }
@@ -46,10 +46,16 @@ function paletteCommands() {
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
     add('Rows', 'Remove duplicates…', openDedupe, '', loaded);
     add('Rows', 'Delete hidden rows', deleteHiddenRows, '', loaded);
+    add('Rows', 'Mark duplicates…', openDedupe, '', loaded);
+    if (loaded && t.dupSpec) add('Rows', t.onlyDups ? 'Show all rows again (leave the duplicates view)' : 'Show only the duplicate rows', toggleDupView);
+    if (loaded && t.dupSpec) add('Rows', 'Remove the duplicate marks', () => clearDupMarks());
     add('Rows', loaded && t.onlyIrregular ? 'Show all rows again' : 'Show only irregular rows', toggleIrregular, '', loaded);
     add('Rows', 'Clear all filters', clearAllFilters, '', loaded && hasFilter(t));
     add('Columns', 'Split a column…', () => openSplit(), '', loaded);
     add('Columns', 'Merge columns…', () => openMerge(), '', loaded);
+    add('Columns', 'Computed column (formula)…', () => openFormula(), '', loaded);
+    add('Columns', 'Look up values from another tab (VLOOKUP)…', () => openLookup(), '', loaded);
+    add('Columns', 'Convert formats — dates, numbers, phone numbers…', () => openConvert(), '', loaded);
     add('Columns', 'Show or hide columns…', openColManager, '', loaded);
     THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));
     const s = t || parseDefaults;

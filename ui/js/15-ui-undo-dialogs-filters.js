@@ -234,10 +234,12 @@ function applyFilters() {
 
     const tt = textFilterTest(t);
     if (tt === false) return;
-    const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular;
-    t.filteredData = (tt || vt || irr)
-        ? t.allData.filter(row => (!irr || row.data.length !== n) && (!tt || tt(row)) && (!vt || vt(row)))
+    dupGroups(t);
+    const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular, dg = t.onlyDups && t.dupMarks && t.dupMarks.group;
+    t.filteredData = (tt || vt || irr || dg)
+        ? t.allData.filter(row => (!irr || row.data.length !== n) && (!dg || dg.has(row)) && (!tt || tt(row)) && (!vt || vt(row)))
         : t.allData;   /* no filter: reuse the same array, no copy in RAM */
+    if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
 
     container.scrollTop = 0; t.scrollTop = 0; render();
     updateStats();
@@ -260,6 +262,15 @@ function updateIrregular(t) {
         + `Rows whose number of fields differs from the ${fmt(n)} columns of the header.`
         + (q ? ' Quote errors: a quote opened and never closed — the parser may have merged several lines into one field.' : '');
 }
+function updateDupChip(t) {
+    const chip = document.getElementById('dup-chip'), m = t && t.loaded && t.dupMarks;
+    chip.style.display = m ? '' : 'none';
+    if (!m) return;
+    chip.classList.toggle('on', !!t.onlyDups);
+    chip.innerHTML = `⧉ ${fmt(m.group.size)} duplicates · ${fmt(m.groups)} groups<span class="chip-x" onclick="clearDupMarks(event)" title="Remove the duplicate marks">×</span>`;
+    chip.title = (t.onlyDups ? 'Showing only the duplicate rows, grouped — click to show all rows. ' : 'Click to show only the duplicate rows, grouped. ')
+        + `Compared on ${t.dupSpec.cols.length ? t.dupSpec.cols.join(', ') : 'the whole row'}.`;
+}
 function toggleIrregular() {
     const t = T(); if (!t || !t.loaded) return;
     t.onlyIrregular = !t.onlyIrregular;
@@ -269,11 +280,12 @@ function toggleIrregular() {
 function updateStats() {
     const t = T();
     if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
+    if (!t || !t.loaded) updateDupChip(null);
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
     document.getElementById('btn-extract').style.display = '';
-    updateIrregular(t);
+    updateIrregular(t); updateDupChip(t);
     const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     if (hasFilters) setStatsHtml(`${esc(t.name)} | <b class="n-filt">${fmt(t.filteredData.length)}</b> / <b class="n-total">${fmt(t.allData.length)}</b> rows filtered${esc(gen)}`);
     else setStatsHtml(`${esc(t.name)} | <b class="n-total">${fmt(t.allData.length)}</b> rows | ${t.headers.length} cols${esc(gen)}`);

@@ -443,7 +443,7 @@ async function saveInPlace(opts) {
    tab is an ordinary one (path or handle): it can be edited and saved
    in place like any other.
 ----------------------------------------------------------------*/
-function hasFilter(t) { return t.globalQuery !== '' || Object.keys(t.colFilters).length > 0 || Object.keys(t.valFilters).length > 0 || t.onlyIrregular; }
+function hasFilter(t) { return t.globalQuery !== '' || Object.keys(t.colFilters).length > 0 || Object.keys(t.valFilters).length > 0 || t.onlyIrregular || !!t.onlyDups; }
 /* foo-3.csv → foo-4.csv, v007.csv → v008.csv (padding kept), foo.csv → foo-2.csv */
 function nextName(name) {
     const m = name.match(/^(.*?)(\.[^.]*)?$/);
