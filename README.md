@@ -42,7 +42,7 @@ Files opened while the window is already there land in it as new tabs.
 
 ## How it works
 
-`csvfab` starts a small local server (`server.py`, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` in a Chromium app window. The page parses and renders the CSV; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
+`csvfab` starts a small local server (`server.py`, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` (with its `ui/` styles and scripts) in a Chromium app window. The page parses and renders the CSV; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
 
 Settings and the browser profile live in `~/.local/state/csvfab` (Linux), `~/Library/Application Support/csvfab` (macOS) or `%LOCALAPPDATA%\csvfab` (Windows).
 

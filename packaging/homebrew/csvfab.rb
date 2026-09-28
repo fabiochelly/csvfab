@@ -11,7 +11,7 @@ class Csvfab < Formula
   depends_on "python@3.13"
 
   def install
-    libexec.install "csvfab.py", "server.py", "viewer.htm", "papaparse.min.js", "icons"
+    libexec.install "csvfab.py", "server.py", "viewer.htm", "papaparse.min.js", "icons", "ui"
     rewrite_shebang detected_python_shebang, libexec/"csvfab.py"
     bin.install_symlink libexec/"csvfab.py" => "csvfab"
   end

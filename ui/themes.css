@@ -1,0 +1,130 @@
+/* csvfab — colour palettes, one per theme (see the Themes notes in the project docs).
+   Every colour of the UI is one of these variables; ui/app.css only uses them. */
+
+/* Themes: every colour of the app is one of these variables. GitHub Dark is
+   the default; <html data-theme="tokyonight"> switches to Tokyo Night (night).
+   The *-rgb triples feed translucent tints: rgba(var(--accent-rgb), .15). */
+:root {
+    --bg: #0d1117; --bg-rgb: 13, 17, 23; --bg-deep: #010409; --bg-deep-rgb: 1, 4, 9;
+    --surf: #161b22; --surf-2: #21262d; --surf-3: #30363d; --bar-2: #1c2128; --filter-bg: #12171e;
+    --brd: #30363d; --brd-2: #484f58; --scroll: #3d444d;
+    --txt: #c9d1d9; --txt-hi: #e6edf3; --txt-strong: #ffffff; --txt-mut: #8b949e; --txt-sub: #7d8590; --txt-dim: #6e7681; --txt-faint: #545d68;
+    --prim: #0d6efd; --prim-hover: #0b5ed7; --prim-rgb: 13, 110, 253; --on-prim: #ffffff;
+    --accent-rgb: 56, 139, 253; --accent-2: #79c0ff;
+    --warn: #e3b341; --warn-hover: #d2a43a; --warn-rgb: 227, 179, 65; --on-warn: #000000; --mark-txt: #ffdf70;
+    --danger: #f85149; --danger-hover: #da3633; --danger-rgb: 248, 81, 73; --danger-txt: #ff7b72; --on-danger: #ffffff;
+    --ok: #3fb950; --ok-rgb: 46, 160, 67; --ok-txt: #7ee2a8;
+    --orange: #f0883e; --orange-rgb: 240, 136, 62; --orange-txt: #ffa657;
+    --violet-rgb: 163, 113, 247; --violet-txt: #d2a8ff; --cyan-rgb: 57, 197, 207; --cyan-txt: #56d4dd;
+    --pink-rgb: 247, 120, 186; --pink-txt: #ff9bce;
+    --gray-rgb: 110, 118, 129; --gray-hi-rgb: 173, 186, 199; --hi-rgb: 255, 255, 255;
+    --menu-bg: #238636; --menu-bg-hover: #2ea043; --menu-fg: #ffffff;
+    --status-a: #0b0f15; --status-b: #06090d; --status-brd: #30363d; --status-sep: #30363d;
+    --status-fg: #8b949e; --stat-filt: #f0883e; --stat-total: #3fb950;
+    --idx-hover: #2d333b; --row-alt: #121820; --row-hover: #1f242c;
+    --row-h: 35px;
+}
+/* Tokyo Night, backgrounds a notch darker than the stock "night" variant. */
+:root[data-theme="tokyonight"] {
+    --bg: #15161e; --bg-rgb: 21, 22, 30; --bg-deep: #101014; --bg-deep-rgb: 16, 16, 20;
+    --surf: #1a1b26; --surf-2: #232433; --surf-3: #2f334d; --bar-2: #1a1b26; --filter-bg: #171824;
+    --brd: #232433; --brd-2: #3b4261; --scroll: #3b4261;
+    --txt: #c0caf5; --txt-hi: #c0caf5; --txt-strong: #e3e8ff; --txt-mut: #a9b1d6; --txt-sub: #737aa2; --txt-dim: #565f89; --txt-faint: #444b6a;
+    --prim: #7aa2f7; --prim-hover: #8db0fa; --prim-rgb: 122, 162, 247; --on-prim: #101014;
+    --accent-rgb: 122, 162, 247; --accent-2: #7dcfff;
+    --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #101014; --mark-txt: #e0af68;
+    --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #101014;
+    --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
+    --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
+    --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 125, 207, 255; --cyan-txt: #7dcfff;
+    --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
+    --gray-rgb: 86, 95, 137; --gray-hi-rgb: 169, 177, 214; --hi-rgb: 192, 202, 245;
+    --menu-bg: #7aa2f7; --menu-bg-hover: #8db0fa; --menu-fg: #101014;
+    --status-a: #121218; --status-b: #0e0e13; --status-brd: #232433; --status-sep: #2f334d;
+    --status-fg: #737aa2; --stat-filt: #ff9e64; --stat-total: #9ece6a;
+    --idx-hover: #292e42; --row-bg: #0f1016; --row-alt: #121319; --row-hover: #1b1d29;   /* rows a notch darker than the grid */
+}
+/* Catppuccin Mocha on its darkest layers (crust / mantle). */
+:root[data-theme="catppuccin"] {
+    --bg: #11111b; --bg-rgb: 17, 17, 27; --bg-deep: #0b0b12; --bg-deep-rgb: 11, 11, 18;
+    --surf: #181825; --surf-2: #1e1e2e; --surf-3: #313244; --bar-2: #181825; --filter-bg: #151522;
+    --brd: #232334; --brd-2: #45475a; --scroll: #45475a;
+    --txt: #cdd6f4; --txt-hi: #cdd6f4; --txt-strong: #eef1ff; --txt-mut: #a6adc8; --txt-sub: #9399b2; --txt-dim: #7f849c; --txt-faint: #585b70;
+    --prim: #89b4fa; --prim-hover: #a0c3fb; --prim-rgb: 137, 180, 250; --on-prim: #11111b;
+    --accent-rgb: 137, 180, 250; --accent-2: #89dceb;
+    --warn: #f9e2af; --warn-hover: #f5d78f; --warn-rgb: 249, 226, 175; --on-warn: #11111b; --mark-txt: #f9e2af;
+    --danger: #f38ba8; --danger-hover: #f5a0b8; --danger-rgb: 243, 139, 168; --danger-txt: #f38ba8; --on-danger: #11111b;
+    --ok: #a6e3a1; --ok-rgb: 166, 227, 161; --ok-txt: #a6e3a1;
+    --orange: #fab387; --orange-rgb: 250, 179, 135; --orange-txt: #fab387;
+    --violet-rgb: 203, 166, 247; --violet-txt: #cba6f7; --cyan-rgb: 148, 226, 213; --cyan-txt: #94e2d5;
+    --pink-rgb: 245, 194, 231; --pink-txt: #f5c2e7;
+    --gray-rgb: 108, 112, 134; --gray-hi-rgb: 166, 173, 200; --hi-rgb: 205, 214, 244;
+    --menu-bg: #cba6f7; --menu-bg-hover: #d6bbf9; --menu-fg: #11111b;
+    --status-a: #0e0e17; --status-b: #0b0b12; --status-brd: #232334; --status-sep: #313244;
+    --status-fg: #9399b2; --stat-filt: #fab387; --stat-total: #a6e3a1;
+    --idx-hover: #2a2b3c; --row-alt: #141421; --row-hover: #1f1f30;
+}
+/* VS Code as the user runs it: the Tokyo Night theme for VS Code — #1a1b26
+   editor, #16161e panels and status bar, #a9b1d6 text, #3d59a1 buttons. */
+:root[data-theme="vscode"] {
+    --bg: #1a1b26; --bg-rgb: 26, 27, 38; --bg-deep: #16161e; --bg-deep-rgb: 22, 22, 30;
+    --surf: #16161e; --surf-2: #1e202e; --surf-3: #292e42; --bar-2: #16161e; --filter-bg: #14141b;
+    --brd: #202330; --brd-2: #363b54; --scroll: #363b54;
+    --txt: #a9b1d6; --txt-hi: #c0caf5; --txt-strong: #dfe3f5; --txt-mut: #787c99; --txt-sub: #737aa2; --txt-dim: #545c7e; --txt-faint: #3b4261;
+    --prim: #3d59a1; --prim-hover: #4a68b8; --prim-rgb: 61, 89, 161; --on-prim: #ffffff;
+    --accent-rgb: 122, 162, 247; --accent-2: #7dcfff;
+    --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #16161e; --mark-txt: #e0af68;
+    --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #16161e;
+    --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
+    --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
+    --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 42, 195, 222; --cyan-txt: #2ac3de;
+    --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
+    --gray-rgb: 84, 92, 126; --gray-hi-rgb: 169, 177, 214; --hi-rgb: 192, 202, 245;
+    --menu-bg: #007acc; --menu-bg-hover: #1a8ad4; --menu-fg: #ffffff;
+    --status-a: #16161e; --status-b: #16161e; --status-brd: #101014; --status-sep: #292e42;
+    --status-fg: #787c99; --stat-filt: #ff9e64; --stat-total: #9ece6a;
+    --idx-hover: #1e202e; --row-alt: #1c1d29; --row-hover: #1e202e;
+}
+/* GitHub Light. Light palettes: dark text, darker accents (to stay readable on
+   white), --hi-rgb dark (it tints overlays), and light native widgets. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #ffffff; --bg-rgb: 255, 255, 255; --bg-deep: #f6f8fa; --bg-deep-rgb: 246, 248, 250;
+    --surf: #f6f8fa; --surf-2: #eaeef2; --surf-3: #d0d7de; --bar-2: #f6f8fa; --filter-bg: #f6f8fa;
+    --brd: #d0d7de; --brd-2: #afb8c1; --scroll: #c1c8cf;
+    --txt: #1f2328; --txt-hi: #1f2328; --txt-strong: #000000; --txt-mut: #59636e; --txt-sub: #6e7781; --txt-dim: #6e7781; --txt-faint: #8c959f;
+    --prim: #0969da; --prim-hover: #0860ca; --prim-rgb: 9, 105, 218; --on-prim: #ffffff;
+    --accent-rgb: 9, 105, 218; --accent-2: #0969da;
+    --warn: #bf8700; --warn-hover: #a37200; --warn-rgb: 212, 167, 44; --on-warn: #ffffff; --mark-txt: #7d4e00;
+    --danger: #cf222e; --danger-hover: #a40e26; --danger-rgb: 207, 34, 46; --danger-txt: #cf222e; --on-danger: #ffffff;
+    --ok: #1a7f37; --ok-rgb: 26, 127, 55; --ok-txt: #1a7f37;
+    --orange: #bc4c00; --orange-rgb: 188, 76, 0; --orange-txt: #bc4c00;
+    --violet-rgb: 130, 80, 223; --violet-txt: #8250df; --cyan-rgb: 27, 124, 131; --cyan-txt: #1b7c83;
+    --pink-rgb: 191, 57, 137; --pink-txt: #bf3989;
+    --gray-rgb: 110, 119, 129; --gray-hi-rgb: 87, 96, 106; --hi-rgb: 31, 35, 40;
+    --menu-bg: #1f883d; --menu-bg-hover: #1a7f37; --menu-fg: #ffffff;
+    --status-a: #f6f8fa; --status-b: #f6f8fa; --status-brd: #d0d7de; --status-sep: #d0d7de;
+    --status-fg: #59636e; --stat-filt: #bc4c00; --stat-total: #1a7f37;
+    --idx-hover: #dde3ea; --row-alt: #f6f8fa; --row-hover: #eaf1fb;
+}
+/* Catppuccin Latte. */
+:root[data-theme="latte"] {
+    color-scheme: light;
+    --bg: #eff1f5; --bg-rgb: 239, 241, 245; --bg-deep: #e6e9ef; --bg-deep-rgb: 230, 233, 239;
+    --surf: #e6e9ef; --surf-2: #dce0e8; --surf-3: #ccd0da; --bar-2: #e6e9ef; --filter-bg: #e9ecf1;
+    --brd: #ccd0da; --brd-2: #bcc0cc; --scroll: #bcc0cc;
+    --txt: #4c4f69; --txt-hi: #4c4f69; --txt-strong: #2b2d3f; --txt-mut: #5c5f77; --txt-sub: #6c6f85; --txt-dim: #7c7f93; --txt-faint: #9ca0b0;
+    --prim: #1e66f5; --prim-hover: #1756d6; --prim-rgb: 30, 102, 245; --on-prim: #ffffff;
+    --accent-rgb: 30, 102, 245; --accent-2: #1e66f5;
+    --warn: #df8e1d; --warn-hover: #c77d15; --warn-rgb: 223, 142, 29; --on-warn: #ffffff; --mark-txt: #8a5a0b;
+    --danger: #d20f39; --danger-hover: #b50d31; --danger-rgb: 210, 15, 57; --danger-txt: #d20f39; --on-danger: #ffffff;
+    --ok: #40a02b; --ok-rgb: 64, 160, 43; --ok-txt: #2f7d1f;
+    --orange: #fe640b; --orange-rgb: 254, 100, 11; --orange-txt: #c9500a;
+    --violet-rgb: 136, 57, 239; --violet-txt: #8839ef; --cyan-rgb: 23, 146, 153; --cyan-txt: #137a80;
+    --pink-rgb: 234, 118, 203; --pink-txt: #b8489a;
+    --gray-rgb: 124, 127, 147; --gray-hi-rgb: 92, 95, 119; --hi-rgb: 76, 79, 105;
+    --menu-bg: #8839ef; --menu-bg-hover: #7a2fd6; --menu-fg: #ffffff;
+    --status-a: #e6e9ef; --status-b: #dce0e8; --status-brd: #ccd0da; --status-sep: #bcc0cc;
+    --status-fg: #6c6f85; --stat-filt: #c9500a; --stat-total: #2f7d1f;
+    --idx-hover: #ccd0da; --row-alt: #e9ecf1; --row-hover: #dce0e8;
+}

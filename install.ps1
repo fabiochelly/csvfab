@@ -60,6 +60,7 @@ Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
 New-Item -ItemType Directory "$Dest\icons" -Force | Out-Null
 foreach ($f in 'csvfab.py', 'csvfab.cmd', 'server.py', 'viewer.htm', 'papaparse.min.js', 'LICENSE') { Copy-Item (Join-Path $Src $f) $Dest }
 Copy-Item (Join-Path $Src 'icons\csvfab.svg'), (Join-Path $Src 'icons\csvfab.ico') "$Dest\icons"
+Copy-Item -Recurse (Join-Path $Src 'ui') "$Dest\ui"
 
 # Start menu shortcut: pythonw, so no console window flashes.
 $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($Link)

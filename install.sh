@@ -67,6 +67,7 @@ rm -rf "$DEST"
 mkdir -p "$DEST/icons" "$BIN"
 for f in csvfab.py server.py viewer.htm papaparse.min.js LICENSE; do cp "$SRC/$f" "$DEST/"; done
 cp "$SRC"/icons/csvfab.svg "$SRC"/icons/csvfab-*.png "$DEST/icons/"
+cp -R "$SRC/ui" "$DEST/ui"                     # the interface: styles and scripts
 chmod 755 "$DEST/csvfab.py"
 ln -sf "$DEST/csvfab.py" "$BIN/csvfab"          # the command is "csvfab"; the file keeps its .py
 

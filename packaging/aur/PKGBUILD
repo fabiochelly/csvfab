@@ -19,6 +19,7 @@ package() {
     install -Dm755 csvfab.py -t "$pkgdir/usr/share/csvfab/"
     install -Dm644 server.py viewer.htm papaparse.min.js -t "$pkgdir/usr/share/csvfab/"
     install -Dm644 icons/csvfab.svg -t "$pkgdir/usr/share/csvfab/icons/"
+    cp -r ui "$pkgdir/usr/share/csvfab/"
     install -Dm644 icons/csvfab.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/csvfab.svg"
     for s in 16 24 32 48 64 128 256 512; do
         install -Dm644 "icons/csvfab-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/csvfab.png"

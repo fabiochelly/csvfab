@@ -492,6 +492,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/ping":
             return self._json(200, {"ok": True, "pid": os.getpid(), "version": VERSION,
                                     "client": client_alive()})
+        if route == "/app.js":
+            return self._app_js()
         if not route.startswith("/api/"):
             return self._static(route)
 
@@ -625,6 +627,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(500, f"viewer.htm illisible : {e}")
         html = html.replace("__CSVE_TOKEN__", TOKEN)
         return self._send(200, html, "text/html; charset=utf-8")
+
+    def _app_js(self):
+        """/app.js : les sources ui/js/*.js mises bout à bout, dans l'ordre de leur nom.
+        Elles se comportent ainsi exactement comme le script unique dont elles sont
+        issues : une fonction déclarée dans un fichier suivant reste appelable depuis
+        un fichier précédent (hoisting), ce que des <script> séparés ne permettraient
+        pas. Le jeton n'y figure pas : il reste dans viewer.htm (cf. _page)."""
+        d = os.path.join(HERE, "ui", "js")
+        try:
+            parts = []
+            for name in sorted(f for f in os.listdir(d) if f.endswith(".js")):
+                with open(os.path.join(d, name), "r", encoding="utf-8") as f:
+                    parts.append(f"/* ---- ui/js/{name} ---- */\n" + f.read())
+        except OSError as e:
+            return self._send(500, f"ui/js illisible : {e}")
+        return self._send(200, "\n".join(parts), "text/javascript; charset=utf-8")
 
     # Seuls les assets de l'app sont servis : le dossier contient aussi le code
     # du serveur et, souvent, les CSV de l'utilisateur — rien de tout cela n'a
