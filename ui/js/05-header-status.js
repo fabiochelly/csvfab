@@ -100,12 +100,14 @@ function convertHeader(t, synth) {
     if (!t.loaded || synth === t.syntheticHeader) return false;
     if (synth) {                                   // give the header line back to the data
         const hdr = t.headers.slice();
-        t.allData.unshift({ id: 0, data: hdr });
+        t.allData.unshift({ id: 0, data: hdr, src: t.headerSrc });
+        t.headerSrc = null;
         t.headers = numberedHeaders(hdr.length);
         t.modificationsLog.forEach(l => { if (typeof l.id === 'number') l.id++; });
     } else {                                       // promote the first data line to header
         const row = t.allData.shift();
         if (row) t.headers = row.data.slice();
+        t.headerSrc = row ? row.src : null;
         t.modificationsLog.forEach(l => { if (typeof l.id === 'number') l.id--; });
     }
     t.allData.forEach((r, i) => r.id = i + 1);

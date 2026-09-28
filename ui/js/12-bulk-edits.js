@@ -133,12 +133,13 @@ async function deleteHiddenRows() {
     if (!await uiConfirm(`Delete the ${fmt(hidden)} hidden rows?\n\nThe ${fmt(t.filteredData.length)} rows shown are kept, and the filters are cleared.`, { ok: 'Delete rows', danger: true })) return;
     /* In file order: the duplicates view shows its rows grouped, not in order. */
     const shown = new Set(t.filteredData), kept = t.allData.filter(r => shown.has(r));
-    const prevQuery = t.globalQuery, prevFilters = t.colFilters, prevVals = t.valFilters, prevIrr = t.onlyIrregular, prevDups = t.onlyDups;
+    const prevQuery = t.globalQuery, prevFilters = t.colFilters, prevVals = t.valFilters, prevIrr = t.onlyIrregular, prevDups = t.onlyDups, prevMark = t.rowMark && t.rowMark.only;
     t.globalQuery = ''; t.colFilters = {}; t.valFilters = {}; t.onlyIrregular = false; t.onlyDups = false;
+    if (t.rowMark) t.rowMark.only = false;
     document.getElementById('global-search').value = '';
     renderHeader(); applyColStyles();
     commitRows(t, kept, { id: '-', col: '---', old: `${hidden} hidden rows`, new: 'Deleted', what: `${fmt(hidden)} hidden rows deleted` },
-        t => { t.globalQuery = prevQuery; t.colFilters = prevFilters; t.valFilters = prevVals; t.onlyIrregular = prevIrr; t.onlyDups = prevDups; document.getElementById('global-search').value = prevQuery; });
+        t => { t.globalQuery = prevQuery; t.colFilters = prevFilters; t.valFilters = prevVals; t.onlyIrregular = prevIrr; t.onlyDups = prevDups; if (t.rowMark) t.rowMark.only = prevMark; document.getElementById('global-search').value = prevQuery; });
     setStats(`${t.name} | ${fmt(hidden)} hidden rows deleted, ${fmt(kept.length)} kept — not written yet, use Save.`);
 }
 
@@ -264,14 +265,14 @@ function render() {
     if (start > 0) html += `<tr style="height: ${start * ROW_H}px; background: transparent;"><td colspan="${colSpan}" style="padding:0; border:none;"></td></tr>`;
 
     for (let i = start; i < Math.min(end, data.length); i++) {
-        const r = data[i];
+        const r = data[i], mk = markedCells(t, r);
         const displayId = r.id.toLocaleString('fr-FR');
-        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.data.length !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}" style="height:${ROW_H}px" data-idx="${i}">
+        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.data.length !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
             <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
                 <span class="row-num">${displayId}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/></svg></span>
             </td>
-            ${r.data.map((c, cIdx) => `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r)}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`).join('')}
+            ${r.data.map((c, cIdx) => `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, mk && mk.has(t.headers[cIdx]))}${mk && mk.has(t.headers[cIdx]) ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`).join('')}
         </tr>`;
     }
 

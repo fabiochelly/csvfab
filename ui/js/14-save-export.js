@@ -166,6 +166,7 @@ async function saveAs(t, name, delim, enc) {
     }
     const from = t.name;
     t.name = name; t.backedUp = true; t.modificationsLog = [];   // nothing to protect: we just wrote it
+    markPristine(t);
     await refreshStamp(t);
     adoptFormat(t, delim, we.enc);
     updateSaveBtn(); renderTabBar();
@@ -404,6 +405,7 @@ async function saveInPlace(opts) {
         const j = await srvWrite(t, t.path, !t.backedUp, delim, null, enc);
         if (!j) return false;
         t.backedUp = true; t.size = j.size; t.modificationsLog = [];
+        markPristine(t);
         await refreshStamp(t);
         updateSaveBtn(); renderTabBar();
         doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written`
@@ -428,6 +430,7 @@ async function saveInPlace(opts) {
     if (!await writeToHandle(t, t.handle, t.allData, allColsIdx, delim, enc)) return false;
 
     t.modificationsLog = [];
+    markPristine(t);
     try { t.size = (await t.handle.getFile()).size; } catch (e) { }
     await refreshStamp(t);
     updateSaveBtn(); renderTabBar();
@@ -443,7 +446,7 @@ async function saveInPlace(opts) {
    tab is an ordinary one (path or handle): it can be edited and saved
    in place like any other.
 ----------------------------------------------------------------*/
-function hasFilter(t) { return t.globalQuery !== '' || Object.keys(t.colFilters).length > 0 || Object.keys(t.valFilters).length > 0 || t.onlyIrregular || !!t.onlyDups; }
+function hasFilter(t) { return t.globalQuery !== '' || Object.keys(t.colFilters).length > 0 || Object.keys(t.valFilters).length > 0 || t.onlyIrregular || !!t.onlyDups || !!(t.rowMark && t.rowMark.only); }
 /* foo-3.csv → foo-4.csv, v007.csv → v008.csv (padding kept), foo.csv → foo-2.csv */
 function nextName(name) {
     const m = name.match(/^(.*?)(\.[^.]*)?$/);

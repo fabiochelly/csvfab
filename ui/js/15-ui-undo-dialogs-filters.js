@@ -75,10 +75,10 @@ function updateSaveBtn() {
    stops being yellow. Saving clears the log — there is no undo past it.
 ----------------------------------------------------------------*/
 function viewSnap(t) {
-    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null };
+    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null, colSrc: t.colSrc && t.colSrc.slice() };
 }
 function viewRestore(t, v) {
-    t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.dataBars = v.bars; t.sort = v.sort;
+    t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.dataBars = v.bars; t.sort = v.sort; t.colSrc = v.colSrc;
 }
 function undo() {
     const t = T(); if (!t || !t.loaded) return;
@@ -102,7 +102,7 @@ async function discardEdits() {
     reloadKeepingView(t, t.modificationsLog.some(l => l.new === 'Column added' || l.old === 'Column deleted'));
 }
 function reloadKeepingView(t, colsChanged) {
-    t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null;
+    t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null; t.rowMark = null;
     if (colsChanged) { t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; }
     updateSaveBtn(); renderTabBar();
     parseTab(t);
@@ -236,8 +236,9 @@ function applyFilters() {
     if (tt === false) return;
     dupGroups(t);
     const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular, dg = t.onlyDups && t.dupMarks && t.dupMarks.group;
-    t.filteredData = (tt || vt || irr || dg)
-        ? t.allData.filter(row => (!irr || row.data.length !== n) && (!dg || dg.has(row)) && (!tt || tt(row)) && (!vt || vt(row)))
+    const mk = t.rowMark && t.rowMark.only && t.rowMark.rows;
+    t.filteredData = (tt || vt || irr || dg || mk)
+        ? t.allData.filter(row => (!irr || row.data.length !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row)) && (!tt || tt(row)) && (!vt || vt(row)))
         : t.allData;   /* no filter: reuse the same array, no copy in RAM */
     if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
 
@@ -280,12 +281,12 @@ function toggleIrregular() {
 function updateStats() {
     const t = T();
     if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
-    if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); }
+    if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); }
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
     document.getElementById('btn-extract').style.display = '';
-    updateIrregular(t); updateDupChip(t); updateMojiChip(t);
+    updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     if (hasFilters) setStatsHtml(`${esc(t.name)} | <b class="n-filt">${fmt(t.filteredData.length)}</b> / <b class="n-total">${fmt(t.allData.length)}</b> rows filtered${esc(gen)}`);
     else setStatsHtml(`${esc(t.name)} | <b class="n-total">${fmt(t.allData.length)}</b> rows | ${t.headers.length} cols${esc(gen)}`);

@@ -122,8 +122,9 @@ function settleWaiters(t, rows) { if (t.waiters) t.waiters.splice(0).forEach(f =
 async function parseTab(t) {
     t.loading = true; t.error = null; t.loaded = false;
     t.allData = []; t.filteredData = []; t.quoteErrors = 0;
-    let headerDone = false;
+    let headerDone = false, skip = 0;       // skip: the header line, when one was consumed (row k is then file line k + 1)
     const active = () => t.id === activeTabId;
+    t.rowMark = null;
 
     if (active()) { setStats(`Reading ${t.name}…`); startProgress(); }
     renderTabBar();
@@ -170,14 +171,16 @@ async function parseTab(t) {
                     t.headers = isHeader ? rows[0].slice() : numberedHeaders(rows[0].length);
                 }
                 if (!t.syntheticHeader) rows = rows.slice(1);  // on a re-read the decision is already known
+                skip = t.syntheticHeader ? 0 : 1; t.headerSrc = skip ? 0 : null;
                 if (active()) { renderHeader(); applyColStyles(); refreshParseOpts(); }
             }
             const start = t.allData.length;
-            for (let i = 0; i < rows.length; i++) t.allData.push({ id: start + i + 1, data: rows[i] });
+            for (let i = 0; i < rows.length; i++) t.allData.push({ id: start + i + 1, data: rows[i], src: start + i + skip });
             if (active() && total && results.meta.cursor) setProgress(results.meta.cursor / total);
         },
         complete: function () {
             t.loading = false; t.loaded = true; t.rowCount = t.allData.length; t.lastUsed = Date.now();
+            t.colSrc = t.headers.map((_, i) => i);
             if (!tabs.some(x => x.loading)) endProgress();
             if (active()) {
                 convertHeader(t, wantsSynthetic(t, t.headerMode));

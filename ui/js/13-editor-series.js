@@ -222,6 +222,30 @@ function fillDown() {
     if (setCells(t, changes, 'filled with a series')) render();
 }
 
+/* Fill empty cells from above: the layout of exports and pivot tables,
+   where a category is written once at the top of its group. In the
+   selected columns (one selected cell: its whole column), in the order
+   shown, each blank cell takes the nearest value above it — above the
+   selection too; blanks before any value stay blank. */
+function fillBlanks() {
+    const t = T(); if (!t || !t.loaded) return;
+    const rg = selRange(t);
+    if (!rg) { uiAlert('Select the column to fill first.\n\nOne cell selects its whole column; a range limits the fill to those rows. Each empty cell then takes the value above it.'); return; }
+    const one = rg.r0 === rg.r1, r0 = one ? 0 : rg.r0, r1 = one ? t.filteredData.length - 1 : rg.r1;
+    const blank = v => !cellStr(v).trim(), changes = [];
+    for (const c of visibleCols(t).filter(c => c >= rg.c0 && c <= rg.c1)) {
+        let last = null;
+        for (let r = r0 - 1; r >= 0 && last === null; r--) { const v = t.filteredData[r].data[c]; if (!blank(v)) last = v; }
+        for (let r = r0; r <= r1; r++) {
+            const row = t.filteredData[r], v = row.data[c];
+            if (!blank(v)) last = v;
+            else if (last !== null) changes.push([row, c, cellStr(last)]);
+        }
+    }
+    if (!changes.length) { setStats(`${t.name} | No empty cell with a value above it.`); return; }
+    if (setCells(t, changes, 'filled from above')) render();
+}
+
 /* Fill handle: the square at the selection's bottom-right corner. Dragged
    down, up, right or left, it extends the series of the selected cells
    (Ctrl held at release: copies them instead). */

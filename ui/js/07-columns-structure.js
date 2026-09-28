@@ -35,11 +35,20 @@ function renameColumn(i, span) {
     ['click', 'dblclick', 'mousedown'].forEach(ev => input.addEventListener(ev, e => e.stopPropagation()));
 }
 
-/* t.sort is a list of {col, dir} keys: f(c) says where column c now is (-1: gone). */
-function remapSort(t, f) {
-    if (!t.sort) return;
-    const keys = t.sort.map(k => ({ col: f(k.col), dir: k.dir })).filter(k => k.col >= 0);
-    t.sort = keys.length ? keys : null;
+/* References that follow the columns, f(c) saying where column c now is
+   (-1: gone): the sort keys ({col, dir} list), and t.colSrc — each column's
+   index in the file as last read or saved (-1: a new one), which Review
+   changes compares against. Called after t.headers has its new shape. */
+function remapColRefs(t, f) {
+    if (t.sort) {
+        const keys = t.sort.map(k => ({ col: f(k.col), dir: k.dir })).filter(k => k.col >= 0);
+        t.sort = keys.length ? keys : null;
+    }
+    if (t.colSrc) {
+        const out = new Array(t.headers.length).fill(-1);
+        t.colSrc.forEach((s, c) => { const n = f(c); if (n >= 0 && n < out.length) out[n] = s; });
+        t.colSrc = out;
+    }
 }
 
 /* Where column c lands when the column at `from` moves to `to`. */
@@ -61,7 +70,7 @@ function moveColumn(from, to) {
     }
     t.hiddenCols = new Set([...t.hiddenCols].map(c => movedIndex(c, from, to)));
     t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars);
-    remapSort(t, c => movedIndex(c, from, to));
+    remapColRefs(t, c => movedIndex(c, from, to));
     t.modificationsLog.push({ id: '-', col: h, old: 'moved', new: `${from} → ${to}`, what: `column "${h}" moved`, undo: t => {
         const [x] = t.headers.splice(to, 1); t.headers.splice(from, 0, x);
         for (const r of t.allData) { const [v] = r.data.splice(to, 1); r.data.splice(from, 0, v); }
@@ -94,7 +103,7 @@ function remapCols(t, mapOld) {
     const remap = m => { const o = {}; Object.keys(m).forEach(k => { const c = mapOld(+k); if (c >= 0) o[c] = m[k]; }); return o; };
     t.hiddenCols = new Set([...t.hiddenCols].map(mapOld).filter(c => c >= 0));
     t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars);
-    remapSort(t, mapOld);
+    remapColRefs(t, mapOld);
 }
 const pad = (d, n) => { if (d.length >= n) return d; const c = d.slice(); while (c.length < n) c.push(''); return c; };
 
@@ -385,7 +394,7 @@ async function addColumn(idx) {
     t.valFilters = shiftKeys(t.valFilters, idx, +1);
     t.dataBars = shiftKeys(t.dataBars, idx, +1);
 
-    remapSort(t, c => c > idx ? c + 1 : c);
+    remapColRefs(t, c => c > idx ? c + 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: '---', new: 'Column added', what: `column "${colName}" added`, undo: t => {
         t.headers.splice(idx + 1, 1);
         t.allData.forEach(r => r.data.splice(short.has(r) ? r.data.length - 1 : idx + 1, 1));
@@ -417,7 +426,7 @@ async function deleteColumn(idx) {
     t.valFilters = shiftKeys(t.valFilters, idx, -1);
     t.dataBars = shiftKeys(t.dataBars, idx, -1);
 
-    remapSort(t, c => c === idx ? -1 : c > idx ? c - 1 : c);
+    remapColRefs(t, c => c === idx ? -1 : c > idx ? c - 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: 'Column deleted', new: '---', what: `column "${colName}" deleted`, undo: t => {
         t.headers.splice(idx, 0, colName);
         for (const [r, v] of removed) r.data.splice(idx, 0, v);

@@ -61,6 +61,38 @@
     </div>
 </div>
 
+<div id="modal-review" class="modal-box">
+    <h4>Pending changes</h4>
+    <div class="stat-line" id="rv-sum" style="margin-top: 0;"></div>
+    <div class="pv-wrap rv-wrap"><table class="pv rv" id="rv-list"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="closeAllModals()">Close</button>
+        <button class="btn" id="rv-mark" onclick="reviewMark()" title="Tint the changed cells (hover one for its former value) and show only the changed and added rows">Show changed rows</button>
+    </div>
+</div>
+
+<div id="modal-compare" class="modal-box">
+    <h4>Compare with another tab</h4>
+    <div class="row2 lk-keys">
+        <div><span class="fld-label">Key in this tab</span><select id="cmp-key" class="bs-input bs-select" onchange="cmp.userKey = true; compareRefresh()"></select></div>
+        <div><span class="fld-label">Compare with the tab</span><select id="cmp-src" class="bs-input bs-select" onchange="compareSource()"></select></div>
+        <div><span class="fld-label">…on its column</span><select id="cmp-skey" class="bs-input bs-select" onchange="compareRefresh()"></select></div>
+    </div>
+    <div class="opts">
+        <label class="col-label"><input type="radio" name="cmp-match" value="exact" onchange="compareRefresh()"> Exact</label>
+        <label class="col-label"><input type="radio" name="cmp-match" value="loose" checked onchange="compareRefresh()"> Ignoring case and surrounding spaces</label>
+        <label class="col-label" title="Accents removed, lower case, every run of symbols and spaces turned into one space"><input type="radio" name="cmp-match" value="slug" onchange="compareRefresh()"> Slugified</label>
+    </div>
+    <div class="stat-line" id="cmp-stats"></div>
+    <div class="pv-wrap"><table class="pv rv" id="cmp-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="cmp = null; closeAllModals()">Cancel</button>
+        <button class="btn btn-outline" id="cmp-add" onclick="compareAppend()" title="Add here the rows whose key only the other tab has, their columns matched by name">Append the rows only there</button>
+        <button class="btn btn-outline" id="cmp-col" onclick="compareStatusColumn()" title="A column at the end: changed (and which columns), same, or only here">Add a status column</button>
+        <button class="btn" id="cmp-go" onclick="compareMark()" title="Tint the cells that differ (hover one for the other tab's value) and show only the changed rows and the rows only here">Mark the differences</button>
+    </div>
+</div>
+
 <div id="modal-clean" class="modal-box">
     <h4>Clean up</h4>
     <span class="fld-label">Every row, filtered or not, and the header line.</span>
@@ -287,8 +319,14 @@
             <div class="dd-item disabled" id="menu-undo" onclick="closeDDs(); undo()" title="Undo the last edit, one at a time, back to the last save">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>Undo</span><span class="k">Ctrl+Z</span>
             </div>
+            <div class="dd-item" onclick="closeDDs(); openReview()" title="Every change Save would write, compared with the file on disk: cells before and after, rows added and deleted, columns">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="14 3 14 9 20 9"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="19" x2="15" y2="19"></line></svg>Review changes…</span>
+            </div>
             <div class="dd-item" onclick="closeDDs(); fillDown()" title="In each selected column, continue the series started by the filled cells at the top (numbers, dates, 'Lot 7', days, months…) — or drag the square at the selection's corner">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13"></path><polyline points="6 11 12 17 18 11"></polyline><line x1="5" y1="21" x2="19" y2="21"></line></svg>Fill series down</span><span class="k">Ctrl+D</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); fillBlanks()" title="In the selected columns, each empty cell takes the value above it — for exports where a group's label is written only once">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="16" width="16" height="5" rx="1" stroke-dasharray="3 2"></rect><path d="M12 8v6"></path><polyline points="9 11 12 14 15 11"></polyline></svg>Fill empty cells from above</span>
             </div>
             <div class="dd-item" onclick="closeDDs(); openSplit()" title="Cut one column into several at a separator">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2.5 2.5"></line></svg>Split column…</span>
@@ -301,6 +339,9 @@
             </div>
             <div class="dd-item" onclick="closeDDs(); openLookup()" title="Bring columns over from another open tab, matching rows on a key column (like VLOOKUP)">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Look up from another tab…</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openCompare()" title="Match this tab's rows with another tab's on a key column: what changed, what is only on one side">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1"></rect><rect x="14" y="4" width="7" height="16" rx="1"></rect><path d="M10 9h4M10 15h4"></path></svg>Compare with another tab…</span>
             </div>
             <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
@@ -385,6 +426,7 @@
     <div id="stats">Ready.</div>
     <span id="irr-chip" onclick="toggleIrregular()" style="display:none;"></span>
     <span id="dup-chip" onclick="toggleDupView()" style="display:none;"></span>
+    <span id="mark-chip" onclick="toggleMarkView()" style="display:none;"></span>
     <span id="moji-chip" onclick="openClean()" style="display:none;" title="Some cells hold UTF-8 accents read as Windows-1252 somewhere upstream (Ã© for é, â€™ for ’) — click to repair them">⚠ Garbled accents</span>
     <div id="sb-fmt"></div>
 </div>

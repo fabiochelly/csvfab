@@ -11,6 +11,7 @@ let pal = { items: [], shown: [], act: 0 };
 function clearAllFilters() {
     const t = T(); if (!t) return;
     t.globalQuery = ''; t.colFilters = {}; t.valFilters = {}; t.onlyIrregular = false; t.onlyDups = false;
+    if (t.rowMark) t.rowMark.only = false;
     document.getElementById('global-search').value = '';
     renderHeader(); applyColStyles(); applyFilters();
 }
@@ -40,10 +41,12 @@ function paletteCommands() {
     add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
     add('File', 'Quit csvfab', quitApp, 'Ctrl+Q');
     add('Edit', 'Undo' + (loaded && isDirty(t) ? ` — ${t.modificationsLog[t.modificationsLog.length - 1].what || 'last edit'}` : ''), undo, 'Ctrl+Z', loaded && isDirty(t));
+    add('Edit', 'Review changes — what Save would write', openReview, '', loaded && isDirty(t));
     add('Edit', 'Find & replace', toggleSRBar, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
     add('Edit', 'Clean up — spaces, invisible characters, garbled accents, empty rows…', openClean, '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
+    add('Edit', 'Fill empty cells from above', fillBlanks, '', loaded);
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
     add('Rows', 'Remove duplicates…', openDedupe, '', loaded);
     add('Rows', 'Delete hidden rows', deleteHiddenRows, '', loaded);
@@ -56,6 +59,9 @@ function paletteCommands() {
     add('Columns', 'Merge columns…', () => openMerge(), '', loaded);
     add('Columns', 'Computed column (formula)…', () => openFormula(), '', loaded);
     add('Columns', 'Look up values from another tab (VLOOKUP)…', () => openLookup(), '', loaded);
+    add('Rows', 'Compare with another tab — changed rows, rows only on one side…', openCompare, '', loaded);
+    if (loaded && t.rowMark) add('Rows', t.rowMark.only ? 'Show all rows again (leave the marked rows)' : `Show only the ${t.rowMark.label}`, toggleMarkView);
+    if (loaded && t.rowMark) add('Rows', 'Remove the marks', () => clearRowMark());
     add('Columns', 'Convert formats — dates, numbers, phone numbers…', () => openConvert(), '', loaded);
     add('Columns', 'Show or hide columns…', openColManager, '', loaded);
     THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));
