@@ -45,6 +45,7 @@ async function decodeTab(t, file) {
     }
     if (text == null) text = new TextDecoder(enc).decode(buf);   // strips a matching BOM
     t.detectedEnc = enc;
+    t.mojibake = hasMojibake(text);
     return text;
 }
 

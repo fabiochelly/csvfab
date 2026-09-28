@@ -42,6 +42,7 @@ function paletteCommands() {
     add('Edit', 'Undo' + (loaded && isDirty(t) ? ` — ${t.modificationsLog[t.modificationsLog.length - 1].what || 'last edit'}` : ''), undo, 'Ctrl+Z', loaded && isDirty(t));
     add('Edit', 'Find & replace', toggleSRBar, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
+    add('Edit', 'Clean up — spaces, invisible characters, garbled accents, empty rows…', openClean, '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
     add('Rows', 'Remove duplicates…', openDedupe, '', loaded);
@@ -70,6 +71,10 @@ function paletteCommands() {
         add('Column', `Go to column: ${h}`, () => goToColumn(c));
         add('Column', `Sort ascending: ${h}`, () => sortBy(c, 1));
         add('Column', `Sort descending: ${h}`, () => sortBy(c, -1));
+        if (t.sort && !t.sort.some(k => k.col === c)) {
+            add('Column', `Then sort ascending: ${h}`, () => sortBy(c, 1, true));
+            add('Column', `Then sort descending: ${h}`, () => sortBy(c, -1, true));
+        }
         add('Column', `Profile & filter by value: ${h}`, () => openColPanelFor(c));
     });
     return C;

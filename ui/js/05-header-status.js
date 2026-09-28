@@ -267,9 +267,11 @@ function renderHeader() {
     const genCls = t.syntheticHeader ? ' gen-head' : '';
     const kinds = t.loaded ? columnKinds(t) : [];
     t.headers.forEach((h, i) => {
+        const sk = t.sort ? t.sort.findIndex(k => k.col === i) : -1;
+        const sortInd = sk < 0 ? '' : `<span class="sort-ind">${t.sort[sk].dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${sk + 1}</sup>` : ''}</span>`;
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name" draggable="true" onclick="titleClick(${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort (again: reverse) · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.sort && t.sort.col === i ? `<span class="sort-ind">${t.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</span>
+                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${sortInd}</span>
                 <div class="col-actions">
                     <span class="c-btn" onclick="addColumn(${i})" title="Add column right">+</span>
                     <span class="c-btn del" onclick="deleteColumn(${i})" title="Delete column">−</span>

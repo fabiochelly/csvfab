@@ -79,9 +79,9 @@ function openColPanel(e, col) {
         <div class="cp-tools">
             <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col - 1})" ${col === 0 ? 'disabled' : ''} title="Move left">◀</button>
             <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col + 1})" ${col === t.headers.length - 1 ? 'disabled' : ''} title="Move right">▶</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openSplit(${col})">Split…</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openMerge(${col})">Merge…</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Convert this column's dates, numbers or phone numbers">Convert…</button>
+            <button class="btn btn-outline" onclick="closeColPanel(); openSplit(${col})">Split</button>
+            <button class="btn btn-outline" onclick="closeColPanel(); openMerge(${col})">Merge</button>
+            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Convert this column's dates, numbers or phone numbers">Convert</button>
             ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})" title="Draw each value as a bar in its cell">Bars</button>` : ''}
         </div>
         <div class="dd-sep"></div>

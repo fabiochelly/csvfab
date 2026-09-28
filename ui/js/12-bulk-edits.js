@@ -83,28 +83,45 @@ function dateKey(v) {
     const [y, mo, d] = a.length === 4 ? [a, b, c] : [c.length === 2 ? '20' + c : c, b, a];   // ISO, else day first
     return ((((+y * 100 + +mo) * 100 + +d) * 100 + +(h || 0)) * 100 + +(mi || 0)) * 100 + +(se || 0);
 }
-function sortBy(col, forceDir) {
-    const t = T(); if (!t || !t.loaded) return;
-    const dir = forceDir || (t.sort && t.sort.col === col ? -t.sort.dir : 1), prevSort = t.sort;
+function sortKind(t, col) {
     const counts = { n: 0, d: 0, t: 0 }; let seen = 0;
     for (const r of t.allData) { const ty = cellType(r.data[col]); if (ty) { counts[ty]++; if (++seen >= 2000) break; } }
-    const kind = seen && counts.n / seen >= 0.9 ? 'n' : (seen && counts.d / seen >= 0.9 ? 'd' : 't');
+    return seen && counts.n / seen >= 0.9 ? 'n' : (seen && counts.d / seen >= 0.9 ? 'd' : 't');
+}
+/* A plain click sorts on that column alone (again: reverses it). With `add`
+   (Shift+click) the column becomes a further key, or flips if it is one. */
+function sortBy(col, forceDir, add) {
+    const t = T(); if (!t || !t.loaded) return;
+    const prevSort = t.sort;
+    let keys;
+    if (add && prevSort) {
+        const i = prevSort.findIndex(k => k.col === col);
+        keys = i < 0 ? prevSort.concat([{ col, dir: forceDir || 1 }]) : prevSort.map((k, j) => j === i ? { col, dir: forceDir || -k.dir } : k);
+    } else keys = [{ col, dir: forceDir || (prevSort && prevSort.length === 1 && prevSort[0].col === col ? -prevSort[0].dir : 1) }];
+    const specs = keys.map(k => ({ ...k, kind: sortKind(t, k.col) }));
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
-    const keyed = t.allData.map(r => {
-        const v = r.data[col], s = v == null ? '' : String(v).trim();
-        const k = !s ? null : kind === 'n' ? numKey(s) : kind === 'd' ? dateKey(s) : s;
-        return { r, k: (typeof k === 'number' && isNaN(k)) ? null : k };
-    });
+    const keyed = t.allData.map(r => ({ r, k: specs.map(sp => {
+        const v = r.data[sp.col], s = v == null ? '' : String(v).trim();
+        const k = !s ? null : sp.kind === 'n' ? numKey(s) : sp.kind === 'd' ? dateKey(s) : s;
+        return (typeof k === 'number' && isNaN(k)) ? null : k;
+    }) }));
     keyed.sort((a, b) => {
-        if (a.k === null || b.k === null) return (a.k === null) - (b.k === null);
-        return dir * (kind === 't' ? coll.compare(a.k, b.k) : a.k - b.k);
+        for (let i = 0; i < specs.length; i++) {
+            const x = a.k[i], y = b.k[i];
+            if (x === null || y === null) { if (x !== y) return x === null ? 1 : -1; continue; }
+            const d = specs[i].kind === 't' ? coll.compare(x, y) : x - y;
+            if (d) return specs[i].dir * d;
+        }
+        return 0;
     });
-    t.sort = { col, dir };
+    t.sort = keys;
     container.scrollTop = 0;
-    commitRows(t, keyed.map(x => x.r), { id: '-', col: t.headers[col], old: 'Sort', new: dir > 0 ? 'ascending' : 'descending', what: `sort by ${t.headers[col]}` },
+    const desc = specs.map(sp => `${t.headers[sp.col]} ${sp.dir > 0 ? '↑' : '↓'}`).join(', then ');
+    commitRows(t, keyed.map(x => x.r), { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
         t => { t.sort = prevSort; });
     renderHeader(); applyColStyles();
-    setStats(`${t.name} | Sorted by ${t.headers[col]}, ${dir > 0 ? 'ascending' : 'descending'} (${{ n: 'numbers', d: 'dates', t: 'text' }[kind]}) — not written yet, use Save.`);
+    const kinds = specs.length === 1 ? ` (${{ n: 'numbers', d: 'dates', t: 'text' }[specs[0].kind]})` : '';
+    setStats(`${t.name} | Sorted by ${desc}${kinds} — not written yet, use Save.`);
 }
 
 /* Keeps only the rows the filters show. The filters are then cleared: they

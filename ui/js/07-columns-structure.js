@@ -2,10 +2,11 @@
    RENAME & MOVE COLUMNS
    A title answers three gestures: click sorts, double-click renames in
    place, drag moves the column. The click waits a moment so that the
-   first click of a double-click does not sort.
+   first click of a double-click does not sort. Shift+click adds the
+   column as a further sort key.
 ----------------------------------------------------------------*/
 let sortTimer = 0;
-function titleClick(i) { clearTimeout(sortTimer); sortTimer = setTimeout(() => sortBy(i), 240); }
+function titleClick(e, i) { const add = e.shiftKey; clearTimeout(sortTimer); sortTimer = setTimeout(() => sortBy(i, 0, add), 240); }
 function titleDblClick(e, i) { clearTimeout(sortTimer); renameColumn(i, e.currentTarget); }
 
 function renameColumn(i, span) {
@@ -34,6 +35,13 @@ function renameColumn(i, span) {
     ['click', 'dblclick', 'mousedown'].forEach(ev => input.addEventListener(ev, e => e.stopPropagation()));
 }
 
+/* t.sort is a list of {col, dir} keys: f(c) says where column c now is (-1: gone). */
+function remapSort(t, f) {
+    if (!t.sort) return;
+    const keys = t.sort.map(k => ({ col: f(k.col), dir: k.dir })).filter(k => k.col >= 0);
+    t.sort = keys.length ? keys : null;
+}
+
 /* Where column c lands when the column at `from` moves to `to`. */
 function movedIndex(c, from, to) {
     if (c === from) return to;
@@ -53,7 +61,7 @@ function moveColumn(from, to) {
     }
     t.hiddenCols = new Set([...t.hiddenCols].map(c => movedIndex(c, from, to)));
     t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars);
-    if (t.sort) t.sort = { col: movedIndex(t.sort.col, from, to), dir: t.sort.dir };
+    remapSort(t, c => movedIndex(c, from, to));
     t.modificationsLog.push({ id: '-', col: h, old: 'moved', new: `${from} → ${to}`, what: `column "${h}" moved`, undo: t => {
         const [x] = t.headers.splice(to, 1); t.headers.splice(from, 0, x);
         for (const r of t.allData) { const [v] = r.data.splice(to, 1); r.data.splice(from, 0, v); }
@@ -74,15 +82,19 @@ function restructure(t, headers, rowFn, mapOld, what) {
     const view = viewSnap(t), prevHeaders = t.headers, prevData = t.allData.map(r => r.data);
     for (const r of t.allData) r.data = rowFn(r.data);
     t.headers = headers;
-    const remap = m => { const o = {}; Object.keys(m).forEach(k => { const c = mapOld(+k); if (c >= 0) o[c] = m[k]; }); return o; };
-    t.hiddenCols = new Set([...t.hiddenCols].map(mapOld).filter(c => c >= 0));
-    t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars);
-    if (t.sort) { const c = mapOld(t.sort.col); t.sort = c >= 0 ? { col: c, dir: t.sort.dir } : null; }
+    remapCols(t, mapOld);
     t.modificationsLog.push({ id: '-', col: '---', old: 'columns', new: what, what, undo: t => {
         t.headers = prevHeaders; t.allData.forEach((r, i) => r.data = prevData[i]); viewRestore(t, view);
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
     setStats(`${t.name} | ${what} — not written yet, use Save.`);
+}
+/* Every index-keyed map of the tab, through mapOld (-1: column gone). */
+function remapCols(t, mapOld) {
+    const remap = m => { const o = {}; Object.keys(m).forEach(k => { const c = mapOld(+k); if (c >= 0) o[c] = m[k]; }); return o; };
+    t.hiddenCols = new Set([...t.hiddenCols].map(mapOld).filter(c => c >= 0));
+    t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars);
+    remapSort(t, mapOld);
 }
 const pad = (d, n) => { if (d.length >= n) return d; const c = d.slice(); while (c.length < n) c.push(''); return c; };
 
@@ -373,7 +385,7 @@ async function addColumn(idx) {
     t.valFilters = shiftKeys(t.valFilters, idx, +1);
     t.dataBars = shiftKeys(t.dataBars, idx, +1);
 
-    if (t.sort && t.sort.col > idx) t.sort.col++;
+    remapSort(t, c => c > idx ? c + 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: '---', new: 'Column added', what: `column "${colName}" added`, undo: t => {
         t.headers.splice(idx + 1, 1);
         t.allData.forEach(r => r.data.splice(short.has(r) ? r.data.length - 1 : idx + 1, 1));
@@ -405,7 +417,7 @@ async function deleteColumn(idx) {
     t.valFilters = shiftKeys(t.valFilters, idx, -1);
     t.dataBars = shiftKeys(t.dataBars, idx, -1);
 
-    if (t.sort) t.sort = t.sort.col === idx ? null : (t.sort.col > idx ? { col: t.sort.col - 1, dir: t.sort.dir } : t.sort);
+    remapSort(t, c => c === idx ? -1 : c > idx ? c - 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: 'Column deleted', new: '---', what: `column "${colName}" deleted`, undo: t => {
         t.headers.splice(idx, 0, colName);
         for (const [r, v] of removed) r.data.splice(idx, 0, v);

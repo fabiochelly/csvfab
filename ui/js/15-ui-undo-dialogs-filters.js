@@ -75,7 +75,7 @@ function updateSaveBtn() {
    stops being yellow. Saving clears the log — there is no undo past it.
 ----------------------------------------------------------------*/
 function viewSnap(t) {
-    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? { ...t.sort } : null };
+    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null };
 }
 function viewRestore(t, v) {
     t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.dataBars = v.bars; t.sort = v.sort;
@@ -280,12 +280,12 @@ function toggleIrregular() {
 function updateStats() {
     const t = T();
     if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
-    if (!t || !t.loaded) updateDupChip(null);
+    if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); }
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
     document.getElementById('btn-extract').style.display = '';
-    updateIrregular(t); updateDupChip(t);
+    updateIrregular(t); updateDupChip(t); updateMojiChip(t);
     const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     if (hasFilters) setStatsHtml(`${esc(t.name)} | <b class="n-filt">${fmt(t.filteredData.length)}</b> / <b class="n-total">${fmt(t.allData.length)}</b> rows filtered${esc(gen)}`);
     else setStatsHtml(`${esc(t.name)} | <b class="n-total">${fmt(t.allData.length)}</b> rows | ${t.headers.length} cols${esc(gen)}`);

@@ -61,6 +61,17 @@
     </div>
 </div>
 
+<div id="modal-clean" class="modal-box">
+    <h4>Clean up</h4>
+    <span class="fld-label">Every row, filtered or not, and the header line.</span>
+    <div id="clean-opts"></div>
+    <div id="clean-note"></div>
+    <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn" id="clean-go" onclick="applyClean()">Clean</button>
+    </div>
+</div>
+
 <div id="modal-bulk" class="modal-box">
     <h4>Edit filtered rows</h4>
     <label class="fld-label" for="bulk-col">Column</label>
@@ -294,6 +305,9 @@
             <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
             </div>
+            <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
+            </div>
             <div class="dd-item" onclick="closeDDs(); openConvert()" title="Rewrite a column's dates, numbers or phone numbers into one format">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>Convert formats…</span>
             </div>
@@ -371,6 +385,7 @@
     <div id="stats">Ready.</div>
     <span id="irr-chip" onclick="toggleIrregular()" style="display:none;"></span>
     <span id="dup-chip" onclick="toggleDupView()" style="display:none;"></span>
+    <span id="moji-chip" onclick="openClean()" style="display:none;" title="Some cells hold UTF-8 accents read as Windows-1252 somewhere upstream (Ã© for é, â€™ for ’) — click to repair them">⚠ Garbled accents</span>
     <div id="sb-fmt"></div>
 </div>
 <div class="dd-menu" id="sb-menu"></div>
