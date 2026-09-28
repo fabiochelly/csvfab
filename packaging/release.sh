@@ -7,9 +7,7 @@ V="${1:?usage: packaging/release.sh X.Y.Z}"
 cd "$(dirname "$0")/.."
 [ -z "$(git status --porcelain)" ] || { echo "commit or stash your changes first" >&2; exit 1; }
 sed -i.orig "s/^VERSION = \".*\"/VERSION = \"$V\"/" csvfab server.py && rm -f csvfab.orig server.py.orig
-git commit -qam "csvfab $V
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -qam "csvfab $V"
 git tag -a "v$V" -m "csvfab $V"
 git push && git push origin "v$V"
 echo "Tag v$V pushed. Once the release workflow is green: packaging/update-packages.sh $V"
