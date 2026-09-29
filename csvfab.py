@@ -229,7 +229,16 @@ def open_window():
     if not browser:
         die("aucun navigateur Chromium trouvé (Chrome, Chromium, Brave ou Edge)")
     args = [browser, f"--app={URL}", f"--user-data-dir={PROFILE}",
-            "--no-first-run", "--no-default-browser-check"]
+            "--no-first-run", "--no-default-browser-check",
+            # Une fenêtre cachée (autre bureau) garde son rythme : Chromium y
+            # ralentit sinon les minuteurs jusqu'à un par minute, et le serveur,
+            # sans nouvelles pendant 30 s, s'arrêterait sous l'app ouverte.
+            "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+            # Rien d'utile à une page locale : ni composants téléchargés et tenus
+            # à jour (130 Mo sur 146 dans le profil), ni extensions (celles que
+            # chromium-flags.conf charge partout, ici dans notre page).
+            "--disable-component-update", "--disable-background-networking", "--disable-extensions"]
     if not (WINDOWS or MACOS):
         args += ["--class=csvfab", "--name=csvfab"]
         # uwsm-app place l'appli dans son propre scope systemd, comme toute

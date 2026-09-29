@@ -40,6 +40,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
 import csv
+import hashlib
 import http.server
 import io
 import json
@@ -666,7 +667,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     parts.append(f"/* ---- ui/js/{name} ---- */\n" + f.read())
         except OSError as e:
             return self._send(500, f"ui/js illisible : {e}")
-        return self._send(200, "\n".join(parts), "text/javascript; charset=utf-8")
+        # allFunctionsCalledOnLoad : V8 compile toutes les fonctions d'emblée (hors
+        # du fil principal) au lieu de les découvrir une à une, et le cache de code
+        # de Chromium les contient toutes.
+        body = ("//# allFunctionsCalledOnLoad\n" + "\n".join(parts)).encode("utf-8")
+        return self._send_cached(body, "text/javascript; charset=utf-8",
+                                 hashlib.sha1(body).hexdigest()[:20])
+
+    def _send_cached(self, body, ctype, etag):
+        """Réponse revalidée à chaque chargement (no-cache + ETag, 304 si inchangée)
+        au lieu de no-store : Chromium ne garde le code compilé d'un script (son
+        cache de code V8) que si le script lui-même est dans son cache HTTP. Réservé
+        aux fichiers de l'app, sans jeton ; la page elle-même reste en no-store."""
+        tag = f'"{etag}"'
+        if self.headers.get("If-None-Match") == tag:
+            self.send_response(304)
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("ETag", tag)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     # Seuls les assets de l'app sont servis : le dossier contient aussi le code
     # du serveur et, souvent, les CSV de l'utilisateur — rien de tout cela n'a
@@ -681,13 +709,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ctype = self.ASSETS.get(os.path.splitext(full)[1])
         if not ctype or not full.startswith(HERE + os.sep) or not os.path.isfile(full):
             return self._send(404, "not found")
-        size = os.path.getsize(full)
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(size))
-        self.end_headers()
+        st = os.stat(full)
         with open(full, "rb") as f:
-            shutil.copyfileobj(f, self.wfile)
+            body = f.read()                      # quelques centaines de Ko au plus (assets de l'app)
+        return self._send_cached(body, ctype, f"{st.st_mtime_ns:x}-{st.st_size:x}")
 
     def _read_file(self):
         p = self._path_arg()
