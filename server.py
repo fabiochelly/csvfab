@@ -55,7 +55,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta
 
-VERSION = "1.2.2"
+VERSION = "1.3.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 # CSVFAB_* ; les anciens noms CSV_EDITOR_* restent lus.
 PORT = int(os.environ.get("CSVFAB_PORT") or os.environ.get("CSV_EDITOR_PORT") or "8787")
