@@ -382,6 +382,15 @@ th.dragging { opacity: .45; }
 /* Expression mode: the box is a formula — monospace, wider, red while it does not compile. */
 #global-search.expr { width: 420px; font-family: "Cascadia Code", "Consolas", monospace; font-size: 13px; }
 #global-search.bad { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(var(--danger-rgb), .2); }
+/* Autocomplete of the expression box: column names inside a brace, helper functions elsewhere. */
+#expr-ac { display: none; position: fixed; z-index: 1600; max-height: 280px; overflow-y: auto; box-sizing: border-box; padding: 4px;
+    background: var(--surf); border: 1px solid var(--brd); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.5); font-family: 'Inter', sans-serif; font-size: 13px; }
+#expr-ac.open { display: block; animation: pop .12s ease-out; transform-origin: top left; }
+.ac-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 5px 10px; border-radius: 5px; cursor: pointer; color: var(--txt-hi); white-space: nowrap; }
+.ac-item.act { background: rgba(var(--accent-rgb), .14); }
+.ac-item .ac-l { font-family: "Cascadia Code", "Consolas", monospace; font-size: 12.5px; }
+.ac-item .ac-l b { color: var(--accent-2); font-weight: 700; }
+.ac-item .ac-k { font-size: 11px; color: var(--txt-dim); font-family: "Cascadia Code", "Consolas", monospace; }
 th.gen-head { color: var(--txt-dim); font-style: italic; }
 .f-in { width: 100%; min-width: 0; }
 
