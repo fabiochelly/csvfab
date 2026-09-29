@@ -54,7 +54,7 @@ import urllib.parse
 import zipfile
 from datetime import datetime
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 # CSVFAB_* ; les anciens noms CSV_EDITOR_* restent lus.
 PORT = int(os.environ.get("CSVFAB_PORT") or os.environ.get("CSV_EDITOR_PORT") or "8787")
