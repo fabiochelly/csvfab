@@ -36,8 +36,11 @@ function openColPanel(e, col) {
         });
         t.cpCache = { key, stamp: dataStamp(t), counts, scope };
     }
-    const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
-    const entries = [...counts].sort((a, b) => b[1] - a[1] || coll.compare(a[0], b[0]));
+    /* By frequency, ties in collation order — past 20 000 distinct values (an ID or e-mail
+       column, every count 1) ties keep their order of first appearance: the collator on
+       600 k ties cost 1.1 s, and the list only ever shows CP_MAX of them. */
+    const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' }), many = counts.size > 20000;
+    const entries = [...counts].sort((a, b) => b[1] - a[1] || (many ? 0 : coll.compare(a[0], b[0])));
 
     /* Profile */
     let empty = 0, distinct = 0; const ty = { n: 0, d: 0, t: 0 };

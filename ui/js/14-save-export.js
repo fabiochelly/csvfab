@@ -543,7 +543,11 @@ function applySearchReplace() {
 
     let repCount = 0;
     const before = [], ed = rowEdits();   // before: [row, column], for the flash
+    /* Plain text: a record whose raw text does not hold it has no cell that does — most
+       rows are then skipped without being split (the text is case-sensitive, as replaceAll is). */
+    const raw = !re && t.base ? fText : null;
     visitRows(t, t.filteredData, row => {
+        if (raw && !row.d && row.b >= 0 && recordText(row.base, row.b).indexOf(raw) < 0) return;
         row.data.forEach((val, cIdx) => {
             if (only >= 0 && cIdx !== only) return;
             if (val == null || val === '') return;

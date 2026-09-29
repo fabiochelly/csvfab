@@ -47,10 +47,11 @@ function bucket(list, letter) {
     if (!b) { b = new Map(); for (const w of list) { const k = initialOf(w); if (!b.has(k)) b.set(k, []); b.get(k).push(w); } buckets.set(list, b); }
     return b.get(letter) || list;
 }
-/* The case of the original word: DUPONT → DURAND, Dupont → Durand, dupont → durand. */
+/* The case of the original word: DUPONT → DURAND, Dupont → Durand, dupont → durand.
+   (toUpperCase / toLowerCase rather than the 'fr' locale forms: same result, much faster.) */
 function caseLike(src, w) {
-    if (src === src.toLocaleUpperCase('fr') && /\p{Lu}/u.test(src)) return w.toLocaleUpperCase('fr');
-    if (src[0] === src[0].toLocaleLowerCase('fr')) return w.toLocaleLowerCase('fr');
+    if (src === src.toUpperCase() && /\p{Lu}/u.test(src)) return w.toUpperCase();
+    if (src[0] === src[0].toLowerCase()) return w.toLowerCase();
     return w;
 }
 function anonWord(w, list) {
@@ -62,7 +63,7 @@ function anonWord(w, list) {
 function anonName(v, kind) {
     let k = 0, last = null;
     return v.replace(/\p{L}[\p{L}'’]*/gu, (w, off) => {
-        const low = w.toLocaleLowerCase('fr');
+        const low = w.toLowerCase();
         if (PARTICLES.has(low) || PARTICLES.has(low.replace(/’/, "'")) || (w.length <= 2 && k > 0 && low === low.toLowerCase())) return w;
         const hyphen = off > 0 && v[off - 1] === '-' && last;   // Jean-Pierre: both halves are first names
         const list = hyphen ? last : kind === 'first' ? FIRST_NAMES : kind === 'last' ? LAST_NAMES : (k === 0 ? FIRST_NAMES : LAST_NAMES);
@@ -76,7 +77,7 @@ function anonEmail(v) {
     const m = v.trim().match(/^([^@\s]+)@([^@\s]+)$/);
     if (!m) return anonText(v);
     const rnd = anonRng(anonHash(v.toLowerCase()));
-    const local = m[1].replace(/\p{L}+|\d+/gu, p => /\d/.test(p) ? anonDigits(p, rnd) : anonWord(p, FIRST_NAMES).toLocaleLowerCase('fr'));
+    const local = m[1].replace(/\p{L}+|\d+/gu, p => /\d/.test(p) ? anonDigits(p, rnd) : anonWord(p, FIRST_NAMES).toLowerCase());
     return `${removeAccents(local)}@${DOMAINS[anonHash(m[2].toLowerCase()) % DOMAINS.length]}`;
 }
 /* Country codes of one or two digits; the others take three. */
@@ -115,7 +116,7 @@ function anonAddress(v) {
     const rest = m ? m[2] : s, type = rest.match(STREET_TYPE);
     let street = STREETS[h % STREETS.length];
     if (type) street = type[0] + street.slice(street.indexOf(' '));   // the original kind of way (avenue, chemin…) kept
-    if (rest === rest.toLocaleUpperCase('fr') && /\p{Lu}/u.test(rest)) street = street.toLocaleUpperCase('fr');   // 12 RUE DES LILAS stays in capitals
+    if (rest === rest.toUpperCase() && /\p{Lu}/u.test(rest)) street = street.toUpperCase();   // 12 RUE DES LILAS stays in capitals
     return (m ? `${1 + h % 150} ` : '') + street;
 }
 /* Dates move by up to a year either way, in their own format. */
@@ -198,11 +199,17 @@ async function applyAnon() {
     closeAllModals();
     const ed = rowEdits(); let cells = 0, kept = 0;
     const touched = [];
+    /* A value's fake is the same everywhere, so it is computed once per distinct value
+       per column: names, cities and companies repeat across a file (capped, for a
+       column of unique e-mails). */
+    const memo = cols.map(() => new Map());
     visitRows(t, rows, r => {
         const d = r.data;
-        for (const [c, f] of cols) {
-            const old = cellStr(d[c]); if (!old.trim()) continue;
-            const nv = f(old);
+        for (let k = 0; k < cols.length; k++) {
+            const [c, f] = cols[k], old = cellStr(d[c]); if (!old.trim()) continue;
+            const m = memo[k];
+            let nv = m.get(old);
+            if (nv === undefined) { nv = f(old); if (m.size < 100000) m.set(old, nv); }
             if (nv === null) { kept++; continue; }
             if (nv !== old) { ed.set(r, c, nv); cells++; if (touched.length < 5000) touched.push([r, c]); }
         }

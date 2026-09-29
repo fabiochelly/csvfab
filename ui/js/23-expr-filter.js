@@ -15,10 +15,9 @@ const FX_VALUES = Object.values(FX);
 function exprRowTest(t, src) {
     const c = compileFormula(t, src);
     if (c.error !== undefined) return { error: c.error || 'empty expression' };
-    const n = t.headers.length, run = { errors: 0, first: '' };
+    const run = { errors: 0, first: '' };
     run.test = row => {
-        const d = row.data, dd = (d.length >= n ? d : pad(d, n)).map(cellStr);
-        try { return !!c.fn(dd, row.id, ...FX_VALUES); }
+        try { return !!c.fn(rowArgs(t, row, c.used), row.id, ...FX_VALUES); }   // only the columns named, read without splitting the record
         catch (e) { run.errors++; if (!run.first) run.first = e.message; return false; }
     };
     return run;

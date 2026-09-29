@@ -210,8 +210,9 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
        rejected without being split into cells. */
     const D = t.base && t.base.delim, lower = useSlug ? v => removeAccents(v.toLowerCase()) : v => v.toLowerCase();
     const plain = q => q && !q.includes('"') && !q.includes(D);
-    const pre = !isRegex && D && (!globalQuery || (plain(globalQuery) && !globalQuery.includes(' '))) && compiledColFilters.every(f => plain(f.val))
+    let pre = !isRegex && D && (!globalQuery || (plain(globalQuery) && !globalQuery.includes(' '))) && compiledColFilters.every(f => plain(f.val))
         ? [globalQuery, ...compiledColFilters.map(f => f.val)].filter(Boolean) : null;
+    if (pre && !pre.length) pre = null;   // an expression alone: no text to look for, so no block to lower (that lowered the whole file for nothing)
 
     /* The other way round too, for the search across columns alone: such a
        query found in the record's text is inside one of its cells — unless
@@ -236,7 +237,7 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
             if (isRegex) { if (f.re && !f.re.test(cellVal)) { match = false; break; } }
             else { if (!cellVal.includes(f.val)) { match = false; break; } }
         }
-        if (match && t.globalQuery) {
+        if (match && globalQuery) {          // the local one: in expression mode t.globalQuery is the formula, already consumed
             let rowText = row.data.join(' ');
             if (useSlug) rowText = removeAccents(rowText.toLowerCase()); else rowText = rowText.toLowerCase();
             if (isRegex) { if (globalRegex && !globalRegex.test(rowText)) match = false; }

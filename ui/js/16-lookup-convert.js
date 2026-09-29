@@ -7,7 +7,7 @@
    never parsed): tabRows() reads it back without making it active.
 ----------------------------------------------------------------*/
 let lookup = null;       // { src, rows, cols: [source column indices, in tick order], idx }
-const LK_NORM = { exact: v => v, loose: v => v.trim().toLocaleLowerCase('fr'), slug: v => slugify(v) };
+const LK_NORM = { exact: v => v, loose: v => v.trim().toLowerCase(), slug: v => slugify(v) };   // toLowerCase: as 'fr', several times faster
 
 function openLookup(col) {
     const t = T(); if (!t || !t.loaded) return;

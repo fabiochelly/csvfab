@@ -87,9 +87,17 @@ function compileFormula(t, src) {
     try { return { fn: new Function('$', 'row', ...Object.keys(FX), `"use strict"; return (${body}\n);`), used }; }
     catch (e) { return { error: e.message }; }
 }
-function evalRow(fn, t, r) {
-    const d = r.data.length >= t.headers.length ? r.data.map(cellStr) : pad(r.data, t.headers.length).map(cellStr);
-    return fxOut(fn(d, r.id, ...Object.values(FX)));
+/* The $ array a formula reads: only the columns it names are filled (cellOf,
+   which reads one field without splitting the record — most formulas use one
+   or two of 20 columns), the rest stay undefined; a fresh array each time, so
+   a formula assigning to $[i] cannot touch the shared cache. */
+function rowArgs(t, r, used) {
+    const d = new Array(t.headers.length);
+    for (let k = 0; k < used.length; k++) { const c = used[k]; d[c] = cellStr(cellOf(r, c)); }
+    return d;
+}
+function evalRow(fn, t, r, used) {
+    return fxOut(fn(rowArgs(t, r, used), r.id, ...Object.values(FX)));
 }
 
 const FX_EXAMPLES = [
@@ -133,10 +141,11 @@ function fxInsert(text) {
 function fxSet(text) { const ta = document.getElementById('fx-expr'); ta.value = text; ta.focus(); fxRefresh(); }
 
 /* Every row the formula would write, with the error count; the preview shows the first ones. */
-function fxRun(t, fn, rows) {
+function fxRun(t, fn, rows, used) {
     const out = new Array(rows.length); let errors = 0, firstErr = '';
+    const fx = Object.values(FX);
     visitRows(t, rows, (r, i) => {
-        try { out[i] = evalRow(fn, t, r); }
+        try { out[i] = fxOut(fn(rowArgs(t, r, used), r.id, ...fx)); }
         catch (e) { errors++; if (!firstErr) firstErr = e.message; out[i] = ''; }
     });
     return { out, errors, firstErr };
@@ -159,7 +168,7 @@ function fxRefreshNow() {
         pv.innerHTML = ''; return;
     }
     const dest = document.getElementById('fx-dest').value, set = dest.startsWith('set:'), rows = set ? t.filteredData : t.allData;
-    const { out, errors, firstErr } = fxRun(t, c.fn, rows);
+    const { out, errors, firstErr } = fxRun(t, c.fn, rows, c.used);
     const filled = out.filter(v => v !== '').length;
     let changed = 0;
     if (set) { const col = +dest.slice(4); rows.forEach((r, i) => { if (out[i] !== cellStr(r.data[col])) changed++; }); }
@@ -181,7 +190,7 @@ function applyFormula() {
     const dest = document.getElementById('fx-dest').value, at = +dest.slice(4);
     closeAllModals();
     if (dest.startsWith('set:')) {
-        const rows = t.filteredData, { out, errors } = fxRun(t, c.fn, rows), ch = [];
+        const rows = t.filteredData, { out, errors } = fxRun(t, c.fn, rows, c.used), ch = [];
         rows.forEach((r, i) => { if (out[i] !== cellStr(r.data[at])) ch.push([r, r.data[at], out[i]]); });
         if (!ch.length) return;
         const ed = rowEdits();
@@ -194,7 +203,7 @@ function applyFormula() {
         return;
     }
     const name = document.getElementById('fx-name').value.trim() || 'Computed';
-    const { out, errors } = fxRun(t, c.fn, t.allData);
+    const { out, errors } = fxRun(t, c.fn, t.allData, c.used);
     const headers = [...t.headers.slice(0, at + 1), name, ...t.headers.slice(at + 1)];
     restructure(t, headers, (d, r, i) => { const row = pad(d, at + 1); return [...row.slice(0, at + 1), out[i], ...row.slice(at + 1)]; },
         c => c <= at ? c : c + 1, `column "${name}" computed`);

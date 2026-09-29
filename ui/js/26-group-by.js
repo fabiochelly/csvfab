@@ -51,13 +51,15 @@ function gbNorm() { return LK_NORM[document.querySelector('input[name="gb-match"
 function groupCompute(t, rows, order, aggs, kinds, norm) {
     const aggCols = Object.keys(aggs).map(Number).filter(c => aggs[c].size && !order.includes(c)).sort((a, b) => a - b);
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' }), groups = new Map();
+    /* cellOf reads the few columns needed without splitting the whole record (20 columns, 600 k rows: 0.8 s → 0.4 s). */
     visitRows(t, rows, r => {
-        const d = r.data, key = order.map(c => norm(cellStr(d[c]))).join('\u0001');
+        let key = '';
+        for (let k = 0; k < order.length; k++) { const p = norm(cellStr(cellOf(r, order[k]))); key = k ? key + '\u0001' + p : p; }
         let g = groups.get(key);
-        if (!g) { g = { vals: order.map(c => cellStr(d[c])), n: 0, a: aggCols.map(() => ({ sum: 0, cnt: 0, min: null, minV: '', max: null, maxV: '', set: null })) }; groups.set(key, g); }
+        if (!g) { g = { vals: order.map(c => cellStr(cellOf(r, c))), n: 0, a: aggCols.map(() => ({ sum: 0, cnt: 0, min: null, minV: '', max: null, maxV: '', set: null })) }; groups.set(key, g); }
         g.n++;
         for (let k = 0; k < aggCols.length; k++) {
-            const c = aggCols[k], v = cellStr(d[c]).trim(); if (!v) continue;
+            const c = aggCols[k], v = cellStr(cellOf(r, c)).trim(); if (!v) continue;
             const a = g.a[k], want = aggs[c], kind = kinds[c];
             if (want.has('distinct')) { if (!a.set) a.set = new Set(); if (a.set.size < 200000) a.set.add(v); }
             if (!(want.has('sum') || want.has('avg') || want.has('min') || want.has('max'))) continue;

@@ -149,8 +149,17 @@ _ILLEGAL = {c: None for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)}
 
 
 def _xml_escape(v):
-    return (v.translate(_ILLEGAL)
-             .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    # Les tests « in » et isprintable() sont en C : la plupart des cellules n'ont
+    # rien a echapper et s'en sortent sans les quatre passes de remplacement.
+    if not v.isprintable():
+        v = v.translate(_ILLEGAL)
+    if "&" in v:
+        v = v.replace("&", "&amp;")
+    if "<" in v:
+        v = v.replace("<", "&lt;")
+    if ">" in v:
+        v = v.replace(">", "&gt;")
+    return v
 
 
 def _sheet_name(base):
@@ -196,9 +205,45 @@ class _ColStat:
         if not v:
             return
         self.filled += 1
+        # Un texte qui ne commence ni par un chiffre, ni par un signe, ni par une
+        # devise n'est ni nombre, ni pourcentage, ni date : les quatre motifs sont
+        # inutiles (noms, villes, e-mails — la plupart des cellules).
+        if v[0] not in "0123456789-+€$£.":
+            return
+        if v.isdigit():                           # un entier nu, le cas courant : aucun motif a essayer
+            self.fr += 1
+            self.en += 1
+            if v[0] == "0" and len(v) > 1:
+                self.lead0 = True
+            if len(v) > 15:
+                self.long = True
+            return
         digits = v.lstrip("-")
         if digits[:1] == "0" and len(digits) > 1 and digits[1:2].isdigit():
             self.lead0 = True                     # 007, 06 12 34 56 78, 01000
+        if "/" in v or "-" in digits or "T" in v:  # une date, ou rien : aucun nombre ne contient cela
+            m = _YMD.match(v)
+            if m:
+                self.ymd += 1
+                self._t(m.group(4), m.group(6))
+                return
+            m = _DMY.match(v)
+            if m:
+                self.dmy += 1
+                if int(m.group(1)) > 12:
+                    self.first_gt12 = True
+                if int(m.group(2)) > 12:
+                    self.second_gt12 = True
+                self._t(m.group(4), m.group(6))
+            return
+        if v[-1] == "%":
+            m = _PCT.match(v)
+            if m:
+                self.pct += 1
+                num = m.group(1).replace(",", ".")
+                if "." in num:
+                    self.pct_dec = max(self.pct_dec, len(num) - num.index(".") - 1)
+            return
         if _FR_NUM.match(v):
             self.fr += 1
             if "," in v:
@@ -211,25 +256,6 @@ class _ColStat:
                 self.decimals = max(self.decimals, len(v) - v.index(".") - 1)
         if len(_SPACES.sub("", digits).split(",")[0].split(".")[0]) > 15:
             self.long = True
-        m = _PCT.match(v)
-        if m:
-            self.pct += 1
-            num = m.group(1).replace(",", ".")
-            if "." in num:
-                self.pct_dec = max(self.pct_dec, len(num) - num.index(".") - 1)
-        m = _YMD.match(v)
-        if m:
-            self.ymd += 1
-            self._t(m.group(4), m.group(6))
-            return
-        m = _DMY.match(v)
-        if m:
-            self.dmy += 1
-            if int(m.group(1)) > 12:
-                self.first_gt12 = True
-            if int(m.group(2)) > 12:
-                self.second_gt12 = True
-            self._t(m.group(4), m.group(6))
 
     def _t(self, h, s):
         if h is not None:
@@ -383,7 +409,10 @@ def write_xlsx(open_rows, out_path, sheet="Sheet1", header=True):
     truncated_rows = truncated_cols = False
     name = _sheet_name(sheet)
 
-    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    # compresslevel=1 : la feuille d'un CSV de 130 Mo pese 780 Mo de XML ; au niveau
+    # 6 la compression seule prenait 6 s, au niveau 1 2,6 s pour un classeur 25 % plus
+    # gros (92 Mo au lieu de 74) — le temps d'attente compte plus que les octets.
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
         zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
         zf.writestr("_rels/.rels", _ROOT_RELS)
         zf.writestr("xl/_rels/workbook.xml.rels", _WB_RELS)
@@ -409,6 +438,24 @@ def write_xlsx(open_rows, out_path, sheet="Sheet1", header=True):
             head.append("<sheetData>")
             out.write("".join(head).encode("utf-8"))
 
+            # Par colonne, ce qui ne change pas d'une ligne a l'autre : la reference,
+            # le type, l'attribut de style — 12 millions de cellules passent ici.
+            kinds = [st.kind for st in stats]
+            s_attrs = [' s="%d"' % s if s else "" for s in style_of]
+            esc, fmt_num = _xml_escape, _fmt_num
+            # Valeur Excel deja formatee, par colonne et par texte de cellule : les
+            # scores, departements, dates et montants se repetent d'une ligne a l'autre.
+            memo = [{} for _ in stats]
+
+            def num(i, val):
+                m = memo[i]
+                x = m.get(val, m)
+                if x is m:
+                    y = _num(kinds[i], val)
+                    x = fmt_num(y) if y is not None else None
+                    if len(m) < 200000:
+                        m[val] = x
+                return x
             for row in open_rows():
                 if written >= XLSX_MAX_ROWS:
                     truncated_rows = True
@@ -419,23 +466,23 @@ def write_xlsx(open_rows, out_path, sheet="Sheet1", header=True):
                 written += 1
                 cols_max = max(cols_max, len(row))
                 is_head = header and written == 1
-                buf = ['<row r="1" ht="22" customHeight="1">' if is_head else '<row r="%d">' % written]
+                if is_head:
+                    buf = ['<row r="1" ht="22" customHeight="1">']
+                    for i, val in enumerate(row):
+                        buf.append('<c r="%s1" s="1" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>' % (_COLS[i], esc(val)))
+                    buf.append("</row>")
+                    out.write("".join(buf).encode("utf-8"))
+                    continue
+                r = str(written)
+                buf = ['<row r="', r, '">']
                 for i, val in enumerate(row):
-                    ref = _COLS[i]
-                    if is_head:
-                        buf.append('<c r="%s1" s="1" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>'
-                                   % (ref, _xml_escape(val)))
+                    if not val:
                         continue
-                    if val is None or val == "":
-                        continue
-                    st = stats[i]
-                    x = _num(st.kind, val) if st.kind != "text" else None
+                    x = num(i, val) if kinds[i] != "text" else None
                     if x is not None:
-                        s_attr = ' s="%d"' % style_of[i] if style_of[i] else ""
-                        buf.append('<c r="%s%d"%s><v>%s</v></c>' % (ref, written, s_attr, _fmt_num(x)))
+                        buf.append('<c r="' + _COLS[i] + r + '"' + s_attrs[i] + '><v>' + x + '</v></c>')
                     else:
-                        buf.append('<c r="%s%d" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>'
-                                   % (ref, written, _xml_escape(val)))
+                        buf.append('<c r="' + _COLS[i] + r + '" t="inlineStr"><is><t xml:space="preserve">' + esc(val) + '</t></is></c>')
                 buf.append("</row>")
                 out.write("".join(buf).encode("utf-8"))
             out.write(b"</sheetData>")
