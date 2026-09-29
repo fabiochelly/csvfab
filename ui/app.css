@@ -528,8 +528,7 @@ tr:hover, .row-even:hover, .row-odd:hover { background-color: var(--row-hover) !
 /* --- Welcome screen (no file open) --- */
 #empty-state { display: none; padding: 48px 20px 40px; font-family: 'Inter', sans-serif; color: var(--txt-mut); }
 .wl { max-width: 660px; margin: 0 auto; text-align: center; }   /* no fade-in: at launch it read as the app being slow to show up */
-.wl-logo { width: 76px; height: 76px; filter: drop-shadow(0 10px 30px rgba(var(--accent-rgb), .45)); animation: float 5s ease-in-out infinite; }
-@keyframes float { 50% { transform: translateY(-6px); } }
+.wl-logo { width: 76px; height: 76px; filter: drop-shadow(0 10px 30px rgba(var(--accent-rgb), .45)); }
 .wl h1 { margin: 14px 0 4px; font-size: 34px; font-weight: 800; letter-spacing: -.02em;
     background: linear-gradient(90deg, var(--prim), rgb(var(--violet-rgb)), rgb(var(--pink-rgb))); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .wl-sub { margin: 0 0 26px; font-size: 14.5px; }
