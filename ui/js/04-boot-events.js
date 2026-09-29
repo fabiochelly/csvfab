@@ -11,16 +11,21 @@ if (!FSA) {
    closing the app leaves nothing running behind it. */
 if (SRV) {
     setStats('Ready — desktop app mode: files opened from your file manager land here as tabs.');
+    /* A long poll: the server holds the request until a path is queued (or
+       ?wait= seconds), so a file opened while the app is running lands at
+       once — it used to wait for the next of the 1.5 s polls. Not awaited:
+       parsing a big file must not delay the next poll. */
     const drain = async () => {
-        try {
-            const r = await srvFetch('/api/pending');
-            if (!r.ok) return;
-            const j = await r.json();
-            if (j.paths && j.paths.length) await addPathTabs(j.paths);
-        } catch (e) { /* server stopped: nothing left to drain */ }
+        for (;;) {
+            try {
+                const r = await srvFetch('/api/pending?wait=8');
+                if (!r.ok) throw new Error(r.status);
+                const j = await r.json();
+                if (j.paths && j.paths.length) addPathTabs(j.paths);
+            } catch (e) { await new Promise(res => setTimeout(res, 1500)); }   // server stopped or restarting
+        }
     };
     drain();
-    setInterval(drain, 1500);
 }
 
 // --- Drag & Drop ---

@@ -45,6 +45,7 @@ import http.server
 import io
 import json
 import secrets
+import select
 import shutil
 import socketserver
 import threading
@@ -64,6 +65,7 @@ HOST = "127.0.0.1"
 IDLE_BOOT = 120.0
 IDLE_LIVE = 30.0
 POLL_ALIVE = 6.0        # au-delà, plus aucun client n'est considéré vivant
+POLL_MAX = 10.0         # durée maximale d'un /api/pending tenu (?wait=)
 
 def state_dir():
     """Dossier d'état (jeton, journal, profil du navigateur), selon l'OS.
@@ -86,14 +88,16 @@ STATE = state_dir()
 TOKEN = secrets.token_urlsafe(24)
 
 _lock = threading.Lock()
+_cond = threading.Condition(_lock)   # réveille les /api/pending en attente
 _queue = []             # chemins en attente d'ouverture, déposés par le lanceur
+_polling = 0            # /api/pending tenus en ce moment : autant de fenêtres vivantes
 _last_seen = 0.0        # dernier /api/pending d'une fenêtre
 _seen_once = False
 
 
 def client_alive():
     with _lock:
-        return _seen_once and (time.time() - _last_seen) < POLL_ALIVE
+        return _polling > 0 or (_seen_once and (time.time() - _last_seen) < POLL_ALIVE)
 
 
 def stamp():
@@ -526,12 +530,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(403, "forbidden")
 
         if route == "/api/pending":
-            global _last_seen, _seen_once
-            with _lock:
+            # Sondage long : la réponse part dès qu'un chemin est déposé, sinon
+            # après ?wait= secondes (la page relance aussitôt). Sans cela un
+            # fichier ouvert alors que l'app tournait déjà attendait le sondage
+            # suivant, jusqu'à 1,5 s. Une requête tenue vaut fenêtre vivante.
+            global _last_seen, _seen_once, _polling
+            try:
+                wait = min(float((self._query().get("wait") or ["0"])[0]), POLL_MAX)
+            except ValueError:
+                wait = 0.0
+            deadline, closed = time.time() + wait, False
+            with _cond:
                 _last_seen = time.time()
                 _seen_once = True
-                paths, _queue[:] = list(_queue), []
-            return self._json(200, {"paths": paths})
+                _polling += 1
+            try:
+                while True:
+                    with _cond:
+                        left = deadline - time.time()
+                        if _queue or left <= 0:
+                            paths, _queue[:] = list(_queue), []
+                            break
+                        _cond.wait(min(left, 0.25))
+                    # Fenêtre fermée pendant l'attente ? Son socket devient
+                    # lisible (fin de flux) : sans ce test, elle passerait
+                    # pour vivante jusqu'à l'échéance, et un fichier ouvert
+                    # entre-temps irait dans une file que personne ne viderait.
+                    if select.select([self.connection], [], [], 0)[0]:
+                        closed = True
+                        break
+            finally:
+                with _cond:
+                    _polling -= 1
+                    if not closed:
+                        _last_seen = time.time()
+            if closed:
+                return
+            try:
+                return self._json(200, {"paths": paths})
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
         if route == "/api/stat":
             p = self._path_arg()
@@ -564,10 +602,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._json(400, {"error": "bad json"})
         paths = [os.path.realpath(os.path.expanduser(p))
                  for p in payload.get("paths", []) if p]
-        with _lock:
+        with _cond:
             for p in paths:
                 if p not in _queue:
                     _queue.append(p)
+            _cond.notify_all()
         return self._json(200, {"queued": len(paths), "client": client_alive()})
 
     def _make_xlsx(self):
@@ -798,7 +837,9 @@ def watchdog(srv):
     while True:
         time.sleep(2)
         with _lock:
-            seen, last = _seen_once, _last_seen
+            seen, last, held = _seen_once, _last_seen, _polling
+        if held:
+            continue
         idle = time.time() - (last if seen else _started)
         if idle > (IDLE_LIVE if seen else IDLE_BOOT):
             srv.shutdown()
