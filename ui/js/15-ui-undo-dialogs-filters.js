@@ -178,7 +178,18 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     let globalQuery = t.globalQuery;
     const isRegex = t.useRegex, isReverse = t.useReverse, useSlug = t.useSlug;
     const colInputs = Object.keys(t.colFilters).map(k => ({ idx: parseInt(k, 10), rawVal: t.colFilters[k] }));
-    if (!globalQuery && !colInputs.length) return null;
+    /* Expression mode: the search box is a formula (23-expr-filter.js), tested
+       on top of the column filters; one that does not compile keeps the view. */
+    let exprRun = null;
+    t.exprErr = ''; t.exprRun = null;
+    if (t.useExpr && globalQuery.trim()) {
+        exprRun = exprRowTest(t, globalQuery);
+        if (exprRun.error) { t.exprErr = exprRun.error; markExprBox(true); return false; }
+        t.exprRun = exprRun; globalQuery = '';
+    }
+    markExprBox(false);
+    if (t.useExpr) globalQuery = '';
+    if (!globalQuery && !colInputs.length && !exprRun) return null;
 
     if (useSlug && !isRegex && globalQuery) globalQuery = removeAccents(globalQuery.toLowerCase());
     else if (!isRegex && globalQuery) globalQuery = globalQuery.toLowerCase();
@@ -205,7 +216,7 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     /* The other way round too, for the search across columns alone: such a
        query found in the record's text is inside one of its cells — unless
        the columns were re-mapped (a deleted column's text is still there). */
-    const sure = pre && !compiledColFilters.length && !t.base.cmap;
+    const sure = pre && !compiledColFilters.length && !exprRun && !t.base.cmap;
     let bk = -1, hits = null;               // the block of records last searched, and its matches
     return row => {
         if (pre && !row.d && row.b >= 0) {
@@ -231,6 +242,7 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
             if (isRegex) { if (globalRegex && !globalRegex.test(rowText)) match = false; }
             else { if (!rowText.includes(globalQuery)) match = false; }
         }
+        if (match && exprRun && !exprRun.test(row)) match = false;
         return isReverse ? !match : match;
     };
 }
@@ -260,7 +272,7 @@ const objIds = new WeakMap(); let objSeq = 0;
 function objId(o) { if (!objIds.has(o)) objIds.set(o, ++objSeq); return objIds.get(o); }
 /* Everything a filter depends on besides the text queries. */
 function filterSig(t, skipCol) {
-    return [t.useRegex, t.useSlug, t.useReverse, t.onlyIrregular, t.onlyDups, t.dupSpec && JSON.stringify(t.dupSpec), t.rowMark && t.rowMark.only && objId(t.rowMark),
+    return [t.useRegex, t.useSlug, t.useReverse, t.useExpr, t.onlyIrregular, t.onlyDups, t.dupSpec && JSON.stringify(t.dupSpec), t.rowMark && t.rowMark.only && objId(t.rowMark),
         ...Object.keys(t.valFilters).filter(c => +c !== skipCol).sort().map(c => c + ':' + objId(t.valFilters[c]))].join('|');
 }
 
@@ -277,7 +289,7 @@ function filterSoon() {
    changed, can only match fewer rows: then only the rows shown are tested. */
 function narrowsLast(t) {
     const L = t.lastFilter;
-    if (!L || t.useRegex || t.useReverse || !sameStamp(L.stamp, dataStamp(t)) || L.sig !== filterSig(t, -1)) return false;
+    if (!L || t.useRegex || t.useReverse || t.useExpr || !sameStamp(L.stamp, dataStamp(t)) || L.sig !== filterSig(t, -1)) return false;
     const low = v => (t.useSlug ? removeAccents(String(v).toLowerCase()) : String(v).toLowerCase());
     if (!low(t.globalQuery).includes(low(L.g))) return false;
     for (const c of Object.keys(L.cols)) if (t.colFilters[c] == null || !low(t.colFilters[c]).includes(low(L.cols[c]))) return false;
@@ -292,10 +304,10 @@ function applyFilters() {
     if (!keepSel) sel = null;             // view indices are about to change
 
     /* Highlight context used by render() */
-    t.hl = { globalQuery: t.globalQuery, colFilters: t.colFilters, isRegex: t.useRegex, useSlug: t.useSlug, reverse: t.useReverse };
+    t.hl = { globalQuery: t.useExpr ? '' : t.globalQuery, colFilters: t.colFilters, isRegex: t.useRegex, useSlug: t.useSlug, reverse: t.useReverse };   // an expression highlights nothing
 
     let tt = textFilterTest(t);
-    if (tt === false) return;
+    if (tt === false) { updateStats(); return; }   // an invalid regex or expression: the view stays, the status bar says why
     const narrow = tt && narrowsLast(t);
     if (narrow && t.filteredData.length * 8 < t.allData.length) tt = textFilterTest(t, true);   // few rows left: record by record
     if (!narrow) dupGroups(t);
@@ -312,6 +324,8 @@ function applyFilters() {
         if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
     } else t.filteredData = t.allData;   /* no filter: reuse the same array, no copy in RAM */
     t.lastFilter = { stamp: dataStamp(t), sig: filterSig(t, -1), g: t.globalQuery, cols: { ...t.colFilters } };
+    if (t.exprRun && t.exprRun.errors) t.exprErr = `${fmt(t.exprRun.errors)} rows raise an error and are hidden (${t.exprRun.first})`;
+    t.exprRun = null;
 
     container.scrollTop = 0; t.scrollTop = 0; render();
     updateStats();
@@ -367,14 +381,16 @@ function updateStats() {
     const t = T();
     updateCount(t);
     if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
-    if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); }
+    if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); rowCardSync(); }
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
     document.getElementById('btn-extract').style.display = '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
-    setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}`);   // the counts: #sb-count, on the right
+    const ex = t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '';
+    setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}${ex}`);   // the counts: #sb-count, on the right
+    rowCardSync();
 }
 
 /* The column panel is position: fixed under its header, which only moves sideways (the header row is sticky). */

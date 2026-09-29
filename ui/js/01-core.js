@@ -48,7 +48,7 @@ function newTab(src) {
         encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
         headerMode: 'auto', syntheticHeader: false,
         globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, onlyIrregular: false, quoteErrors: 0, mojibake: false, dupSpec: null, onlyDups: false, rowMark: null,   // valFilters: {col: Set of EXCLUDED values}
-        useRegex: false, useSlug: false, useReverse: false,
+        useRegex: false, useSlug: false, useReverse: false, useExpr: false, exprErr: '',   // useExpr: the search box is a formula (23-expr-filter)
         scrollTop: 0, lastUsed: Date.now()
     };
 }
@@ -145,6 +145,7 @@ function collectUIState(t) {
     t.useRegex = document.getElementById('use-regex').checked;
     t.useSlug = document.getElementById('use-slug').checked;
     t.useReverse = document.getElementById('use-reverse').checked;
+    t.useExpr = document.getElementById('use-expr').checked;
     t.scrollTop = container.scrollTop;
 }
 
@@ -153,5 +154,7 @@ function restoreUIState(t) {
     document.getElementById('use-regex').checked = t.useRegex;
     document.getElementById('use-slug').checked = t.useSlug;
     document.getElementById('use-reverse').checked = t.useReverse;
+    document.getElementById('use-expr').checked = t.useExpr;
+    updateExprUI();
     refreshParseOpts();
 }

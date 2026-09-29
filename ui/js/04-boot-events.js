@@ -54,7 +54,7 @@ window.addEventListener('drop', (e) => {
             for (const d of dirs) {
                 const inner = [];
                 for await (const [name, h] of d.entries())
-                    if (h.kind === 'file' && /\.(csv|tsv|txt)$/i.test(name)) inner.push(h);
+                    if (h.kind === 'file' && /\.(csv|tsv|txt|xlsx|xlsm|json|jsonl|ndjson)$/i.test(name)) inner.push(h);
                 inner.sort((a, b) => a.name.localeCompare(b.name));
                 if (inner.length) await addHandles(inner, d);
             }
@@ -167,7 +167,11 @@ function fillSRCols() {
     if (prev !== '' && t && +prev < t.headers.length) sel.value = prev;
 }
 function resizeContainer() {
-    const h = document.getElementById('chrome').offsetHeight + document.getElementById('statusbar').offsetHeight;
-    container.style.height = `calc(100vh - ${h}px)`;
+    const top = document.getElementById('chrome').offsetHeight, bottom = document.getElementById('statusbar').offsetHeight;
+    container.style.height = `calc(100vh - ${top + bottom}px)`;
+    /* The row card (22-row-card.js) docks on the right, between the chrome and the status bar; the grid narrows to make room. */
+    const card = document.getElementById('row-card');
+    container.style.width = card.classList.contains('open') ? 'calc(100vw - var(--card-w))' : '';
+    card.style.top = top + 'px'; card.style.bottom = bottom + 'px';
 }
 new ResizeObserver(resizeContainer).observe(document.getElementById('chrome'));   // the toolbar may wrap

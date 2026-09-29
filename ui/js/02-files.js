@@ -11,6 +11,9 @@
 ----------------------------------------------------------------*/
 const FSA = typeof window.showOpenFilePicker === 'function';
 const CSV_TYPES = [{ description: 'CSV / text tables', accept: { 'text/csv': ['.csv', '.tsv', '.txt'] } }];
+/* Opening also takes workbooks and JSON, converted to a CSV beside them (27-import.js); saving never offers those. */
+const OPEN_TYPES = CSV_TYPES.concat([{ description: 'Excel workbook / JSON (converted to CSV)', accept: {
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx', '.xlsm'], 'application/json': ['.json', '.jsonl', '.ndjson'] } }]);
 let backupDir = null;        // FileSystemDirectoryHandle used for .bak copies
 let backupOptOut = false;    // user declined to pick one for this session
 
@@ -151,15 +154,21 @@ function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandl
     document.getElementById('loader').value = '';
 }
 
-function processFiles(fileList) {   // read-only path: <input type=file>, legacy drop
-    addTabs(Array.from(fileList).map(f => ({ file: f, name: f.name, size: f.size })));
+async function processFiles(fileList) {   // read-only path: <input type=file>, legacy drop
+    const entries = [];
+    for (const f of Array.from(fileList)) {
+        if (importKind(f.name)) { const e = await importFile(f); if (e) entries.push(e); }   // a workbook or JSON: its CSV, as a copy
+        else entries.push({ file: f, name: f.name, size: f.size });
+    }
+    addTabs(entries);
 }
 
 /* Paths queued by the launcher. An already-open path is focused rather than
    opened twice, so re-launching the same file from yazi just switches tab. */
 async function addPathTabs(paths) {
     const entries = [];
-    for (const p of paths) {
+    for (let p of paths) {
+        if (importKind(baseName(p))) { p = await importPath(p); if (!p) continue; }   // a workbook or JSON: the CSV written beside it
         const known = tabs.find(t => t.path === p);
         if (known) { activateTab(known.id); continue; }
         try {
@@ -175,6 +184,7 @@ async function addPathTabs(paths) {
 async function addHandles(handles, dirHandle) {
     const entries = [];
     for (const h of handles) {
+        if (importKind(h.name)) { const e = await importHandle(h, dirHandle); if (e) entries.push(e); continue; }
         try { const f = await h.getFile(); entries.push({ file: f, handle: h, dirHandle, name: f.name, size: f.size }); }
         catch (e) { console.warn('cannot read', h.name, e); }
     }
@@ -184,7 +194,7 @@ async function addHandles(handles, dirHandle) {
 async function openFiles() {
     if (!FSA) { document.getElementById('loader').click(); return; }
     let handles;
-    try { handles = await showOpenFilePicker({ multiple: true, types: CSV_TYPES, excludeAcceptAllOption: false }); }
+    try { handles = await showOpenFilePicker({ multiple: true, types: OPEN_TYPES, excludeAcceptAllOption: false }); }
     catch (e) { return; }                       // picker dismissed
     await addHandles(handles, null);
 }

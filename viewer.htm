@@ -274,6 +274,66 @@
     </div>
 </div>
 
+<div id="modal-profile" class="modal-box">
+    <h4>File profile</h4>
+    <div class="stat-line" id="pf-sum" style="margin-top: 0;"></div>
+    <div class="pv-wrap pf-wrap"><table class="pv rv pf" id="pf-list"></table></div>
+    <div class="stat-line" id="pf-note"></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="copyProfile()" title="The table as tab-separated text">Copy as text</button>
+        <button class="btn" onclick="closeAllModals()">Close</button>
+    </div>
+</div>
+
+<div id="modal-anon" class="modal-box">
+    <h4>Anonymise</h4>
+    <span class="fld-label">A treatment per column, guessed from its title and values — change it where the guess is wrong. The same value always gives the same replacement, so duplicates stay duplicates and files still join.</span>
+    <div class="pv-wrap an-wrap"><table class="pv an" id="an-list"></table></div>
+    <div class="row2" style="margin-top: 8px;">
+        <button class="btn btn-outline" onclick="anonGuessAll()" title="Back to the guessed treatments">Guess again</button>
+        <button class="btn btn-outline" onclick="anonAllKeep()" title="Every column kept as is">Keep all</button>
+        <label class="col-label" style="margin: 0 0 0 auto;"><input type="checkbox" id="an-shown" onchange="renderAnon()"> Only the rows shown</label>
+    </div>
+    <div class="stat-line" id="an-stats"></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn" id="an-go" onclick="applyAnon()">Anonymise</button>
+    </div>
+</div>
+
+<div id="modal-group" class="modal-box">
+    <h4>Group by</h4>
+    <span class="fld-label">Group the rows shown by — tick the columns in order</span>
+    <div id="gb-cols"></div>
+    <div class="opts">
+        <label class="col-label"><input type="radio" name="gb-match" value="exact" onchange="groupRefresh(true)"> Exact values</label>
+        <label class="col-label"><input type="radio" name="gb-match" value="loose" checked onchange="groupRefresh(true)"> Ignoring case and surrounding spaces</label>
+        <label class="col-label" title="Accents removed, lower case, every run of symbols and spaces turned into one space"><input type="radio" name="gb-match" value="slug" onchange="groupRefresh(true)"> Slugified</label>
+    </div>
+    <span class="fld-label">Per group: the row count, and for the columns ticked below</span>
+    <div class="pv-wrap gb-wrap"><table class="pv gb" id="gb-aggs"></table></div>
+    <div class="stat-line" id="gb-stats"></div>
+    <div class="pv-wrap"><table class="pv" id="gb-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="gb = null; closeAllModals()">Cancel</button>
+        <button class="btn" id="gb-go" onclick="applyGroupBy()" title="The groups as a new tab, not written to disk until you save it">Open the result in a new tab</button>
+    </div>
+</div>
+
+<div id="row-card">
+    <div class="rc-head">
+        <b id="rc-title">Row card</b>
+        <button class="btn btn-outline" id="rc-prev" onclick="rowCardMove(-1)" title="Previous row" aria-label="Previous row">▲</button>
+        <button class="btn btn-outline" id="rc-next" onclick="rowCardMove(1)" title="Next row" aria-label="Next row">▼</button>
+        <button class="btn btn-outline" id="rc-rawbtn" onclick="rowCardRaw()" title="Show the row as it sits in the file: its record's text, delimiters, quotes and invisible characters marked">Raw</button>
+        <span class="rc-x" onclick="toggleRowCard(false)" title="Close (Ctrl+I)">×</span>
+    </div>
+    <div class="rc-sub" id="rc-sub"></div>
+    <div id="rc-raw"></div>
+    <input type="text" class="bs-input rc-search" placeholder="Find a field…" spellcheck="false" oninput="rowCard.q = this.value; rowCardFields()" onkeydown="event.stopPropagation()">
+    <div id="rc-fields"></div>
+</div>
+
 <div id="col-panel"></div>
 <div id="toasts" aria-live="polite"></div>
 <div id="cmdk" onmousedown="if (event.target === this) closePalette()">
@@ -317,8 +377,14 @@
             <div class="dd-item" onclick="closeDDs(); openFiles()" title="Open CSV files. When the browser allows it, the files stay writable and Save overwrites them in place.">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Open</span><span class="k">Ctrl+O</span>
             </div>
-            <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find &amp; replace in the filtered rows">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Replace</span>
+            <div class="dd-item" onclick="closeDDs(); toggleRowCard()" title="The selected row as a form on the right: every column with its value, editable — and its raw line as it sits in the file">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M6 16c0-1.7 1.3-3 3-3s3 1.3 3 3"></path><path d="M14 9h4M14 13h4"></path></svg>Row card</span><span class="k">Ctrl+I</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); goToRow()" title="Jump to a row by its number in the file">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h12"></path><polyline points="12 8 16 12 12 16"></polyline><path d="M20 4v16"></path></svg>Go to row…</span><span class="k">Ctrl+G</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openProfile()" title="Every column at a glance: kind, filled and empty cells, distinct values, min, max, sum and average">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 15v-4M12 15V7M17 15v-6"></path></svg>File profile…</span>
             </div>
             <div class="dd-sep"></div>
             <div class="dd-item disabled" id="menu-undo" onclick="closeDDs(); undo()" title="Undo the last edit, one at a time, back to the last save">
@@ -327,41 +393,74 @@
             <div class="dd-item" onclick="closeDDs(); openReview()" title="Every change Save would write, compared with the file on disk: cells before and after, rows added and deleted, columns">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="14 3 14 9 20 9"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="19" x2="15" y2="19"></line></svg>Review changes…</span>
             </div>
-            <div class="dd-item" onclick="closeDDs(); fillDown()" title="In each selected column, continue the series started by the filled cells at the top (numbers, dates, 'Lot 7', days, months…) — or drag the square at the selection's corner">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13"></path><polyline points="6 11 12 17 18 11"></polyline><line x1="5" y1="21" x2="19" y2="21"></line></svg>Fill series down</span><span class="k">Ctrl+D</span>
+            <div class="dd-sep"></div>
+            <!-- Submenus (.has-sub > .dd-menu.sub): shown while the pointer is on the item or on them. -->
+            <div class="dd-item has-sub">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit</span><span class="chev">›</span>
+                <div class="dd-menu sub">
+                    <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find &amp; replace in the filtered rows">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Find &amp; replace</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
+                    </div>
+                    <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="closeDDs(); fillDown()" title="In each selected column, continue the series started by the filled cells at the top (numbers, dates, 'Lot 7', days, months…) — or drag the square at the selection's corner">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13"></path><polyline points="6 11 12 17 18 11"></polyline><line x1="5" y1="21" x2="19" y2="21"></line></svg>Fill series down</span><span class="k">Ctrl+D</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); fillBlanks()" title="In the selected columns, each empty cell takes the value above it — for exports where a group's label is written only once">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="16" width="16" height="5" rx="1" stroke-dasharray="3 2"></rect><path d="M12 8v6"></path><polyline points="9 11 12 14 15 11"></polyline></svg>Fill empty cells from above</span>
+                    </div>
+                    <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openAnon()" title="Replace names, e-mails, phone numbers, postal codes… by plausible fakes, the same value always giving the same fake">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><path d="M9 10a3 3 0 1 0 6 0"></path><path d="M5 5l14 14"></path></svg>Anonymise…</span>
+                    </div>
+                </div>
             </div>
-            <div class="dd-item" onclick="closeDDs(); fillBlanks()" title="In the selected columns, each empty cell takes the value above it — for exports where a group's label is written only once">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="16" width="16" height="5" rx="1" stroke-dasharray="3 2"></rect><path d="M12 8v6"></path><polyline points="9 11 12 14 15 11"></polyline></svg>Fill empty cells from above</span>
+            <div class="dd-item has-sub">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="9" y1="4" x2="9" y2="20"></line><line x1="15" y1="4" x2="15" y2="20"></line></svg>Columns</span><span class="chev">›</span>
+                <div class="dd-menu sub">
+                    <div class="dd-item" onclick="closeDDs(); openSplit()" title="Cut one column into several at a separator">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2.5 2.5"></line></svg>Split column…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openMerge()" title="Join several columns into one">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v6a4 4 0 0 0 4 4 4 4 0 0 0 4-4V4"></path><line x1="12" y1="14" x2="12" y2="20"></line></svg>Merge columns…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openFormula()" title="A new column computed from the others by a formula">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h-2.5a2 2 0 0 0-2 1.8L8 20"></path><line x1="6" y1="10" x2="14" y2="10"></line><path d="M15 14l5 5M20 14l-5 5"></path></svg>Computed column…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openLookup()" title="Bring columns over from another open tab, matching rows on a key column (like VLOOKUP)">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Look up from another tab…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openConvert()" title="Rewrite a column's dates, numbers or phone numbers into one format">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>Convert formats…</span>
+                    </div>
+                    <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="closeDDs(); openColManager()" title="Tick the columns to show">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>Show or hide columns…</span>
+                    </div>
+                </div>
             </div>
-            <div class="dd-item" onclick="closeDDs(); openSplit()" title="Cut one column into several at a separator">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2.5 2.5"></line></svg>Split column…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openMerge()" title="Join several columns into one">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v6a4 4 0 0 0 4 4 4 4 0 0 0 4-4V4"></path><line x1="12" y1="14" x2="12" y2="20"></line></svg>Merge columns…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openFormula()" title="A new column computed from the others by a formula">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h-2.5a2 2 0 0 0-2 1.8L8 20"></path><line x1="6" y1="10" x2="14" y2="10"></line><path d="M15 14l5 5M20 14l-5 5"></path></svg>Computed column…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openLookup()" title="Bring columns over from another open tab, matching rows on a key column (like VLOOKUP)">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Look up from another tab…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openCompare()" title="Match this tab's rows with another tab's on a key column: what changed, what is only on one side">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1"></rect><rect x="14" y="4" width="7" height="16" rx="1"></rect><path d="M10 9h4M10 15h4"></path></svg>Compare with another tab…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openConvert()" title="Rewrite a column's dates, numbers or phone numbers into one format">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>Convert formats…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); openDedupe()" title="Mark or delete rows that repeat others, on the columns you choose">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Duplicates…</span>
-            </div>
-            <div class="dd-item" onclick="closeDDs(); deleteHiddenRows()" title="Delete every row the current filters hide — only the rows shown are kept">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>Delete hidden rows</span>
+            <div class="dd-item has-sub">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>Rows</span><span class="chev">›</span>
+                <div class="dd-menu sub">
+                    <div class="dd-item" onclick="closeDDs(); openDedupe()" title="Mark or delete rows that repeat others, on the columns you choose">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Duplicates…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); deleteHiddenRows()" title="Delete every row the current filters hide — only the rows shown are kept">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>Delete hidden rows</span>
+                    </div>
+                    <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="closeDDs(); openGroupBy()" title="Count the rows shown per value of a column — with sums, averages, min, max, distinct values — into a new tab">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M14 17.5h7M17.5 14v7"></path></svg>Group by…</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); openCompare()" title="Match this tab's rows with another tab's on a key column: what changed, what is only on one side">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1"></rect><rect x="14" y="4" width="7" height="16" rx="1"></rect><path d="M10 9h4M10 15h4"></path></svg>Compare with another tab…</span>
+                    </div>
+                </div>
             </div>
             <div class="dd-sep"></div>
             <div class="dd-item quit" onclick="closeDDs(); quitApp()" title="Close the editor (asks first if a file has unsaved edits)">
@@ -369,7 +468,7 @@
             </div>
         </div>
     </div>
-    <input type="file" id="loader" accept=".csv" multiple>
+    <input type="file" id="loader" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.json,.jsonl,.ndjson" multiple>
 
 
     <input type="text" id="global-search" class="bs-input" placeholder="Filter...">
@@ -378,6 +477,7 @@
         <label><input type="checkbox" id="use-slug"> Ignore accents</label>
         <label><input type="checkbox" id="use-regex"> Regex</label>
         <label><input type="checkbox" id="use-reverse"> Invert</label>
+        <label title="The filter box becomes a formula, true or false for each row: {Column} is the row's cell, with the helpers of computed columns — num({Amount}) > 1000 && year({Date}) === 2024, contains({City}, &quot;lyon&quot;), empty({E-mail})…"><input type="checkbox" id="use-expr"> Expression</label>
     </div>
 
     <div style="margin-left: auto; display: flex; gap: 10px;">

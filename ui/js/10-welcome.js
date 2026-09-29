@@ -72,6 +72,7 @@ function renderWelcome() {
             ${k('Command palette', kb('Ctrl+K'))}${k('Save', kb('Ctrl+S'))}
             ${k('Undo', kb('Ctrl+Z'))}${k('Copy / paste a range', kb('Ctrl+C') + ' ' + kb('Ctrl+V'))}
             ${k('Fill a series down', kb('Ctrl+D'))}${k('Switch tab', kb('Alt+←') + ' ' + kb('Alt+→'))}
+            ${k('Row card', kb('Ctrl+I'))}${k('Go to row', kb('Ctrl+G'))}
         </div>
     </div>`;
 }
@@ -81,7 +82,9 @@ const ROW_ICONS = {
     above: '<path d="M12 19V9"/><polyline points="7 13 12 8 17 13"/><line x1="4" y1="4" x2="20" y2="4"/>',
     below: '<path d="M12 5v10"/><polyline points="7 11 12 16 17 11"/><line x1="4" y1="20" x2="20" y2="20"/>',
     dup: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-    del: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'
+    del: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    card: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M6 16c0-1.7 1.3-3 3-3s3 1.3 3 3"/><path d="M14 9h4M14 13h4"/>',
+    raw: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'
 };
 function openRowMenu(e, id) {
     e.stopPropagation(); e.preventDefault();
@@ -98,6 +101,9 @@ function openRowMenu(e, id) {
         + item(`insertRow(${id}, 0)`, 'above', 'Insert a row above')
         + item(`insertRow(${id}, 1)`, 'below', 'Insert a row below')
         + item(`duplicateRow(${id})`, 'dup', 'Duplicate below')
+        + '<div class="dd-sep"></div>'
+        + item(`rowCardFor(${id}, false)`, 'card', 'Row card — every field as a form')
+        + item(`rowCardFor(${id}, true)`, 'raw', 'Raw line — as it sits in the file')
         + '<div class="dd-sep"></div>'
         + (many ? item('deleteSelectedRows()', 'del', `Delete the ${fmt(many)} selected rows`, 'danger') : item(`deleteRow(${id})`, 'del', 'Delete the row', 'danger'));
     m.classList.add('open'); btn.classList.add('open');

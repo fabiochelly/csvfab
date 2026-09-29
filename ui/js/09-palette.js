@@ -43,6 +43,13 @@ function paletteCommands() {
     add('Edit', 'Undo' + (loaded && isDirty(t) ? ` — ${t.modificationsLog[t.modificationsLog.length - 1].what || 'last edit'}` : ''), undo, 'Ctrl+Z', loaded && isDirty(t));
     add('Edit', 'Review changes — what Save would write', openReview, '', loaded && isDirty(t));
     add('Edit', 'Find & replace', toggleSRBar, '', loaded);
+    add('View', (rowCardIsOpen() ? 'Close the row card' : 'Row card — the selected row as a form'), () => toggleRowCard(), 'Ctrl+I', loaded);
+    add('View', 'Raw line — the selected row as it sits in the file', () => { if (!rowCard.raw) rowCardRaw(true); toggleRowCard(true); }, '', loaded && !!sel);
+    add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
+    add('View', 'File profile — every column at a glance', openProfile, '', loaded);
+    add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — num({Amount}) > 1000 && …'), toggleExprFilter, '', loaded);
+    add('Rows', 'Group by… — count, sum, average per value, in a new tab', () => openGroupBy(), '', loaded);
+    add('Edit', 'Anonymise… — names, e-mails, phones, postal codes', openAnon, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
     add('Edit', 'Clean up — spaces, invisible characters, garbled accents, empty rows…', openClean, '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
@@ -82,6 +89,7 @@ function paletteCommands() {
             add('Column', `Then sort descending: ${h}`, () => sortBy(c, -1, true));
         }
         add('Column', `Profile & filter by value: ${h}`, () => openColPanelFor(c));
+        add('Column', `Group by: ${h}`, () => openGroupBy(c));
     });
     return C;
 }

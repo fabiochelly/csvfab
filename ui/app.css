@@ -1,7 +1,7 @@
 /* csvfab — layout and components. Colours come from ui/themes.css. */
 
 /* Dark native widgets: scrollbars, select lists, date pickers follow the theme. */
-:root { color-scheme: dark; scrollbar-color: var(--scroll) transparent; }
+:root { color-scheme: dark; scrollbar-color: var(--scroll) transparent; --card-w: 400px; }   /* --card-w: the row card's width (22-row-card.js) */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surf-3); border: 3px solid transparent; border-radius: 8px; background-clip: padding-box; }
@@ -196,6 +196,13 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 .dd-item .lbl svg { width: 16px; height: 16px; flex: none; color: var(--txt-mut); }
 .dd-item:hover .lbl svg { color: var(--txt-hi); }
 .dd-item .k { color: var(--txt-dim); font-size: 11.5px; }
+/* Submenus: an item holding a .dd-menu.sub, opened to its right while the pointer
+   is on either of them (the menu is the item's child, so one :hover covers both). */
+.dd-item.has-sub { position: relative; }
+.dd-item.has-sub > .chev { color: var(--txt-dim); font-size: 12px; margin-left: 8px; }
+.dd-item.has-sub:hover > .chev { color: var(--txt-hi); }
+.dd-menu.sub { display: none; top: -7px; left: calc(100% + 2px); min-width: 240px; }   /* -7: its first item level with this one (padding + border) */
+.dd-item.has-sub:hover > .dd-menu.sub { display: block; animation: pop .12s ease-out; transform-origin: top left; }
 .dd-item.disabled { opacity: .4; pointer-events: none; }
 .swatch { width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .25); }
 .dd-item.quit, .dd-item.quit .lbl svg { color: var(--danger-txt); }
@@ -253,10 +260,72 @@ td.col-idx[draggable] { cursor: grab; }
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
 .cp-tools .btn:first-child, .cp-tools .btn:nth-child(2) { padding: 4px 7px; }
-#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare { width: 560px; }
+#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group { width: 560px; }
 #modal-review { width: 640px; }
-#modal-split h4, #modal-merge h4, #modal-lookup h4, #modal-convert h4, #modal-formula h4, #modal-review h4, #modal-compare h4 { margin: 0 0 14px; }
-#modal-split .fld-label, #modal-merge .fld-label, #modal-lookup .fld-label, #modal-convert .fld-label, #modal-formula .fld-label, #modal-compare .fld-label { display: block; font-size: 12px; color: var(--txt-mut); margin: 12px 0 5px; }
+/* Profile and Anonymise: tall dialogs (their list is the point), a flex column whose list
+   takes the room left — .modal-box's 80vh cap and .pv-wrap's 220 px cap both lifted. */
+#modal-profile { width: min(1040px, calc(100vw - 40px)); height: 94vh; max-height: none; flex-direction: column; }
+#modal-profile[style*="block"] { display: flex !important; }
+#modal-profile .pf-wrap { flex: 1; min-height: 120px; max-height: none; }
+#modal-anon { width: min(820px, calc(100vw - 40px)); height: 94vh; max-height: none; flex-direction: column; }
+#modal-anon[style*="block"] { display: flex !important; }
+#modal-anon .an-wrap { flex: 1; min-height: 160px; max-height: none; }
+#modal-split h4, #modal-merge h4, #modal-lookup h4, #modal-convert h4, #modal-formula h4, #modal-review h4, #modal-compare h4, #modal-profile h4, #modal-anon h4, #modal-group h4 { margin: 0 0 14px; }
+#modal-split .fld-label, #modal-merge .fld-label, #modal-lookup .fld-label, #modal-convert .fld-label, #modal-formula .fld-label, #modal-compare .fld-label, #modal-anon .fld-label, #modal-group .fld-label { display: block; font-size: 12px; color: var(--txt-mut); margin: 12px 0 5px; }
+/* File profile: one line per column, a filled-share bar behind its name. */
+.pf-wrap { max-height: none; }   /* sized by the dialog's flex column, not by .pv-wrap's 220 px */
+.pv.pf td, .pv.pf th { max-width: 200px; }
+.pv.pf .k { font-variant-numeric: tabular-nums; }
+.pf-name { position: relative; font-weight: 500; color: var(--txt-hi); }
+.pf-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: var(--f, 0%); background: var(--prim); opacity: .6; }
+/* Anonymise: column, treatment, a before → after sample. */
+.an-wrap { max-height: none; }   /* sized by the dialog's flex column, not by .pv-wrap's 220 px */
+.pv.an td { max-width: 340px; }
+.pv.an td:first-child { min-width: 140px; }
+.pv.an tr.off td { color: var(--txt-dim); }
+.pv.an .an-mode { padding: 3px 28px 3px 8px; font-size: 12px; background-position: right 0.5rem center; }
+.pv.an .an-eg .src { color: var(--txt-mut); }
+/* Group by: tick lists. */
+#gb-cols { max-height: 150px; overflow-y: auto; border: 1px solid var(--brd); border-radius: 6px; padding: 6px 10px 0; }
+#gb-cols .col-label { display: flex; align-items: center; }
+.gb-wrap { max-height: 190px; }
+.pv.gb td.gb-chk { text-align: center; }
+.pv.gb td.gb-chk input { margin: 0; vertical-align: middle; }
+/* Row card: the selected row as a form, docked right of the grid. */
+#row-card { display: none; position: fixed; right: 0; width: var(--card-w); box-sizing: border-box; z-index: 1200; flex-direction: column;
+    background: var(--surf); border-left: 1px solid var(--brd); font-family: 'Inter', sans-serif; font-size: 13px; color: var(--txt-hi); }
+#row-card.open { display: flex; animation: pop .14s ease-out; transform-origin: right center; }
+.rc-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px 6px; }
+.rc-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.rc-head .btn { padding: 2px 7px; font-size: 11px; }
+.rc-head .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
+.rc-x { flex: none; width: 22px; height: 22px; line-height: 21px; text-align: center; border-radius: 5px; color: var(--txt-dim); cursor: pointer; font-size: 17px; margin-left: 2px; }
+.rc-x:hover { background: var(--surf-2); color: var(--txt-hi); }
+.rc-sub { padding: 0 12px 8px; font-size: 11.5px; color: var(--txt-dim); border-bottom: 1px solid var(--brd); }
+.rc-sub .warn { color: var(--warn); }
+.rc-search { margin: 8px 12px 4px; font-size: 13px; padding: 5px 10px; }
+#rc-fields { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+.rc-none { padding: 8px 2px; font-size: 11.5px; color: var(--txt-dim); }
+.rc-f { display: grid; grid-template-columns: 118px 1fr; gap: 10px; align-items: start; padding: 4px 0; border-bottom: 1px solid var(--brd); }
+.rc-f label { font-size: 12px; color: var(--txt-mut); padding-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.rc-f label:hover { color: var(--txt-strong); }
+.rc-f label .ty { margin-right: 5px; }
+.rc-f.hid label { font-style: italic; color: var(--txt-faint); }
+.rc-f.cur label { color: var(--accent-2); }
+.rc-f textarea { width: 100%; box-sizing: border-box; resize: none; field-sizing: content; max-height: 140px; min-height: 26px; padding: 4px 8px;
+    font: 12.5px "Cascadia Code", "Consolas", monospace; line-height: 18px; color: var(--txt-hi); background: var(--bg-deep);
+    border: 1px solid transparent; border-radius: 5px; outline: none; white-space: pre-wrap; }
+.rc-f textarea:hover { border-color: var(--brd); }
+.rc-f textarea:focus { border-color: var(--prim); box-shadow: 0 0 0 3px rgba(var(--prim-rgb), .22); }
+/* The raw line: the record's text, delimiters and quotes coloured, invisible characters named. */
+#rc-raw { display: none; margin: 8px 12px 0; padding: 8px 10px; border: 1px solid var(--brd); border-radius: 6px; background: var(--bg-deep);
+    font: 12px "Cascadia Code", "Consolas", monospace; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40%; overflow: auto; }
+#row-card.raw #rc-raw { display: block; }
+#rc-raw .rc-meta { display: block; font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--txt-dim); margin-bottom: 6px; white-space: normal; }
+#rc-raw .rc-meta .warn { color: var(--warn); }
+#rc-raw .dl { color: var(--orange-txt); background: rgba(var(--orange-rgb), .16); border-radius: 2px; font-weight: 700; }
+#rc-raw .qt { color: var(--violet-txt); font-weight: 700; }
+#rc-raw .inv { color: var(--danger-txt); background: rgba(var(--danger-rgb), .14); font-size: 10px; padding: 0 3px; border-radius: 3px; vertical-align: 1px; }
 .row2 { display: flex; gap: 10px; align-items: center; }
 .row2 .bs-input { flex: 1; min-width: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
@@ -269,9 +338,12 @@ td.col-idx[draggable] { cursor: grab; }
 .stat-line .warn { color: var(--warn); }
 #split-n { width: 70px; flex: none; }
 .pv-wrap { margin-top: 10px; max-height: 220px; overflow: auto; border: 1px solid var(--brd); border-radius: 6px; }
-.pv { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12px; font-family: 'Inter', sans-serif; }
+/* Separate borders, not collapsed: a collapsed border belongs half to the row
+   below, so the sticky header's bottom line stayed behind when it stuck and the
+   rows scrolling under showed through that pixel band. */
+.pv { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 12px; font-family: 'Inter', sans-serif; }
 .pv th, .pv td { padding: 4px 8px; border-bottom: 1px solid var(--brd); border-right: 1px solid var(--brd); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-.pv th { position: sticky; top: 0; background: var(--surf); padding: 4px; }
+.pv th { position: sticky; top: 0; z-index: 1; background: var(--surf); padding: 4px; }
 .pv th input { width: 130px; padding: 3px 6px; font-size: 12px; }
 .pv td.src { color: var(--txt-mut); }
 .pv td.empty { color: var(--txt-faint); font-style: italic; }
@@ -307,6 +379,9 @@ th.dragging { opacity: .45; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 #global-search { width: 260px; }
+/* Expression mode: the box is a formula — monospace, wider, red while it does not compile. */
+#global-search.expr { width: 420px; font-family: "Cascadia Code", "Consolas", monospace; font-size: 13px; }
+#global-search.bad { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(var(--danger-rgb), .2); }
 th.gen-head { color: var(--txt-dim); font-style: italic; }
 .f-in { width: 100%; min-width: 0; }
 

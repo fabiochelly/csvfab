@@ -51,8 +51,9 @@ import socketserver
 import threading
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 VERSION = "1.1.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -461,6 +462,159 @@ def write_xlsx(open_rows, out_path, sheet="Sheet1", header=True):
             "truncated_rows": truncated_rows, "truncated_cols": truncated_cols}
 
 
+# ---------------------------------------------------------------------------
+# LECTURE XLSX -> CSV
+#
+# L'editeur n'ouvre que des CSV : un classeur est d'abord ecrit en CSV a cote
+# de lui, et c'est ce CSV qui devient l'onglet. Premiere feuille seulement,
+# lue en flux (iterparse) : les valeurs comme texte, les nombres au format
+# le plus court, les cellules dont le style est un format de date en
+# yyyy-mm-dd[ hh:mm:ss], les booleens en TRUE/FALSE. Virgule decimale quand
+# le CSV est en « ; » (la convention des tableurs francais, comme a l'export).
+# ---------------------------------------------------------------------------
+_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_DATE_FMT_IDS = set(range(14, 23)) | set(range(27, 37)) | set(range(45, 48)) | set(range(50, 59))
+
+
+def _xlsx_first_sheet(zf):
+    """(nom, nombre de feuilles, chemin de la 1re feuille dans le zip, dates 1904 ?)"""
+    wb = ET.fromstring(zf.read("xl/workbook.xml"))
+    sheets = wb.findall(f"{_NS}sheets/{_NS}sheet")
+    if not sheets:
+        raise ValueError("classeur sans feuille")
+    rid = sheets[0].get(f"{_RNS}id")
+    target = None
+    for rel in ET.fromstring(zf.read("xl/_rels/workbook.xml.rels")):
+        if rel.get("Id") == rid:
+            target = rel.get("Target")
+    if not target:
+        raise ValueError("feuille introuvable dans le classeur")
+    path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+    pr = wb.find(f"{_NS}workbookPr")
+    return sheets[0].get("name") or "Sheet1", len(sheets), path, pr is not None and pr.get("date1904") in ("1", "true")
+
+
+def _xlsx_shared_strings(zf):
+    if "xl/sharedStrings.xml" not in zf.namelist():
+        return []
+    out = []
+    with zf.open("xl/sharedStrings.xml") as f:
+        for _, el in ET.iterparse(f):
+            if el.tag == f"{_NS}si":
+                out.append("".join(t.text or "" for t in el.iter(f"{_NS}t")))
+                el.clear()
+    return out
+
+
+def _xlsx_date_styles(zf):
+    """Indices des styles (cellXfs) dont le format de nombre est une date ou une heure."""
+    if "xl/styles.xml" not in zf.namelist():
+        return set()
+    root = ET.fromstring(zf.read("xl/styles.xml"))
+    custom = set()
+    for nf in root.iter(f"{_NS}numFmt"):
+        code = nf.get("formatCode", "")
+        bare = _re.sub(r'"[^"]*"|\[[^\]]*\]|\\.', "", code).lower()   # sans les textes cites, [$-40C], [h]
+        if _re.search(r"[ymdhs]", bare) and not _re.search(r"[0#?]", bare):
+            custom.add(int(nf.get("numFmtId", "-1")))
+    xfs = root.find(f"{_NS}cellXfs")
+    out = set()
+    if xfs is not None:
+        for i, xf in enumerate(xfs.findall(f"{_NS}xf")):
+            fid = int(xf.get("numFmtId", "0"))
+            if fid in _DATE_FMT_IDS or fid in custom:
+                out.add(i)
+    return out
+
+
+def _xlsx_col(ref):
+    """'BC12' -> 54 (0 = A)."""
+    n = 0
+    for ch in ref:
+        if not ch.isalpha():
+            break
+        n = n * 26 + ord(ch.upper()) - 64
+    return n - 1
+
+
+def _xlsx_date_text(x, d1904):
+    base = datetime(1904, 1, 1) if d1904 else datetime(1899, 12, 30)
+    try:
+        t = base + timedelta(seconds=round(x * 86400))
+    except (OverflowError, ValueError):
+        return None
+    if t.hour or t.minute or t.second:
+        return t.strftime("%Y-%m-%d %H:%M:%S" if t.second else "%Y-%m-%d %H:%M")
+    return t.strftime("%Y-%m-%d")
+
+
+def _xlsx_num_text(raw, comma):
+    try:
+        x = float(raw)
+    except ValueError:
+        return raw
+    s = str(int(x)) if x == int(x) and abs(x) < 1e15 else repr(x)
+    return s.replace(".", ",") if comma else s
+
+
+def xlsx_to_csv(src, out, delim):
+    """Premiere feuille de src (chemin ou fichier ouvert) -> lignes CSV dans out (texte). Renvoie un bilan."""
+    with zipfile.ZipFile(src) as zf:
+        name, nsheets, sheet_path, d1904 = _xlsx_first_sheet(zf)
+        shared = _xlsx_shared_strings(zf)
+        dates = _xlsx_date_styles(zf)
+        comma = delim == ";"
+        w = csv.writer(out, delimiter=delim, lineterminator="\n")
+        width = rows = maxw = 0
+        with zf.open(sheet_path) as f:
+            for ev, el in ET.iterparse(f, events=("start", "end")):
+                if ev == "start":
+                    if el.tag == f"{_NS}dimension":
+                        m = _re.match(r"[A-Z]+\d*(?::([A-Z]+)\d*)?$", el.get("ref", ""))
+                        if m and m.group(1):
+                            width = _xlsx_col(m.group(1)) + 1
+                    continue
+                if el.tag != f"{_NS}row":
+                    continue
+                cells = []
+                for c in el.findall(f"{_NS}c"):
+                    idx = _xlsx_col(c.get("r")) if c.get("r") else len(cells)
+                    while len(cells) < idx:
+                        cells.append("")
+                    t, s, v = c.get("t"), c.get("s"), c.find(f"{_NS}v")
+                    raw = v.text if v is not None and v.text is not None else None
+                    if t == "s":
+                        val = shared[int(raw)] if raw is not None else ""
+                    elif t == "inlineStr":
+                        is_ = c.find(f"{_NS}is")
+                        val = "".join(x.text or "" for x in is_.iter(f"{_NS}t")) if is_ is not None else ""
+                    elif t == "b":
+                        val = "TRUE" if raw == "1" else "FALSE"
+                    elif t in ("str", "e"):
+                        val = raw or ""
+                    elif raw is None:
+                        val = ""
+                    elif s is not None and int(s) in dates:
+                        try:
+                            val = _xlsx_date_text(float(raw), d1904) or raw
+                        except ValueError:
+                            val = raw
+                    else:
+                        val = _xlsx_num_text(raw, comma)
+                    cells.append(val)
+                if not width and any(cells):
+                    width = len(cells)            # pas de <dimension> : la premiere ligne (les titres) fixe la largeur
+                while len(cells) < width:
+                    cells.append("")
+                if any(cells):                    # les lignes vides de mise en forme n'ont rien a faire dans le CSV
+                    w.writerow(cells)
+                    rows += 1
+                    maxw = max(maxw, len(cells))
+                el.clear()
+    return {"sheet": name, "sheets": nsheets, "rows": rows, "cols": max(width, maxw)}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "csvfab"
     protocol_version = "HTTP/1.1"
@@ -589,12 +743,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urllib.parse.urlparse(self.path).path
-        if route not in ("/api/open", "/api/xlsx"):
+        if route not in ("/api/open", "/api/xlsx", "/api/xlsx2csv"):
             return self._send(404, "no such route")
         if not self._authorized():
             return self._send(403, "forbidden")
         if route == "/api/xlsx":
             return self._make_xlsx()
+        if route == "/api/xlsx2csv":
+            return self._xlsx_to_csv()
         try:
             n = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(n) or b"{}")
@@ -673,6 +829,70 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     os.unlink(f)
                 except OSError:
                     pass
+
+    def _xlsx_to_csv(self):
+        """Classeur en entree (?src= un chemin, sinon le corps), CSV en sortie.
+
+        Avec ?dest=, le CSV est ecrit la, atomiquement (et ?backup=1 garde une
+        copie .bak d'un fichier deja present) ; sinon ses octets sont renvoyes,
+        avec le bilan dans X-Xlsx-Info, pour que la page les depose elle-meme.
+        """
+        q = self._query()
+        delim = (q.get("delim") or [";"])[0] or ";"
+        if len(delim) != 1:
+            return self._json(400, {"error": "delimiteur invalide"})
+        src = (q.get("src") or [""])[0]
+        src = os.path.realpath(os.path.expanduser(src)) if src else None
+        dest = (q.get("dest") or [""])[0]
+        dest = os.path.realpath(os.path.expanduser(dest)) if dest else None
+        backup = (q.get("backup") or ["0"])[0] == "1"
+        if src and not os.path.isfile(src):
+            return self._json(404, {"error": "fichier introuvable"})
+        d = os.path.dirname(dest) if dest else STATE
+        if dest and not os.path.isdir(d):
+            return self._json(400, {"error": f"dossier inexistant : {d}"})
+        tmp_in = None if src else os.path.join(d, f".csvfab.{os.getpid()}.xlsx")
+        tmp_out = os.path.join(d, f".{os.path.basename(dest)}.{os.getpid()}.part") if dest else None
+        try:
+            if tmp_in:
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    return self._json(400, {"error": "Content-Length invalide"})
+                remaining = n
+                with open(tmp_in, "wb") as f:
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(1 << 20, remaining))
+                        if not chunk:
+                            raise IOError("flux interrompu avant la fin du corps")
+                        f.write(chunk)
+                        remaining -= len(chunk)
+            try:
+                if dest:
+                    with open(tmp_out, "w", encoding="utf-8", newline="") as out:
+                        info = xlsx_to_csv(src or tmp_in, out, delim)
+                        out.flush()
+                        os.fsync(out.fileno())
+                    if backup and os.path.isfile(dest):
+                        shutil.copy2(dest, f"{dest}.{stamp()}.bak")
+                    os.replace(tmp_out, dest)
+                    info.update(ok=True, path=dest, size=os.path.getsize(dest))
+                    return self._json(200, info)
+                out = io.StringIO()
+                info = xlsx_to_csv(src or tmp_in, out, delim)
+                return self._send(200, out.getvalue().encode("utf-8"), "text/csv; charset=utf-8",
+                                  {"X-Xlsx-Info": json.dumps(info)})
+            except (zipfile.BadZipFile, KeyError, ET.ParseError, ValueError, IndexError) as e:
+                return self._json(400, {"error": f"ce n'est pas un classeur xlsx lisible ({e})"})
+        except Exception as e:
+            return self._json(500, {"error": str(e)})
+        finally:
+            for f in (tmp_in, tmp_out):
+                if f:
+                    try:
+                        os.unlink(f)
+                    except OSError:
+                        pass
 
     def do_PUT(self):
         if urllib.parse.urlparse(self.path).path != "/api/file":
