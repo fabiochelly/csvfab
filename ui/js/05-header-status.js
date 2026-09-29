@@ -320,7 +320,7 @@ function editColFilter(box) {
     const t = T(); if (!t) return;
     const c = +box.dataset.col, input = document.createElement('input');
     input.className = 'bs-input f-in' + (t.colFilters[c] ? ' has-value' : '');
-    input.dataset.col = c; input.size = 1; input.placeholder = 'Filter'; input.spellcheck = false;
+    input.dataset.col = c; input.size = 1; input.placeholder = 'Filter'; input.spellcheck = false; input.autocomplete = 'off';
     input.value = t.colFilters[c] || '';
     box.replaceWith(input);
     input.focus(); input.setSelectionRange(input.value.length, input.value.length);

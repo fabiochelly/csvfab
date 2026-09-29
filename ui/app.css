@@ -76,6 +76,11 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 .modal-box[style*="block"] { animation: pop .16s ease-out; }
 @keyframes pop { from { opacity: 0; scale: .96; } }
 #view-container.tabfade #mainTable { animation: fadein .2s ease-out; }
+/* The grid layer (12-…, SCROLLING): sticky at the container's viewport, clipped, scrolled by
+   the script — the compositor never moves the rows on its own, so a scrollbar drag shows the
+   rows last drawn until the next ones replace them, never a blank. */
+#grid-layer { position: sticky; top: 0; left: 0; overflow: hidden; z-index: 1; }
+#scroll-space { width: 1px; height: 0; }
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
 #tbody td.flash { animation: cellflash 1.2s ease-out; }
 @keyframes cellflash { 0%, 25% { background-color: rgba(var(--warn-rgb), .38); } }
@@ -593,6 +598,10 @@ th:hover .col-actions { display: flex; }
 td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; max-width: 480px; cursor: cell; }
 
 .row-even { background-color: var(--row-alt); } .row-odd { background-color: var(--row-bg, transparent); }   /* --row-bg: only themes whose rows differ from the grid's background */
+/* The spacer rows (rows not drawn, see spacer() in 12-…): the same stripes as the rows,
+   35 px a row with its 1 px line, so a far scroll shows a grid until the rows arrive. */
+#tbody tr.sp-top > td, #tbody tr.sp-btm > td { background: repeating-linear-gradient(180deg,
+    var(--row-bg, transparent) 0 34px, var(--brd) 34px 35px, var(--row-alt) 35px 69px, var(--brd) 69px 70px); }
 tr:hover, .row-even:hover, .row-odd:hover { background-color: var(--row-hover) !important; }
 
 .resizer { position: absolute; right: 0; top: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 10; }

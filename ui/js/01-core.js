@@ -77,6 +77,7 @@ function renderTabBar() {
     document.getElementById('ram-txt').innerText = tabs.length
         ? `${loaded.length}/${tabs.length} in RAM ≈ ${(bytes / 1048576).toFixed(1)} MB ·` : '';
     emptyState.style.display = tabs.length ? 'none' : 'block';
+    document.getElementById('grid-layer').style.display = tabs.length ? '' : 'none';
     resizeContainer();
 }
 

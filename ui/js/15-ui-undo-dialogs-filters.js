@@ -124,7 +124,7 @@ function uiDialog(message, o) {
         box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
         box.innerHTML = `<div class="dlg-main">${esc(main)}</div>`
             + (rest.length ? `<div class="dlg-sub">${esc(rest.join('\n\n'))}</div>` : '')
-            + (o.input != null ? `<input type="text" class="bs-input" spellcheck="false" value="${esc(o.input)}">` : '')
+            + (o.input != null ? `<input type="text" class="bs-input" spellcheck="false" autocomplete="off" value="${esc(o.input)}">` : '')
             + '<div class="modal-actions">'
             + (o.choices || []).map((c, i) => `<button class="btn btn-outline" data-r="c${i}">${esc(c)}</button>`).join('')
             + (o.cancel ? `<button class="btn btn-outline" data-r="0">${esc(o.cancel)}</button>` : '')
@@ -411,7 +411,7 @@ window.onresize = resizeContainer;
 let resizeFrame = 0;
 new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
-    resizeFrame = requestAnimationFrame(render);
+    resizeFrame = requestAnimationFrame(() => render());   // not render itself: the frame time would pass as its lean flag
 }).observe(container);
 function debounce(f, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; }
 

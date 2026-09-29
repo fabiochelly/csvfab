@@ -114,7 +114,7 @@
     <label class="fld-label" for="bulk-col">Column</label>
     <select id="bulk-col" class="bs-input bs-select" onchange="updateBulkNote()"></select>
     <span class="fld-label" style="margin-top: 12px;">Change</span>
-    <label class="col-label"><input type="radio" name="bulk-op" value="set" checked onchange="updateBulkNote()"> Set to <input type="text" id="bulk-val" class="bs-input bulk-inline" placeholder="value" oninput="document.querySelector('input[name=bulk-op][value=set]').checked = true; updateBulkNote()"></label>
+    <label class="col-label"><input type="radio" name="bulk-op" value="set" checked onchange="updateBulkNote()"> Set to <input type="text" id="bulk-val" class="bs-input bulk-inline" placeholder="value" oninput="document.querySelector('input[name=bulk-op][value=set]').checked = true; updateBulkNote()" autocomplete="off"></label>
     <label class="col-label"><input type="radio" name="bulk-op" value="clear" onchange="updateBulkNote()"> Clear</label>
     <label class="col-label"><input type="radio" name="bulk-op" value="trim" onchange="updateBulkNote()"> Trim, and collapse repeated spaces</label>
     <label class="col-label"><input type="radio" name="bulk-op" value="upper" onchange="updateBulkNote()"> UPPER CASE</label>
@@ -133,7 +133,7 @@
     <select id="split-col" class="bs-input bs-select" style="width: 100%;" onchange="splitRefresh(true)"></select>
     <span class="fld-label">Separator — a character, a string, or a regular expression</span>
     <div class="row2">
-        <input type="text" id="split-sep" class="bs-input" spellcheck="false" placeholder="e.g.  ;  or  -  or  \t  for a tab" oninput="splitRefresh(true)">
+        <input type="text" id="split-sep" class="bs-input" spellcheck="false" placeholder="e.g.  ;  or  -  or  \t  for a tab" oninput="splitRefresh(true)" autocomplete="off">
         <label class="col-label" style="margin: 0;"><input type="checkbox" id="split-re" onchange="splitRefresh(true)"> Regex</label>
     </div>
     <div class="chips" id="split-chips"></div>
@@ -160,14 +160,14 @@
     <span class="fld-label">Columns — tick them in the order they are joined</span>
     <div id="merge-cols"></div>
     <span class="fld-label">Separator</span>
-    <input type="text" id="merge-sep" class="bs-input" style="width: 100%;" spellcheck="false" value=" " oninput="mergeRefresh()">
+    <input type="text" id="merge-sep" class="bs-input" style="width: 100%;" spellcheck="false" value=" " oninput="mergeRefresh()" autocomplete="off">
     <div class="chips" id="merge-chips"></div>
     <div class="opts">
         <label class="col-label"><input type="checkbox" id="merge-skip" checked onchange="mergeRefresh()"> Skip empty values</label>
         <label class="col-label"><input type="checkbox" id="merge-keep" checked onchange="mergeRefresh()"> Keep the original columns</label>
     </div>
     <span class="fld-label">Name of the new column</span>
-    <input type="text" id="merge-name" class="bs-input" style="width: 100%;" spellcheck="false" oninput="mergeState.userName = true; mergeRefresh()">
+    <input type="text" id="merge-name" class="bs-input" style="width: 100%;" spellcheck="false" oninput="mergeState.userName = true; mergeRefresh()" autocomplete="off">
     <div class="pv-wrap"><table class="pv" id="merge-pv"></table></div>
     <div class="modal-actions" style="margin-top: 16px;">
         <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
@@ -231,7 +231,7 @@
     </div>
     <div class="cv-grid" id="cv-o-phone">
         <span>Country code</span>
-        <input type="text" id="cv-cc" class="bs-input" value="33" spellcheck="false" oninput="convertRefresh()" title="Given to national numbers, those starting with 0">
+        <input type="text" id="cv-cc" class="bs-input" value="33" spellcheck="false" oninput="convertRefresh()" title="Given to national numbers, those starting with 0" autocomplete="off">
         <span>Write as</span>
         <select id="cv-pout" class="bs-input bs-select" onchange="convertRefresh()">
             <option value="e164">+33612345678 (E.164)</option><option value="intl">+33 6 12 34 56 78</option><option value="nat">06 12 34 56 78</option>
@@ -263,7 +263,7 @@
         </div>
     </details>
     <div class="row2" style="margin-top: 12px;">
-        <div style="flex: 1;"><span class="fld-label">Name</span><input type="text" id="fx-name" class="bs-input" style="width: 100%;" value="Computed" spellcheck="false" oninput="fxRefresh()"></div>
+        <div style="flex: 1;"><span class="fld-label">Name</span><input type="text" id="fx-name" class="bs-input" style="width: 100%;" value="Computed" spellcheck="false" oninput="fxRefresh()" autocomplete="off"></div>
         <div style="flex: 1;"><span class="fld-label">Write to</span><select id="fx-dest" class="bs-input bs-select" style="width: 100%;" onchange="fxRefresh()"></select></div>
     </div>
     <div class="stat-line" id="fx-stats"></div>
@@ -330,7 +330,7 @@
     </div>
     <div class="rc-sub" id="rc-sub"></div>
     <div id="rc-raw"></div>
-    <input type="text" class="bs-input rc-search" placeholder="Find a field…" spellcheck="false" oninput="rowCard.q = this.value; rowCardFields()" onkeydown="event.stopPropagation()">
+    <input type="text" class="bs-input rc-search" placeholder="Find a field…" spellcheck="false" oninput="rowCard.q = this.value; rowCardFields()" onkeydown="event.stopPropagation()" autocomplete="off">
     <div id="rc-fields"></div>
 </div>
 
@@ -471,7 +471,7 @@
     <input type="file" id="loader" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.json,.jsonl,.ndjson" multiple>
 
 
-    <input type="text" id="global-search" class="bs-input" placeholder="Filter...">
+    <input type="text" id="global-search" class="bs-input" placeholder="Filter..." autocomplete="off">
 
     <div class="chk-group">
         <label><input type="checkbox" id="use-slug"> Ignore accents</label>
@@ -507,8 +507,8 @@
 
 <div id="sr-bar">
     <span style="font-family: 'Inter', sans-serif; font-size: 13px;">Find &amp; Replace in <b>filtered</b> rows:</span>
-    <input type="text" id="sr-find" class="bs-input" placeholder="Find text...">
-    <input type="text" id="sr-replace" class="bs-input" placeholder="Replace with...">
+    <input type="text" id="sr-find" class="bs-input" placeholder="Find text..." autocomplete="off">
+    <input type="text" id="sr-replace" class="bs-input" placeholder="Replace with..." autocomplete="off">
     <select id="sr-col" class="bs-input bs-select" title="Where to replace"></select>
     <label class="sr-chk" title="Find is a regular expression; the replacement can use $1, $2… for its groups"><input type="checkbox" id="sr-regex"> Regex</label>
     <button class="btn btn-warn" onclick="applySearchReplace()">
@@ -521,10 +521,15 @@
 
 <div id="view-container">
     <div id="empty-state"></div>
-    <table id="mainTable">
-        <thead id="thead"></thead>
-        <tbody id="tbody"></tbody>
-    </table>
+    <!-- The grid lives in a sticky, clipped layer that the script scrolls (12-…, SCROLLING);
+         the native scrollbars come from #scroll-space, sized like the table. -->
+    <div id="grid-layer">
+        <table id="mainTable" class="grid">
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+    <div id="scroll-space"></div>
 </div>
 
 <div id="statusbar">

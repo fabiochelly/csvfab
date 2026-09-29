@@ -37,7 +37,7 @@ function renameColumn(i, span) {
         return;
     }
     const input = document.createElement('input');
-    input.className = 'col-rename'; input.value = t.headers[i]; input.spellcheck = false;
+    input.className = 'col-rename'; input.value = t.headers[i]; input.spellcheck = false; input.autocomplete = 'off';
     span.replaceWith(input); input.focus(); input.select();
     let done = false;
     const finish = ok => {
@@ -218,7 +218,7 @@ function splitRefresh(reanalyse) {
     for (const r of t.allData) { const v = cellStr(r.data[col]); if (v.trim() && sepAt(finder, v, collapse).length) sample.push(v); if (sample.length >= 6) break; }
     document.getElementById('split-pv').innerHTML =
         '<tr>' + (keep ? `<th style="padding: 4px 8px;">${esc(h)}</th>` : '')
-        + splitState.names.slice(0, n).map((x, i) => `<th><input class="bs-input" value="${esc(x.v)}" oninput="splitState.names[${i}] = { v: this.value, auto: false }"></th>`).join('') + '</tr>'
+        + splitState.names.slice(0, n).map((x, i) => `<th><input class="bs-input" autocomplete="off" value="${esc(x.v)}" oninput="splitState.names[${i}] = { v: this.value, auto: false }"></th>`).join('') + '</tr>'
         + sample.map(v => '<tr>' + (keep ? `<td class="src">${esc(v)}</td>` : '')
             + cutAt(v, sepAt(finder, v, collapse), n, trim).map(x => x ? `<td title="${esc(x)}">${esc(x)}</td>` : '<td class="empty">empty</td>').join('') + '</tr>').join('');
     go.disabled = !(filled && max > 1);
@@ -481,7 +481,7 @@ function handleColCheck(e, idx) {
     lastCheckedCol = idx; applyColStyles(); render(); updateCount(t);   // render: the spacers' colspans count the visible columns
 }
 
-/* Single style tag holding hidden columns + column widths of the ACTIVE tab */
+/* Single style tag holding hidden columns + column widths of the ACTIVE tab (.grid: the table and the scroll preview's) */
 function applyColStyles() {
     const t = T();
     let css = '';
@@ -493,18 +493,18 @@ function applyColStyles() {
            column has a pinned width, the table gets their exact sum. */
         let sum = idxColW, all = idxColW > 0;
         t.headers.forEach((_, c) => { if (t.hiddenCols.has(c)) return; if (t.colWidths[c] == null) all = false; else sum += t.colWidths[c]; });
-        if (all) css += `#mainTable { width: ${sum}px; }\n`;
+        if (all) css += `.grid { width: ${sum}px; }\n`;
         /* Header cells by position (the header always has every column), body
            cells by data-c: a row drawn with only the columns in view has fewer. */
-        t.hiddenCols.forEach(c => { css += `#mainTable td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
+        t.hiddenCols.forEach(c => { css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
         Object.keys(t.colWidths).forEach(k => {
             const c = parseInt(k, 10), w = t.colWidths[k];
-            css += `#mainTable td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; overflow: hidden; }\n`;
+            css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; overflow: hidden; }\n`;
         });
     }
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
-    if (styleTag.textContent !== css) styleTag.textContent = css;   // unchanged (most calls): no restyle of the whole table
+    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
 }
 
 function openColManager() {

@@ -173,5 +173,6 @@ function resizeContainer() {
     const card = document.getElementById('row-card');
     container.style.width = card.classList.contains('open') ? 'calc(100vw - var(--card-w))' : '';
     card.style.top = top + 'px'; card.style.bottom = bottom + 'px';
+    syncSpace(T());                       // the grid layer and the scroll extent follow the viewport
 }
 new ResizeObserver(resizeContainer).observe(document.getElementById('chrome'));   // the toolbar may wrap

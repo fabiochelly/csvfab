@@ -358,14 +358,19 @@ function viewCols(L) {
 /* The window to draw around the viewport: its rows (a screen beyond it each
    way) and, once every column has a pinned width, its columns (a screen's
    width each side). */
-function drawWindow(t) {
+function drawWindow(t, lean) {
     const n = t.filteredData.length, [v0, v1] = viewRows(t), L = colLayout(t);
     /* Widths not measured yet: every column is drawn once to measure them, so
-       only the rows in view (80 rows × 85 columns cost ~70 ms of layout). */
-    const page = L ? v1 - v0 + 1 : 0;
+       only the rows in view (80 rows × 85 columns cost ~70 ms of layout).
+       lean (a jump while the scrollbar is dragged): a quarter of a screen around
+       the viewport instead of a whole one — the next frame of the drag will land
+       elsewhere anyway, and a lighter redraw keeps the thumb following the mouse;
+       the incremental steps grow the window back once the motion slows. */
+    const page = L ? (lean ? Math.ceil((v1 - v0 + 1) / 4) : v1 - v0 + 1) : 0;
     const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: null, c1: null, cols: null, left: 0, right: 0 };
     if (L) {
-        const [k0, k1] = viewCols(L), a = container.scrollLeft - container.clientWidth, b = container.scrollLeft + 2 * container.clientWidth;
+        const m = lean ? container.clientWidth / 4 : container.clientWidth;
+        const [k0, k1] = viewCols(L), a = container.scrollLeft - m, b = container.scrollLeft + container.clientWidth + m;
         let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
         let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
         Object.assign(w, { c0, c1, cols: L.vis.slice(c0, c1 + 1), left: c0, right: L.vis.length - 1 - c1 });
@@ -407,7 +412,14 @@ function redrawRows(t, i0, i1) {
         if (tr) tr.outerHTML = rowsHtml(t, i, i, w);
     }
 }
-const spacer = (cls, rows, span) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none;"></td></tr>`;
+/* A spacer stands for rows not drawn. Its cell is striped like rows (CSS), in phase
+   with them — `first` is the view index of the first row it stands for, and rows
+   alternate on their number — so that a scrollbar drag landing past the drawn window
+   shows grid lines for the frame before the rows are drawn (the compositor scrolls
+   the painted layer at once, the main thread draws the rows a frame later): rows
+   filling in, rather than a blank band flashing at every jump. */
+const spacerPhase = first => `background-position-y: ${first % 2 ? -ROW_H : 0}px;`;
+const spacer = (cls, rows, span, first) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none; ${spacerPhase(first)}"></td></tr>`;
 
 /* The drawn rows move from columns drawn.c0…c1 to w.c0…w.c1 (indices into
    the visible columns): in each row, the cells leaving are removed, the
@@ -445,6 +457,12 @@ function shiftCols(t, w, vis) {
    columns drawn redrew it all (~50 ms); adding rows costs ~1.5 ms plus
    ~0.4 ms a row, so small steps stay far under a frame. */
 const ROW_STEP = 4, COL_STEP = 2;
+/* A jump redraw (script + layout) past JUMP_BUDGET ms gives the following frames
+   back: the next jumps are skipped for as long as that redraw took, the layer still
+   showing the rows last drawn, and a trailing timer draws the last position. A
+   narrow file redraws every frame; an 85-column one about every third, and the
+   thumb follows the mouse instead of the redraws. */
+let JUMP_BUDGET = 12, lastJumpAt = 0, lastJumpMs = 0, jumpTimer = 0;
 function renderOnScroll() {
     const t = T();
     if (!t || !t.loaded || !drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
@@ -454,8 +472,21 @@ function renderOnScroll() {
     const w = drawWindow(t);
     const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP;
     const colsMove = L && (Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP);
+    if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) {   // a jump: nothing to keep, a lean redraw
+        const now = performance.now();
+        if (lastJumpMs > JUMP_BUDGET && now - lastJumpAt < lastJumpMs) {
+            /* Skipped: the layer is NOT moved either — moved without its rows redrawn, it
+               would show the striped spacer where the rows should be, a frame of flicker. */
+            clearTimeout(jumpTimer); jumpTimer = setTimeout(() => { jumpTimer = 0; renderOnScroll(); }, lastJumpMs);
+            return;
+        }
+        render(true);                         // syncs the layer itself
+        void tbody.offsetHeight;              // the layout now rather than at paint: it is part of what the jump costs
+        lastJumpAt = performance.now(); lastJumpMs = lastJumpAt - now;
+        return;
+    }
+    syncLayer();                              // the layer follows the scroll only with rows drawn at the new position
     if (!rowsMove && !colsMove) return;
-    if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) return render();   // a jump: nothing to keep
     if (colsMove) shiftCols(t, w, L.vis);
     else if (L) Object.assign(w, { c0: drawn.c0, c1: drawn.c1, cols: L.vis.slice(drawn.c0, drawn.c1 + 1), left: drawn.c0, right: L.vis.length - 1 - drawn.c1 });   // rows entering take the columns drawn
     if (!rowsMove) return;
@@ -467,21 +498,25 @@ function renderOnScroll() {
     if (w.r1 > drawn.r1) btm.insertAdjacentHTML('beforebegin', rowsHtml(t, drawn.r1 + 1, w.r1, w));
     top.style.height = w.r0 * ROW_H + 'px';
     btm.style.height = (drawn.n - 1 - w.r1) * ROW_H + 'px';
+    btm.firstElementChild.style.backgroundPositionY = ((w.r1 + 1) % 2 ? -ROW_H : 0) + 'px';   // its stripes stay in phase with the rows above
     drawn.r0 = w.r0; drawn.r1 = w.r1;
 }
 
-function render() {
+function render(lean) {
     const t = T();
     drawn = null;
+    clearTimeout(jumpTimer); jumpTimer = 0;   // a redraw for any reason: nothing left to catch up
+    syncLayer();
     if (!t || !t.loaded) { tbody.innerHTML = ''; return; }
     const data = t.filteredData;
     if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="100" style="padding: 20px; text-align: center;">No results found</td></tr>'; return; }
-    const w = drawWindow(t), span = t.headers.length + 1;
+    const w = drawWindow(t, lean), span = t.headers.length + 1;
     /* Both spacers are always there (height 0 at an end): the scroll updates resize them. */
-    tbody.innerHTML = spacer('sp-top', w.r0, span) + rowsHtml(t, w.r0, w.r1, w) + spacer('sp-btm', data.length - 1 - w.r1, span);
+    tbody.innerHTML = spacer('sp-top', w.r0, span, 0) + rowsHtml(t, w.r0, w.r1, w) + spacer('sp-btm', data.length - 1 - w.r1, span, w.r1 + 1);
     const L = colLayout(t);
     drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L ? L.vis.join(',') : null };
     pinColWidths(t);
+    syncSpace(t);
 }
 
 /* Column widths follow content, and only the visible slice is in the DOM, so
@@ -508,4 +543,42 @@ function pinColWidths(t) {
         if (w) { t.colWidths[i] = Math.min(Math.ceil(w), 480); changed = true; }
     });
     if (changed) applyColStyles();
+}
+
+
+/* ---------------------------------------------------------------
+   SCROLLING
+   The table is not scrolled by the browser: it sits in #grid-layer, a
+   sticky, clipped box the size of the container's viewport, and the
+   native scrollbars belong to the container, whose extent comes from
+   #scroll-space, sized like the table. Each scroll event copies the
+   container's offsets onto the layer (syncLayer) and draws the window
+   (renderOnScroll) — on the main thread, before the frame is painted.
+   Why: the compositor scrolls a painted layer at once, a frame before the
+   script draws the rows a jump landed on, so dragging the scrollbar's
+   thumb over a big file showed a blank band at every frame. A sticky
+   layer is repositioned by the compositor too, so it keeps showing the
+   rows last drawn until the script replaces them: what VS Code does with
+   its own scrollbar, with the native one kept. The sticky header and
+   row numbers work as before, the layer being their scrollport.
+----------------------------------------------------------------*/
+/* Looked up at each call, not consts: resizeContainer() calls syncSpace() at boot, before this file's top level has run. */
+function syncLayer() {
+    const gridLayer = document.getElementById('grid-layer');
+    if (gridLayer.scrollTop !== container.scrollTop) gridLayer.scrollTop = container.scrollTop;
+    if (gridLayer.scrollLeft !== container.scrollLeft) gridLayer.scrollLeft = container.scrollLeft;
+}
+/* The layer the size of the viewport, the spacer the rest of the table's extent
+   (rows × ROW_H + the header, and the pinned widths' sum — measured only while
+   widths are still unknown). */
+function syncSpace(t) {
+    const gridLayer = document.getElementById('grid-layer'), scrollSpace = document.getElementById('scroll-space');
+    const cw = container.clientWidth, ch = container.clientHeight;
+    gridLayer.style.width = cw + 'px'; gridLayer.style.height = ch + 'px';
+    if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; return; }
+    const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
+    const h = thead.offsetHeight + t.filteredData.length * ROW_H;
+    scrollSpace.style.height = Math.max(0, h - ch) + 'px';
+    scrollSpace.style.width = Math.max(1, w) + 'px';
+    syncLayer();
 }
