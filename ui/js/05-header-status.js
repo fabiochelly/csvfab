@@ -259,7 +259,7 @@ function columnKinds(t) {
 }
 function typeIcon(k) {
     if (k === 'n') return '<span class="ty ty-n" title="Numbers">#</span>';
-    if (k === 'd') return '<span class="ty ty-d" title="Dates"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>';
+    if (k === 'd') return '<span class="ty ty-d" title="Dates"></span>';   // the calendar is a CSS mask: an SVG per title weighed on every header rebuild
     if (k === 't') return '<span class="ty ty-t" title="Text">Aa</span>';
     return '';
 }
@@ -279,18 +279,52 @@ function renderHeader() {
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
                 <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Column ${i} (from 0) · Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
-                <div class="col-actions">
-                    <span class="c-btn" onclick="addColumn(${i})" title="Add column right">+</span>
-                    <span class="c-btn del" onclick="deleteColumn(${i})" title="Delete column">−</span>
-                </div>
             </div>
-            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered by value — ' : ''}Profile and filter by value">${t.valFilters[i] ? FUNNEL_SVG : CARET_SVG}</span>
+            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered by value — ' : ''}Profile and filter by value"></span>
             <div class="resizer" data-col="${i}"></div>
         </th>`;
-        fCells += `<th><input class="bs-input f-in${t.colFilters[i] ? ' has-value' : ''}" data-col="${i}" size="1" placeholder="Filter" spellcheck="false" value="${esc(t.colFilters[i] || '')}"></th>`;
+        fCells += `<th>${colFilterBox(i, t.colFilters[i])}</th>`;
     });
     thead.innerHTML = `<tr>${hCells}</tr><tr class="filter-row">${fCells}</tr>`;
     if (srBar.style.display === 'flex') fillSRCols();
     document.querySelectorAll('.resizer').forEach(setupResizer);
-    document.querySelectorAll('.f-in').forEach(i => i.oninput = () => { i.classList.toggle('has-value', i.value !== ''); filterSoon(); });
+}
+
+/* The + / − of a title: one pair, moved into the title the pointer enters,
+   rather than a pair in each of 85 titles rebuilt with the header. */
+const colActs = document.createElement('div');
+colActs.className = 'col-actions';
+colActs.innerHTML = '<span class="c-btn" data-a="add" title="Add column right">+</span><span class="c-btn del" data-a="del" title="Delete column">−</span>';
+colActs.onclick = e => {
+    const b = e.target.closest('.c-btn'), th = colActs.closest('th');
+    if (!b || !th) return;
+    const i = +th.dataset.col;
+    if (b.dataset.a === 'add') addColumn(i); else deleteColumn(i);
+};
+thead.addEventListener('mouseover', e => {
+    const th = e.target.closest && e.target.closest('th.col-th'), title = th && th.querySelector('.col-title');
+    if (title && colActs.parentElement !== title) title.appendChild(colActs);
+});
+
+/* The filter row holds look-alike boxes, not inputs: 85 inputs were most of
+   the header's layout, rebuilt after every sort, undo, tab switch… for a
+   row rarely typed in. A click (or Tab from the previous box) swaps a box
+   for a real input; leaving it swaps it back. t.colFilters holds the values. */
+function colFilterBox(c, v) {
+    return `<span class="bs-input f-in f-box${v ? ' has-value' : ''}" data-col="${c}" tabindex="0" onfocus="editColFilter(this)" title="Filter this column">${v ? esc(v) : '<span class="f-ph">Filter</span>'}</span>`;
+}
+function editColFilter(box) {
+    const t = T(); if (!t) return;
+    const c = +box.dataset.col, input = document.createElement('input');
+    input.className = 'bs-input f-in' + (t.colFilters[c] ? ' has-value' : '');
+    input.dataset.col = c; input.size = 1; input.placeholder = 'Filter'; input.spellcheck = false;
+    input.value = t.colFilters[c] || '';
+    box.replaceWith(input);
+    input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+    input.oninput = () => {
+        if (input.value) t.colFilters[c] = input.value; else delete t.colFilters[c];
+        input.classList.toggle('has-value', input.value !== '');
+        filterSoon();
+    };
+    input.onblur = () => { if (input.isConnected) input.outerHTML = colFilterBox(c, t.colFilters[c]); };
 }

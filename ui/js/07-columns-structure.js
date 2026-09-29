@@ -504,7 +504,7 @@ function applyColStyles() {
     }
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
-    styleTag.innerHTML = css;
+    if (styleTag.textContent !== css) styleTag.textContent = css;   // unchanged (most calls): no restyle of the whole table
 }
 
 function openColManager() {

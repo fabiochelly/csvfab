@@ -5,8 +5,6 @@
    the rows the other filters let through (this column's own value
    filter excluded), so the numbers follow what is being looked at.
 ----------------------------------------------------------------*/
-const CARET_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>';
-const FUNNEL_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"/></svg>';
 const CP_MAX = 300;                       // values listed at once; the search reaches the others
 let colPanel = null;                      // { t, col, entries: [[value, count]], excluded: Set, shown: [] }
 

@@ -18,15 +18,34 @@ Arrêt : le serveur s'éteint seul dès que plus aucune fenêtre ne l'interroge,
 pour ne rien laisser tourner derrière l'application fermée.
 """
 
+import os
+import socket
+import sys
+
+# Le port est ouvert avant tout le reste (imports, définitions : ~70 ms de
+# plus) : le lanceur démarre Chromium dès qu'il accepte des connexions, et
+# une requête arrivée entre-temps attend dans la file d'écoute au lieu d'être
+# refusée. Un port déjà pris signale, comme avant, un serveur déjà lancé.
+_EARLY = None
+if __name__ == "__main__":
+    _port = int(os.environ.get("CSVFAB_PORT") or os.environ.get("CSV_EDITOR_PORT") or "8787")
+    _EARLY = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name != "nt":            # voir Server.allow_reuse_address
+        _EARLY.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        _EARLY.bind(("127.0.0.1", _port))
+        _EARLY.listen(64)
+    except OSError as e:
+        print(f"port {_port} indisponible : {e}", file=sys.stderr)
+        sys.exit(1)
+
 import csv
 import http.server
 import io
 import json
-import os
 import secrets
 import shutil
 import socketserver
-import sys
 import threading
 import time
 import urllib.parse
@@ -766,12 +785,21 @@ def main():
     _started = time.time()
     os.makedirs(STATE, exist_ok=True)
 
-    try:
-        srv = Server((HOST, PORT), Handler)
-    except OSError as e:
-        # Déjà occupé : un serveur tourne probablement, le lanceur s'en sert.
-        print(f"port {PORT} indisponible : {e}", file=sys.stderr)
-        return 1
+    if _EARLY is not None:
+        # Le socket ouvert en tête de fichier ; server_bind() est sauté, et avec
+        # lui son socket.getfqdn(), une résolution de nom inutile ici.
+        srv = Server((HOST, PORT), Handler, bind_and_activate=False)
+        srv.socket.close()
+        srv.socket = _EARLY
+        srv.server_address = _EARLY.getsockname()
+        srv.server_name, srv.server_port = HOST, PORT
+    else:
+        try:
+            srv = Server((HOST, PORT), Handler)
+        except OSError as e:
+            # Déjà occupé : un serveur tourne probablement, le lanceur s'en sert.
+            print(f"port {PORT} indisponible : {e}", file=sys.stderr)
+            return 1
 
     tok = os.path.join(STATE, "token")
     fd = os.open(tok, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

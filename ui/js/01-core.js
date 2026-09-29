@@ -145,9 +145,6 @@ function collectUIState(t) {
     t.useRegex = document.getElementById('use-regex').checked;
     t.useSlug = document.getElementById('use-slug').checked;
     t.useReverse = document.getElementById('use-reverse').checked;
-    const f = {};
-    document.querySelectorAll('.f-in').forEach(i => { if (i.value) f[i.dataset.col] = i.value; });
-    t.colFilters = f;
     t.scrollTop = container.scrollTop;
 }
 

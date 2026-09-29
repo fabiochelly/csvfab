@@ -426,6 +426,9 @@ thead tr:first-child th { height: 32px; padding: 0 10px; font: 600 12.5px 'Inter
 .filter-row .f-in:hover { border-color: var(--surf-3); }
 .filter-row .f-in:focus { border-color: var(--prim); box-shadow: 0 0 0 3px rgba(var(--prim-rgb), .22); }
 .filter-row .f-in.has-value { border-color: rgba(var(--prim-rgb), .55); background-color: rgba(var(--prim-rgb), .1); }
+/* The box standing for the input until it is clicked: same look, text instead of a field. */
+.filter-row .f-box { line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; box-sizing: border-box; }
+.filter-row .f-box .f-ph { color: var(--txt-faint); }
 
 .col-idx { position: sticky; left: 0; z-index: 110; background: var(--surf-2) !important; width: 70px; min-width: 70px; text-align: center; border-right: 2px solid var(--prim); user-select: none; }
 thead .col-idx { z-index: 120; }
@@ -454,7 +457,17 @@ tr:hover .row-btn, .row-btn.open { display: flex; }
     display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--txt-dim); }
 .col-menu:hover, .col-menu.open { background: var(--surf-3); color: var(--txt-hi); }
 .col-menu.on { color: var(--prim); }
-.col-menu svg { width: 13px; height: 13px; }
+/* ▾, or a funnel while a value filter is set, and the Dates calendar: CSS masks in the text
+   colour — an SVG element in each of 85 titles was a third of the header's rebuild. */
+.col-menu::before { content: ''; width: 13px; height: 13px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat; }
+.col-menu.on::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e");
+            mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e"); }
+.ty-d::before { content: ''; width: 11px; height: 11px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat; }
 
 #col-panel {
     display: none; position: fixed; z-index: 1500; width: 300px; box-sizing: border-box; padding: 6px;

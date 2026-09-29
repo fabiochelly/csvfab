@@ -24,6 +24,7 @@ csvfab.py est exposé sous le nom de commande « csvfab » (lien ou raccourci).
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -116,10 +117,18 @@ def ping():
 
 
 # --- 1. le serveur ---------------------------------------------------------
-def ensure_server():
-    status = ping()
-    if status:
-        return status
+def port_open():
+    try:
+        with socket.create_connection(("127.0.0.1", PORT), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def start_server():
+    """Lance le serveur et rend la main dès que son port accepte des connexions
+    (il l'ouvre avant ses imports) : Chromium peut démarrer en parallèle de la
+    fin de son initialisation, ses requêtes attendront dans la file d'écoute."""
     os.makedirs(STATE, exist_ok=True)
     log = open(os.path.join(STATE, "server.log"), "ab")
     # sys.executable : le même Python que celui du lanceur (pythonw sous
@@ -127,12 +136,20 @@ def ensure_server():
     subprocess.Popen([sys.executable or "python3", os.path.join(HERE, "server.py")],
                      env={**os.environ, "CSVFAB_PORT": str(PORT)},
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, **detached())
-    for _ in range(100):             # Python démarre plus lentement sous Windows
+    for _ in range(1000):            # 5 s ; Python démarre plus lentement sous Windows
+        if port_open():
+            return
+        time.sleep(0.005)
+    die(f"le serveur local n'a pas démarré — voir {os.path.join(STATE, 'server.log')}")
+
+
+def wait_ping():
+    for _ in range(100):
         status = ping()
         if status:
             return status
-        time.sleep(0.05)
-    die(f"le serveur local n'a pas démarré — voir {os.path.join(STATE, 'server.log')}")
+        time.sleep(0.02)
+    die(f"le serveur local ne répond pas — voir {os.path.join(STATE, 'server.log')}")
 
 
 def read_token():
@@ -231,7 +248,13 @@ def main(paths):
         print(__doc__)
         return
     migrate_state()
-    status = ensure_server()
+    status = ping()
+    if not status:
+        # Pas de serveur, donc pas de fenêtre : Chromium (~0,4 s avant sa
+        # première requête) démarre pendant que le serveur finit le sien.
+        start_server()
+        open_window()
+        wait_ping()
     token = read_token()
     if not token:
         die(f"jeton introuvable dans {os.path.join(STATE, 'token')}")
@@ -239,9 +262,9 @@ def main(paths):
         queue_paths(paths, token)
     # "client": true <=> une fenêtre interroge encore le serveur : inutile d'en
     # ouvrir une seconde, le fichier y apparaîtra en onglet.
-    if status.get("client"):
+    if status and status.get("client"):
         focus_existing()
-    else:
+    elif status:
         open_window()
 
 
