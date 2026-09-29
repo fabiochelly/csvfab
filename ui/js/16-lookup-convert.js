@@ -62,11 +62,12 @@ function lookupIndex() {
     const skey = +document.getElementById('lk-skey').value, match = document.querySelector('input[name="lk-match"]:checked').value;
     const sig = skey + '|' + match;
     if (lookup.idx && lookup.idx.sig === sig) return lookup.idx;
-    const norm = LK_NORM[match], map = new Map(); let dups = 0;
-    for (const r of lookup.rows) {
-        const k = norm(cellStr(r.data[skey]));
+    const norm = LK_NORM[match], map = new Map(), rows = lookup.rows, keys = new Array(rows.length); let dups = 0;
+    visitRows(lookup.src, rows, (r, i) => { keys[i] = norm(cellStr(cellOf(r, skey))); });
+    for (let i = 0; i < rows.length; i++) {           // in the source's order: the first row wins
+        const k = keys[i];
         if (!k.trim()) continue;
-        if (map.has(k)) dups++; else map.set(k, r.data);
+        if (map.has(k)) dups++; else map.set(k, rows[i]);   // the row: its cells are decoded when used
     }
     return lookup.idx = { sig, map, dups, norm };
 }
@@ -90,10 +91,10 @@ function lookupRefresh() {
 
     const { map, dups, norm } = lookupIndex();
     let hit = 0, empty = 0;
-    for (const r of t.allData) {
-        const k = norm(cellStr(r.data[key]));
+    visitRows(t, t.allData, r => {
+        const k = norm(cellStr(cellOf(r, key)));
         if (!k.trim()) empty++; else if (map.has(k)) hit++;
-    }
+    });
     const miss = t.allData.length - hit - empty;
     stats.innerHTML = `<b>${fmt(hit)}</b> of ${fmt(t.allData.length)} rows find a match in ${esc(src.name)}`
         + (miss ? ` · ${fmt(miss)} don't` : '') + (empty ? ` · ${fmt(empty)} have an empty key` : '')
@@ -105,7 +106,7 @@ function lookupRefresh() {
     pv.innerHTML = !lookup.cols.length ? '<tr><td class="empty">Tick the columns to bring over.</td></tr>'
         : `<tr><th style="padding: 4px 8px;">${esc(t.headers[key])}</th>` + names.map(n => `<th style="padding: 4px 8px; color: var(--prim);">${esc(n)}</th>`).join('') + '</tr>'
         + sample.map(r => {
-            const d = map.get(norm(cellStr(r.data[key])));
+            const m = map.get(norm(cellStr(r.data[key]))), d = m && m.data;
             return `<tr><td class="src">${esc(cellStr(r.data[key]))}</td>` + lookup.cols.map(c => {
                 const v = d ? cellStr(d[c]) : '';
                 return !d ? `<td class="empty">${cellStr(r.data[key]).trim() ? 'no match' : 'empty key'}</td>` : v ? `<td title="${esc(v)}">${esc(v)}</td>` : '<td class="empty">empty</td>';
@@ -129,7 +130,7 @@ function applyLookup() {
     let hit = 0;
     const headers = [...t.headers.slice(0, key + 1), ...names, ...t.headers.slice(key + 1)];
     restructure(t, headers, d => {
-        const row = pad(d, key + 1), m = map.get(norm(cellStr(row[key])));
+        const row = pad(d, key + 1), o = map.get(norm(cellStr(row[key]))), m = o && o.data;
         if (m) hit++;
         return [...row.slice(0, key + 1), ...cols.map(c => m ? cellStr(m[c]) : ''), ...row.slice(key + 1)];
     }, c => c <= key ? c : c + n, `${n} column${n > 1 ? 's' : ''} looked up in ${src.name}`);
@@ -265,13 +266,13 @@ function convertFn() {
 function convertScan() {
     const t = T(), col = +document.getElementById('cv-col').value, f = convertFn();
     const changes = [], bad = new Map(); let same = 0;
-    for (const r of t.filteredData) {
-        const v = cellStr(r.data[col]); if (!v.trim()) continue;
+    visitRows(t, t.filteredData, r => {
+        const v = cellStr(cellOf(r, col)); if (!v.trim()) return;
         const nv = f(v);
         if (nv === null) bad.set(v, (bad.get(v) || 0) + 1);
         else if (nv === v) same++;
-        else changes.push([r, r.data[col], nv]);
-    }
+        else changes.push([r, cellOf(r, col), nv]);
+    });
     return { col, changes, same, bad };
 }
 
@@ -291,7 +292,7 @@ function openConvert(col) {
 function convertColChanged() {
     const t = T(), col = +document.getElementById('cv-col').value;
     const vals = [];
-    for (const r of t.filteredData) { const v = clean(cellStr(r.data[col])); if (v) vals.push(v); if (vals.length >= 2000) break; }
+    for (const r of t.filteredData) { const v = clean(cellStr(cellOf(r, col))); if (v) vals.push(v); if (vals.length >= 2000) break; }
     let dm = 0, md = 0;
     for (const v of vals) {
         const m = v.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.]\d{2,4}/);
@@ -339,9 +340,10 @@ function applyConvert() {
     const { col, changes: ch, bad } = convertScan();
     closeAllModals();
     if (!ch.length) return;
-    for (const [r, , nv] of ch) r.data[col] = nv;
+    const ed = rowEdits();
+    for (const [r, , nv] of ch) ed.set(r, col, nv);
     t.modificationsLog.push({ id: '-', col: t.headers[col], old: 'convert', new: `${ch.length} cells`, what: `${fmt(ch.length)} cells converted in ${t.headers[col]}`,
-        undo: () => { for (const [r, old] of ch) r.data[col] = old; } });
+        undo: () => ed.undo() });
     updateSaveBtn(); renderTabBar(); render();
     flash(ch.map(([r]) => [r, col]));
     setStats(`${t.name} | ${fmt(ch.length)} cells converted in ${t.headers[col]}${bad.size ? `, ${fmt([...bad.values()].reduce((a, b) => a + b, 0))} not recognised` : ''} — not written yet, use Save.`);
@@ -354,7 +356,7 @@ function showUnrecognised() {
     const { col, bad } = convertScan();
     closeAllModals();
     const ex = new Set();
-    for (const r of t.allData) { const v = cellStr(r.data[col]); if (!bad.has(v)) ex.add(v); }
+    visitRows(t, t.allData, r => { const v = cellStr(cellOf(r, col)); if (!bad.has(v)) ex.add(v); });
     t.valFilters[col] = ex;
     renderHeader(); applyColStyles(); applyFilters();
     setStats(`${t.name} | ${fmt(t.filteredData.length)} rows whose "${t.headers[col]}" was not recognised — clear the filter from the column's ▾.`);

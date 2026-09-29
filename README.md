@@ -2,11 +2,12 @@
 
 # csvfab
 
-A desktop CSV editor that **edits the file in place** — fast on files of hundreds of MB, with no build step and no dependency beyond Python and a Chromium-based browser.
+A desktop CSV editor that **edits the file in place** — fast on files of several GB, with no build step and no dependency beyond Python and a Chromium-based browser.
 
 - **Open anything**: tabs, drag & drop, "Open with" from your file manager; delimiter (`;` `,` tab `|`), header line and encoding (UTF-8, Windows-1252, ISO-8859-1, ISO-8859-15, Mac Roman, UTF-16) detected, and changeable from the status bar.
 - **Find what matters**: global and per-column filters (accents ignored, regex, invert), a column panel with a profile (type, distinct values, min / max / sum / average) and a filter by value, sort by clicking a title (Shift+click to sort on several columns).
 - **Edit like a spreadsheet**: in-place and multi-line editing, range selection, copy & paste with Excel or Google Sheets, series fill (drag the corner or Ctrl+D), typing into many cells at once, find & replace with regex, bulk edits on filtered rows, mark or remove duplicates (exact, case-insensitive or slugified), delete hidden rows, split and merge columns, computed columns (formulas), look up values from another open file (like VLOOKUP), convert dates, numbers and phone numbers to one format, clean up the whole file (garbled accents like `Ã©`, invisible characters, odd spaces, empty rows and columns), fill empty cells from the value above, compare two versions of a file on a key column, insert / move / rename / delete rows and columns — and **undo** (Ctrl+Z) all the way back to the last save, with a review of every pending change against the file on disk before you save.
+- **Large files**: the file stays as its own bytes in memory, rows are decoded only when shown or searched — a 2 GB CSV of 20 million rows opens in seconds without freezing the window, and a save copies the untouched lines as they are.
 - **Write safely**: Save rewrites the file in its own delimiter, line endings and encoding, keeps a timestamped `.bak` before the first overwrite, notices when another program changed the file meanwhile, and flags irregular rows. Save as another name, delimiter or encoding, or as a formatted Excel workbook (typed numbers and dates, bold frozen header, filters).
 
 ## Install
@@ -36,13 +37,14 @@ Files opened while the window is already there land in it as new tabs.
 | Ctrl+Z | undo |
 | Ctrl+C / Ctrl+V | copy / paste a range (Excel format) |
 | Ctrl+A, arrows, Shift+arrows | select |
-| Enter, F2, or just type | edit — Enter fills every selected cell, Ctrl+Enter a series, Shift+Enter a new line |
+| Home / End, Ctrl+Home / Ctrl+End | first / last cell of the row, of the file |
+| Enter, F2, double-click, or just type | edit — Enter selects the text, F2 and double-click put the caret at its end; Enter fills every selected cell, Ctrl+Enter a series, Shift+Enter a new line |
 | Ctrl+D | fill the series down |
 | Alt+← / Alt+→ | switch tab |
 
 ## How it works
 
-`csvfab` starts a small local server (`server.py`, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` (with its `ui/` styles and scripts) in a Chromium app window. The page parses and renders the CSV; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
+`csvfab` starts a small local server (`server.py`, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` (with its `ui/` styles and scripts) in a Chromium app window. The page reads the CSV — its records found by a background worker, each row decoded on demand — and renders it; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
 
 Settings and the browser profile live in `~/.local/state/csvfab` (Linux), `~/Library/Application Support/csvfab` (macOS) or `%LOCALAPPDATA%\csvfab` (Windows).
 

@@ -62,19 +62,15 @@ function moveColumn(from, to) {
     const t = T(); if (!t || from === to) return;
     const view = viewSnap(t);
     const shift = map => { const out = {}; Object.keys(map).forEach(k => out[movedIndex(+k, from, to)] = map[k]); return out; };
+    const order = t.headers.map((_, i) => i); order.splice(to, 0, order.splice(from, 1)[0]);   // new column → old one
+    const undoRows = remapRows(t, order);
     const [h] = t.headers.splice(from, 1); t.headers.splice(to, 0, h);
-    for (const r of t.allData) {
-        const d = r.data;
-        while (d.length <= Math.max(from, to)) d.push('');   // a short row gets the empty cells it would be written with anyway
-        const [v] = d.splice(from, 1); d.splice(to, 0, v);
-    }
     t.hiddenCols = new Set([...t.hiddenCols].map(c => movedIndex(c, from, to)));
     t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars);
     remapColRefs(t, c => movedIndex(c, from, to));
     t.modificationsLog.push({ id: '-', col: h, old: 'moved', new: `${from} → ${to}`, what: `column "${h}" moved`, undo: t => {
         const [x] = t.headers.splice(to, 1); t.headers.splice(from, 0, x);
-        for (const r of t.allData) { const [v] = r.data.splice(to, 1); r.data.splice(from, 0, v); }
-        viewRestore(t, view);
+        undoRows(); viewRestore(t, view);
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
     setStats(`${t.name} | Column "${h}" moved — not written yet, use Save.`);
@@ -82,18 +78,20 @@ function moveColumn(from, to) {
 
 /* ---------------------------------------------------------------
    RESTRUCTURE (split, merge)
-   Both rebuild every row's array, so undo simply puts the previous
-   arrays and headers back (the log is LIFO: rows are in the same order
-   by then). mapOld(c) says where old column c now is (-1: gone), and
-   remaps every index-keyed map; new columns get measured widths.
+   Both rebuild every row's array — each row then owns one, the base
+   record is no longer read — so undo puts the previous d back (null for
+   a row that was still its record). mapOld(c) says where old column c
+   now is (-1: gone), and remaps every index-keyed map; new columns get
+   measured widths. rowFn(d, r, i) must not mutate d (it may be shared),
+   nor count on being called in row order: i is the row's index.
 ----------------------------------------------------------------*/
 function restructure(t, headers, rowFn, mapOld, what) {
-    const view = viewSnap(t), prevHeaders = t.headers, prevData = t.allData.map(r => r.data);
-    for (const r of t.allData) r.data = rowFn(r.data);
+    const view = viewSnap(t), prevHeaders = t.headers, prevD = t.allData.map(r => r.d), rows = t.allData.slice();
+    visitRows(t, rows, (r, i) => { r.d = rowFn(r.data, r, i); });
     t.headers = headers;
     remapCols(t, mapOld);
     t.modificationsLog.push({ id: '-', col: '---', old: 'columns', new: what, what, undo: t => {
-        t.headers = prevHeaders; t.allData.forEach((r, i) => r.data = prevData[i]); viewRestore(t, view);
+        t.headers = prevHeaders; rows.forEach((r, i) => r.d = prevD[i]); viewRestore(t, view);
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
     setStats(`${t.name} | ${what} — not written yet, use Save.`);
@@ -171,12 +169,12 @@ function splitRefresh(reanalyse) {
 
     if (reanalyse || !splitState.dist) {
         const dist = new Map(); let filled = 0;
-        for (const r of t.allData) {
-            const v = cellStr(r.data[col]); if (!v.trim()) continue;
+        visitRows(t, t.allData, r => {
+            const v = cellStr(cellOf(r, col)); if (!v.trim()) return;
             filled++;
             const k = sepAt(finder, v, collapse).length + 1;
             dist.set(k, (dist.get(k) || 0) + 1);
-        }
+        });
         const ks = [...dist.keys()].sort((a, b) => a - b), max = ks.length ? ks[ks.length - 1] : 1;
         let cover = max, acc = 0;
         for (const k of ks) { acc += dist.get(k); if (acc >= filled * 0.99) { cover = k; break; } }
@@ -372,19 +370,23 @@ async function deleteColumns(t, cols) {
     const gone = new Set(cols);
     const before = c => { let n = 0; for (const g of cols) if (g < c) n++; return n; };
     sel = null;
-    restructure(t, t.headers.filter((_, i) => !gone.has(i)),
-        d => d.filter((_, i) => !gone.has(i)),        // an irregular row's extra fields stay
-        c => gone.has(c) ? -1 : c - before(c),
-        `${cols.length} columns deleted`);
+    const view = viewSnap(t), prevHeaders = t.headers, what = `${cols.length} columns deleted`;
+    const undoRows = remapRows(t, t.headers.map((_, i) => i).filter(i => !gone.has(i)));   // an irregular row's extra fields stay
+    t.headers = t.headers.filter((_, i) => !gone.has(i));
+    remapCols(t, c => gone.has(c) ? -1 : c - before(c));
+    t.modificationsLog.push({ id: '-', col: '---', old: 'columns', new: what, what, undo: t => { t.headers = prevHeaders; undoRows(); viewRestore(t, view); } });
+    updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
+    setStats(`${t.name} | ${what} — not written yet, use Save.`);
 }
 
 async function addColumn(idx) {
     const t = T(); if (!t) return;
     const colName = await uiPrompt('Name of the new column:', 'New_Column');
     if (!colName) return;
-    const view = viewSnap(t), short = new Set(t.allData.filter(r => r.data.length < idx + 1));   // splice appends to those
+    const view = viewSnap(t), order = t.headers.map((_, i) => i);
+    order.splice(idx + 1, 0, -1);                          // new column → old one, -1: the new, empty one
+    const undoRows = remapRows(t, order);
     t.headers.splice(idx + 1, 0, colName);
-    t.allData.forEach(row => row.data.splice(idx + 1, 0, ""));
 
     const newHidden = new Set();
     t.hiddenCols.forEach(c => { if (c <= idx) newHidden.add(c); else newHidden.add(c + 1); });
@@ -397,8 +399,7 @@ async function addColumn(idx) {
     remapColRefs(t, c => c > idx ? c + 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: '---', new: 'Column added', what: `column "${colName}" added`, undo: t => {
         t.headers.splice(idx + 1, 1);
-        t.allData.forEach(r => r.data.splice(short.has(r) ? r.data.length - 1 : idx + 1, 1));
-        viewRestore(t, view);
+        undoRows(); viewRestore(t, view);
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
 }
@@ -413,10 +414,8 @@ async function deleteColumn(idx) {
     }
     if (!await uiConfirm(`Delete column "${t.headers[idx]}" permanently?`, { ok: 'Delete column', danger: true })) return;
     const colName = t.headers[idx];
-    const view = viewSnap(t), removed = [];
-    t.allData.forEach(r => { if (r.data.length > idx) removed.push([r, r.data[idx]]); });
+    const view = viewSnap(t), undoRows = remapRows(t, t.headers.map((_, i) => i).filter(i => i !== idx));
     t.headers.splice(idx, 1);
-    t.allData.forEach(row => row.data.splice(idx, 1));
 
     const newHidden = new Set();
     t.hiddenCols.forEach(c => { if (c < idx) newHidden.add(c); else if (c > idx) newHidden.add(c - 1); });
@@ -429,8 +428,7 @@ async function deleteColumn(idx) {
     remapColRefs(t, c => c === idx ? -1 : c > idx ? c - 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: 'Column deleted', new: '---', what: `column "${colName}" deleted`, undo: t => {
         t.headers.splice(idx, 0, colName);
-        for (const [r, v] of removed) r.data.splice(idx, 0, v);
-        viewRestore(t, view);
+        undoRows(); viewRestore(t, view);
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
 }
@@ -460,7 +458,7 @@ function handleColCheck(e, idx) {
     } else {
         if (isChecked) t.hiddenCols.delete(idx); else t.hiddenCols.add(idx);
     }
-    lastCheckedCol = idx; applyColStyles(); pinColWidths(t);
+    lastCheckedCol = idx; applyColStyles(); pinColWidths(t); updateCount(t);
 }
 
 /* Single style tag holding hidden columns + column widths of the ACTIVE tab */

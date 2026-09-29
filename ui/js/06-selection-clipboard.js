@@ -14,7 +14,7 @@ function toggleDataBars(col) {
     const t = T(); if (!t) return;
     if (t.dataBars[col]) { delete t.dataBars[col]; render(); return; }
     let min = Infinity, max = -Infinity;
-    for (const r of t.allData) { const v = cellStr(r.data[col]).trim(); if (v && isNumericLike(v)) { const x = numKey(v); if (!isNaN(x)) { if (x < min) min = x; if (x > max) max = x; } } }
+    visitRows(t, t.allData, r => { const v = cellStr(cellOf(r, col)).trim(); if (v && isNumericLike(v)) { const x = numKey(v); if (!isNaN(x)) { if (x < min) min = x; if (x > max) max = x; } } });
     if (min === Infinity) return;
     t.dataBars[col] = { min: Math.min(0, min), max: Math.max(0, max) };
     render();
@@ -70,9 +70,12 @@ function revealCell(r, c) {
     if (y < container.scrollTop + top) container.scrollTop = y - top;
     else if (y + ROW_H > container.scrollTop + container.clientHeight) container.scrollTop = y + ROW_H - container.clientHeight;
     render();
+    const t = T(), vis = t ? visibleCols(t) : [];
+    if (c === vis[0]) { container.scrollLeft = 0; return; }   // the first column: all the way left, nothing cut off
     const td = tbody.querySelector(`tr[data-idx="${r}"] td[data-c="${c}"]`);
     if (td) {
-        const b = td.getBoundingClientRect(), cb = container.getBoundingClientRect(), left = cb.left + 70;
+        /* Left of the cell: the sticky row-number column, which covers what scrolls under it. */
+        const b = td.getBoundingClientRect(), cb = container.getBoundingClientRect(), left = cb.left + (idxColW || 70);
         if (b.left < left) container.scrollLeft -= left - b.left;
         else if (b.right > cb.right - 16) container.scrollLeft += b.right - cb.right + 16;
     }
@@ -98,6 +101,16 @@ tbody.addEventListener('mousedown', e => {
         return;
     }
     const c = +td.dataset.c;
+    if (e.detail === 2 && !e.shiftKey) {
+        /* A double-click edits, caret at the end like F2. Caught on the second
+           mousedown: the first one re-rendered the grid (the selection), so the
+           browser's own dblclick often finds no element left to fire on. */
+        e.preventDefault();
+        setSel(t, r, c, r, c);
+        const cell = tbody.querySelector(`tr[data-idx="${r}"] td[data-c="${c}"]`);
+        if (cell) startEdit(cell, null, true);
+        return;
+    }
     if (e.shiftKey && sel && sel.tab === t.id) setSel(t, sel.ar, sel.ac, r, c);
     else setSel(t, r, c, r, c);
     selDragging = true;
@@ -146,6 +159,14 @@ document.addEventListener('keydown', e => {
     if (!sel || sel.tab !== t.id) return;
     const vis = visibleCols(t), rows = t.filteredData.length;
     const step = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], PageUp: [-Math.floor(container.clientHeight / ROW_H), 0], PageDown: [Math.floor(container.clientHeight / ROW_H), 0] }[e.key];
+    if ((e.key === 'Home' || e.key === 'End') && !e.altKey && vis.length && rows) {
+        /* Home / End: first / last cell of the row; with Ctrl, of the file (top left / bottom right). */
+        e.preventDefault();
+        const end = e.key === 'End', r = ctrl ? (end ? rows - 1 : 0) : sel.fr, c = end ? vis[vis.length - 1] : vis[0];
+        if (e.shiftKey) sel = { ...sel, fr: r, fc: c }; else sel = { tab: t.id, ar: r, ac: c, fr: r, fc: c };
+        revealCell(r, c); selStats(t);
+        return;
+    }
     if (step && !e.altKey) {
         e.preventDefault();
         let r = Math.min(rows - 1, Math.max(0, sel.fr + step[0]));
@@ -158,10 +179,10 @@ document.addEventListener('keydown', e => {
         revealCell(r, c); selStats(t);
         return;
     }
-    if ((e.key === 'Enter' || e.key === 'F2') && !ctrl) {
+    if ((e.key === 'Enter' || e.key === 'F2') && !ctrl) {     // Enter: the text selected; F2: the caret at its end
         e.preventDefault(); revealCell(sel.fr, sel.fc);
         const td = tbody.querySelector(`tr[data-idx="${sel.fr}"] td[data-c="${sel.fc}"]`);
-        if (td) startEdit(td, null);
+        if (td) startEdit(td, null, e.key === 'F2');
         return;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); writeCells(t, [['']], true, 'cleared'); return; }
@@ -215,10 +236,10 @@ document.addEventListener('paste', e => {
    end when nothing is filtered out). Hidden columns are skipped. */
 function writeCells(t, grid, fillOnly, verb) {
     const rg = selRange(t); if (!rg || !grid.length) return;
-    const vis = visibleCols(t), before = [], added = [];
+    const vis = visibleCols(t), ed = rowEdits(), added = [], touched = [];
     const fill = fillOnly || (grid.length === 1 && grid[0].length === 1);
     let dropRows = 0, dropCols = 0;
-    const put = (row, c, v) => { if (cellStr(row.data[c]) === v) return; before.push([row, c, row.data[c]]); while (row.data.length <= c) row.data.push(''); row.data[c] = v; };
+    const put = (row, c, v) => { if (cellStr(row.data[c]) === v) return; touched.push([row, c]); ed.set(row, c, v); };
     let r1 = rg.r1, c1 = rg.c1;
     if (fill) {
         for (let r = rg.r0; r <= rg.r1; r++) for (const c of vis) if (c >= rg.c0 && c <= rg.c1) put(t.filteredData[r], c, grid[0][0]);
@@ -229,20 +250,20 @@ function writeCells(t, grid, fillOnly, verb) {
             let row = t.filteredData[rg.r0 + gi];
             if (!row) {
                 if (!canGrow) { dropRows++; return; }
-                row = { id: 0, data: t.headers.map(() => '') }; t.allData.push(row); added.push(row);
+                row = newRow(t, t.headers.map(() => '')); t.allData.push(row); added.push(row);
             }
             line.forEach((v, gj) => { const c = vis[k0 + gj]; if (c == null) { dropCols = Math.max(dropCols, gj + 1 - (vis.length - k0)); return; } put(row, c, v); });
         });
         r1 = Math.min(rg.r0 + grid.length - 1, t.allData.length - 1);
         c1 = vis[Math.min(vis.length - 1, k0 + Math.max(...grid.map(l => l.length)) - 1)];
     }
-    if (!before.length && !added.length) { setStats(`${t.name} | Nothing changed.`); return; }
-    flash(before.map(([row, c]) => [row, c]).concat(added.flatMap(row => row.data.map((_, c) => [row, c]))));
+    if (!touched.length && !added.length) { setStats(`${t.name} | Nothing changed.`); return; }
+    flash(touched.concat(added.flatMap(row => row.data.map((_, c) => [row, c]))));
     t.allData.forEach((r, i) => r.id = i + 1); t.rowCount = t.allData.length;
-    const n = before.length;
+    const n = touched.length;
     t.modificationsLog.push({ id: '-', col: '---', old: verb, new: `${n} cells`, what: `${fmt(n)} cells ${verb}${added.length ? `, ${fmt(added.length)} rows added` : ''}`, undo: t => {
-        for (const row of added) t.allData.splice(t.allData.indexOf(row), 1);
-        for (let k = before.length - 1; k >= 0; k--) { const [row, c, v] = before[k]; row.data[c] = v; }
+        if (added.length) { const gone = new Set(added); t.allData = t.allData.filter(r => !gone.has(r)); }
+        ed.undo();
     } });
     const keepTop = container.scrollTop;
     keepSel = true; applyFilters(); keepSel = false;

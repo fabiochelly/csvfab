@@ -1,21 +1,20 @@
 /* ---------------------------------------------------------------
    ENCODING
-   Papa decodes a File in 10 MB slices, each on its own, so a multi-byte
-   character straddling a slice boundary came out as two U+FFFD — and a
-   save wrote them back. The whole file is therefore decoded here, in one
-   go, and Papa gets text. Only a file too large for one JS string still
-   goes to Papa as a File (with the detected encoding), boundary risk and all.
+   The file is kept as bytes and decoded one record at a time (see the
+   row store, 21-…), always with one decoder per record — never slices
+   of the file decoded on their own, which split a multi-byte character
+   in two U+FFFD that a save then wrote back.
    Auto detection: a BOM decides; otherwise zero bytes on every other
    position mean UTF-16 without BOM; otherwise the file is UTF-8 if it
    decodes strictly as such — the whole file, not a sample, since a single
-   "é" in 1252 can sit on the last line — and Windows-1252 if it does not.
+   "é" in 1252 can sit on the last line — and Windows-1252 if it does not
+   (checked by the scan worker, off the main thread).
 ----------------------------------------------------------------*/
 const ENCODINGS = [['utf-8', 'UTF-8'], ['windows-1252', 'Windows-1252'], ['iso-8859-1', 'ISO-8859-1 (Latin-1)'],
     ['iso-8859-15', 'ISO-8859-15 (Latin-9, with €)'], ['macintosh', 'Mac Roman (Excel for Mac)'], ['utf-16le', 'UTF-16']];
 const ENC_SHORT = { 'iso-8859-1': 'ISO-8859-1', 'iso-8859-15': 'ISO-8859-15', 'macintosh': 'Mac Roman', 'utf-16be': 'UTF-16 BE' };
 /* One byte per character: encoded through a table built from the browser's own decoder. */
 const SINGLE_BYTE = ['windows-1252', 'iso-8859-1', 'iso-8859-15', 'macintosh'];
-const MAX_DECODE = 400 * 1024 * 1024;     // V8 strings stop at ~512 M chars
 function encName(e) { return ENC_SHORT[e] || (ENCODINGS.find(x => x[0] === e) || [e, e || '?'])[1]; }
 function currentEnc(t) { return t.encoding || t.detectedEnc || 'utf-8'; }
 
@@ -29,24 +28,6 @@ function sniffEncoding(b) {
     if (n && zOdd > n / 8 && zEven < n / 64) return { enc: 'utf-16le', bom: false };
     if (n && zEven > n / 8 && zOdd < n / 64) return { enc: 'utf-16be', bom: false };
     return { enc: 'utf-8', bom: false };
-}
-
-/* Sets t.detectedEnc / t.bom; returns the text, or null when too large to decode here. */
-async function decodeTab(t, file) {
-    const sn = sniffEncoding(new Uint8Array(await file.slice(0, 4096).arrayBuffer()));
-    let enc = t.encoding || sn.enc;
-    t.bom = sn.bom && sn.enc === enc;
-    if (file.size > MAX_DECODE) { t.detectedEnc = enc; return null; }
-    const buf = await file.arrayBuffer();
-    let text;
-    if (!t.encoding && enc === 'utf-8' && !sn.bom) {
-        try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
-        catch (e) { enc = 'windows-1252'; }
-    }
-    if (text == null) text = new TextDecoder(enc).decode(buf);   // strips a matching BOM
-    t.detectedEnc = enc;
-    t.mojibake = hasMojibake(text);
-    return text;
 }
 
 /* Reverse table of a single-byte encoding, built by decoding its 256 bytes
@@ -104,7 +85,8 @@ async function confirmEncodable(t, rows, enc) {
     let n = 0, first = '';
     const test = v => { if (v && bad.test(v)) { if (!n) first = (String(v).match(bad) || [''])[0]; n++; } };
     t.headers.forEach(test);
-    for (const r of rows) for (const v of r.data) test(v);
+    const same = t.base && !t.base.transcoded && t.base.enc === enc;   // a record read in this encoding holds nothing it cannot write
+    visitRows(t, rows, r => { if (!(same && !r.d)) for (const v of r.data) test(v); });
     return !n || await uiConfirm(`${fmt(n)} cells contain characters ${encName(enc)} cannot represent (e.g. "${first}").\n\nThey will be written as "?".`, { ok: 'Write them as "?"' });
 }
 
@@ -121,28 +103,30 @@ function settleWaiters(t, rows) { if (t.waiters) t.waiters.splice(0).forEach(f =
 
 async function parseTab(t) {
     t.loading = true; t.error = null; t.loaded = false;
-    t.allData = []; t.filteredData = []; t.quoteErrors = 0;
-    let headerDone = false, skip = 0;       // skip: the header line, when one was consumed (row k is then file line k + 1)
+    t.allData = []; t.filteredData = []; t.quoteErrors = 0; t.base = null;
     const active = () => t.id === activeTabId;
     t.rowMark = null;
 
     if (active()) { setStats(`Reading ${t.name}…`); startProgress(); }
     renderTabBar();
 
-    /* Every kind of tab is parsed the same way: bytes as a File, decoded
-       here, then handed to the worker as text. A bridge tab buffers its
-       bytes rather than letting Papa download them — Papa's worker silently
-       never calls back when `download: true` is combined with `worker:
-       true` (it has no script path to work from), and dropping the worker
-       would parse a large file on the main thread. The raw bytes are a
-       fraction of what the parsed rows cost in RAM anyway. */
-    let src, text;
+    /* Every kind of tab is read the same way: its bytes as a File, handed
+       to the scan worker, which finds the records; rows decode themselves
+       on demand. A bridge tab buffers its bytes through tabFile() rather
+       than streaming them anywhere: the raw bytes are what we keep. */
+    let base;
     try {
         if (t.path) t.name = (await srvStat(t.path)).name;
-        src = await tabFile(t, active() ? setProgress : null); t.size = src.size;
-        t.stamp = await diskStamp(t, src);
-        if (t.stamp) t.stamp.fp = await fingerprint(src);
-        text = await decodeTab(t, src);
+        const src = await tabBytes(t, active() ? setProgress : null); t.size = src.bytes.byteLength;
+        t.stamp = await diskStamp(t, src.file);
+        if (t.stamp) t.stamp.fp = await fingerprint(src.bytes);   // before the bytes go to the worker
+        const phases = { transcode: 'Converting', scan: 'Reading' };
+        let shown = '';
+        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter }, (p, ph) => {
+            if (!active()) return;
+            if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
+            setProgress(p);
+        });
     }
     catch (err) {                       // handle revoked, file moved or deleted
         t.loading = false; t.error = err;
@@ -150,55 +134,45 @@ async function parseTab(t) {
         settleWaiters(t, null); renderTabBar(); return;
     }
 
-    const total = text != null ? text.length : t.size;
-    Papa.parse(text != null ? text : src, {
-        worker: true, delimiter: t.delimiter, skipEmptyLines: true,
-        chunkSize: 4 << 20, encoding: t.detectedEnc,   // chunkSize counts chars for text, bytes for a File
-        chunk: function (results) {
-            let rows = results.data;
-            t.quoteErrors += results.errors.filter(e => e.type === 'Quotes').length;
-            if (!headerDone) {
-                headerDone = true;
-                /* Auto mode leaves t.delimiter empty: keep what Papa sniffed,
-                   and the file's own line ending, so an in-place save rewrites
-                   the file in its original shape instead of imposing ";" + LF. */
-                t.detectedDelim = results.meta.delimiter || '';
-                t.detectedEol = results.meta.linebreak || '\n';
-                if (t.headers.length === 0 && rows.length) {   // first read: decide what line 1 is
-                    const mode = t.headerMode;
-                    const isHeader = mode === 'first' ? true : (mode === 'index' ? false : looksLikeHeader(rows[0], rows.slice(1, 1 + HEADER_SAMPLE)));
-                    t.syntheticHeader = !isHeader;
-                    t.headers = isHeader ? rows[0].slice() : numberedHeaders(rows[0].length);
-                }
-                if (!t.syntheticHeader) rows = rows.slice(1);  // on a re-read the decision is already known
-                skip = t.syntheticHeader ? 0 : 1; t.headerSrc = skip ? 0 : null;
-                if (active()) { renderHeader(); applyColStyles(); refreshParseOpts(); }
-            }
-            const start = t.allData.length;
-            for (let i = 0; i < rows.length; i++) t.allData.push({ id: start + i + 1, data: rows[i], src: start + i + skip });
-            if (active() && total && results.meta.cursor) setProgress(results.meta.cursor / total);
-        },
-        complete: function () {
-            t.loading = false; t.loaded = true; t.rowCount = t.allData.length; t.lastUsed = Date.now();
-            t.colSrc = t.headers.map((_, i) => i);
-            if (!tabs.some(x => x.loading)) endProgress();
-            if (active()) {
-                convertHeader(t, wantsSynthetic(t, t.headerMode));
-                renderHeader();                   // again now that the rows are in: the type icons need them
-                refreshParseOpts();
-                applyFilters();
-                container.scrollTop = t.scrollTop; render();
-            }
-            renderTabBar();
-            settleWaiters(t, t.allData);          // before eviction, which may release this very tab again
-            evictIfNeeded();
-        },
-        error: function (err) {
-            t.loading = false; t.error = err;
-            if (active()) { endProgress(); setStats(`Cannot read ${t.name} (${err})`); }
-            settleWaiters(t, null); renderTabBar();
-        }
-    });
+    t.base = base;
+    t.detectedEnc = base.enc; t.bom = base.bom;
+    /* Auto mode leaves t.delimiter empty: keep what was sniffed, and the
+       file's own line ending, so an in-place save rewrites the file in its
+       original shape instead of imposing ";" + LF. */
+    t.detectedDelim = base.delim; t.detectedEol = base.eol;
+    t.quoteErrors = base.qerr;
+    /* The garbled-accents hint: the first 16 MB are plenty to notice it. */
+    t.mojibake = base.n > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, Math.min(base.u8.length, 16 << 20))));
+    if (t.headers.length === 0 && base.n) {         // first read: decide what line 1 is
+        const mode = t.headerMode, row0 = recordFields(base, 0);
+        const sample = []; for (let b = 1; b < Math.min(base.n, 1 + HEADER_SAMPLE); b++) sample.push(recordFields(base, b));
+        const isHeader = mode === 'first' ? true : (mode === 'index' ? false : looksLikeHeader(row0, sample));
+        t.syntheticHeader = !isHeader;
+        t.headers = isHeader ? row0.slice() : numberedHeaders(row0.length);
+    }
+    const skip = t.syntheticHeader || !base.n ? 0 : 1;   // on a re-read the decision is already known
+    t.headerSrc = skip ? 0 : null;
+
+    /* One small object per row, in slices so a 20-million-row file keeps the page alive. */
+    const Row = base.Row, n = base.n - skip, rows = new Array(n);
+    for (let i = 0; i < n; i += 1 << 20) {
+        const e = Math.min(n, i + (1 << 20));
+        for (let k = i; k < e; k++) { const r = new Row(k + skip, k + skip, null); r.id = k + 1; rows[k] = r; }
+        if (e < n) { if (active()) setProgress(e / n); await new Promise(r => setTimeout(r, 0)); }
+    }
+    t.allData = rows;
+    t.loading = false; t.loaded = true; t.rowCount = n; t.lastUsed = Date.now();
+    t.colSrc = t.headers.map((_, i) => i);
+    if (!tabs.some(x => x.loading)) endProgress();
+    if (active()) {
+        convertHeader(t, wantsSynthetic(t, t.headerMode));
+        renderHeader(); applyColStyles(); refreshParseOpts();
+        applyFilters();
+        container.scrollTop = t.scrollTop; render();
+    }
+    renderTabBar();
+    settleWaiters(t, t.allData);          // before eviction, which may release this very tab again
+    evictIfNeeded();
 }
 
 /* --- Progress helpers --- */

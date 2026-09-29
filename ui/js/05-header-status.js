@@ -100,7 +100,8 @@ function convertHeader(t, synth) {
     if (!t.loaded || synth === t.syntheticHeader) return false;
     if (synth) {                                   // give the header line back to the data
         const hdr = t.headers.slice();
-        t.allData.unshift({ id: 0, data: hdr, src: t.headerSrc });
+        const row = newRow(t, hdr); row.src = t.headerSrc;
+        t.allData.unshift(row);
         t.headerSrc = null;
         t.headers = numberedHeaders(hdr.length);
         t.modificationsLog.forEach(l => { if (typeof l.id === 'number') l.id++; });
@@ -273,7 +274,7 @@ function renderHeader() {
         const sortInd = sk < 0 ? '' : `<span class="sort-ind">${t.sort[sk].dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${sk + 1}</sup>` : ''}</span>`;
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${sortInd}</span>
+                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Column ${i} (from 0) · Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
                 <div class="col-actions">
                     <span class="c-btn" onclick="addColumn(${i})" title="Add column right">+</span>
                     <span class="c-btn del" onclick="deleteColumn(${i})" title="Delete column">−</span>

@@ -134,11 +134,11 @@ function fxSet(text) { const ta = document.getElementById('fx-expr'); ta.value =
 
 /* Every row the formula would write, with the error count; the preview shows the first ones. */
 function fxRun(t, fn, rows) {
-    const out = []; let errors = 0, firstErr = '';
-    for (const r of rows) {
-        try { out.push(evalRow(fn, t, r)); }
-        catch (e) { errors++; if (!firstErr) firstErr = e.message; out.push(''); }
-    }
+    const out = new Array(rows.length); let errors = 0, firstErr = '';
+    visitRows(t, rows, (r, i) => {
+        try { out[i] = evalRow(fn, t, r); }
+        catch (e) { errors++; if (!firstErr) firstErr = e.message; out[i] = ''; }
+    });
     return { out, errors, firstErr };
 }
 let fxTimer = 0;
@@ -184,9 +184,10 @@ function applyFormula() {
         const rows = t.filteredData, { out, errors } = fxRun(t, c.fn, rows), ch = [];
         rows.forEach((r, i) => { if (out[i] !== cellStr(r.data[at])) ch.push([r, r.data[at], out[i]]); });
         if (!ch.length) return;
-        for (const [r, , nv] of ch) { while (r.data.length <= at) r.data.push(''); r.data[at] = nv; }
+        const ed = rowEdits();
+        for (const [r, , nv] of ch) ed.set(r, at, nv);
         t.modificationsLog.push({ id: '-', col: t.headers[at], old: 'formula', new: `${ch.length} cells`, what: `${fmt(ch.length)} cells computed in ${t.headers[at]}`,
-            undo: () => { for (const [r, old] of ch) r.data[at] = old; } });
+            undo: () => ed.undo() });
         updateSaveBtn(); renderTabBar(); render();
         flash(ch.map(([r]) => [r, at]));
         setStats(`${t.name} | ${fmt(ch.length)} cells computed in ${t.headers[at]}${errors ? `, ${fmt(errors)} errors left empty` : ''} — not written yet, use Save.`);
@@ -194,10 +195,8 @@ function applyFormula() {
     }
     const name = document.getElementById('fx-name').value.trim() || 'Computed';
     const { out, errors } = fxRun(t, c.fn, t.allData);
-    let k = 0;
     const headers = [...t.headers.slice(0, at + 1), name, ...t.headers.slice(at + 1)];
-    /* restructure() walks t.allData in order, so the k-th call is the k-th row. */
-    restructure(t, headers, d => { const row = pad(d, at + 1); return [...row.slice(0, at + 1), out[k++], ...row.slice(at + 1)]; },
+    restructure(t, headers, (d, r, i) => { const row = pad(d, at + 1); return [...row.slice(0, at + 1), out[i], ...row.slice(at + 1)]; },
         c => c <= at ? c : c + 1, `column "${name}" computed`);
     if (errors) setStats(`${t.name} | Column "${name}" computed, ${fmt(errors)} rows with an error left empty — not written yet, use Save.`);
 }

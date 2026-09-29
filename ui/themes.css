@@ -42,7 +42,7 @@
     --menu-bg: #7aa2f7; --menu-bg-hover: #8db0fa; --menu-fg: #101014;
     --status-a: #121218; --status-b: #0e0e13; --status-brd: #232433; --status-sep: #2f334d;
     --status-fg: #737aa2; --stat-filt: #ff9e64; --stat-total: #9ece6a;
-    --idx-hover: #292e42; --row-bg: #0f1016; --row-alt: #121319; --row-hover: #1b1d29;   /* rows a notch darker than the grid */
+    --idx-hover: #292e42; --row-bg: #0f1016; --row-alt: #181a25; --row-hover: #232639;   /* rows a notch darker than the grid */
 }
 /* Catppuccin Mocha on its darkest layers (crust / mantle). */
 :root[data-theme="catppuccin"] {

@@ -295,6 +295,7 @@ th.dragging { opacity: .45; }
 .ty-n { color: var(--cyan-txt); background: rgba(var(--cyan-rgb), .13); }
 .ty-d { color: var(--violet-txt); background: rgba(var(--violet-rgb), .13); }
 .ty-t { color: var(--txt-dim); background: rgba(var(--gray-rgb), .16); }
+.col-no { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--txt-faint); font-variant-numeric: tabular-nums; }
 .col-name { cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; user-select: none; }   /* Shift+click would select text */
 .col-name:hover { color: var(--txt-strong); }
 .sort-ind { color: var(--prim); font-size: 9px; margin-left: 6px; vertical-align: 1px; }
@@ -390,6 +391,12 @@ td.mkc { background-color: rgba(var(--warn-rgb), .16) !important; }
 #stats b { font-weight: 600; }
 #stats .n-filt { color: var(--stat-filt); }
 #stats .n-total { color: var(--stat-total); }
+/* Rows shown / total and columns: always there, whatever message #stats holds. */
+#sb-count { flex: none; color: var(--status-fg); white-space: nowrap; }
+#sb-count b { font-weight: 600; }
+#sb-count .n-filt { color: var(--stat-filt); }
+#sb-count .n-total { color: var(--stat-total); }
+#sb-count .hid { color: var(--txt-dim); }
 #stats { flex: 1; min-width: 0; color: var(--status-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #progress-container { position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; z-index: 1001; pointer-events: none; }
 #progress-bar { width: 0%; height: 100%; background: var(--prim); box-shadow: 0 0 8px var(--prim); transition: width 0.1s linear, opacity 0.5s ease-out; opacity: 0; }

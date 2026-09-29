@@ -192,10 +192,31 @@ function textFilterTest(t) {
         return { idx: i.idx, val: val, re: re };
     });
 
+    /* The record's own text first: a query without quote or delimiter (and,
+       for the search across columns, without space, which joins the cells)
+       that is not in it is in none of its cells — most rows are then
+       rejected without being split into cells. */
+    const D = t.base && t.base.delim, lower = useSlug ? v => removeAccents(v.toLowerCase()) : v => v.toLowerCase();
+    const plain = q => q && !q.includes('"') && !q.includes(D);
+    const pre = !isRegex && D && (!globalQuery || (plain(globalQuery) && !globalQuery.includes(' '))) && compiledColFilters.every(f => plain(f.val))
+        ? [globalQuery, ...compiledColFilters.map(f => f.val)].filter(Boolean) : null;
+
+    /* The other way round too, for the search across columns alone: such a
+       query found in the record's text is inside one of its cells — unless
+       the columns were re-mapped (a deleted column's text is still there). */
+    const sure = pre && !compiledColFilters.length && !t.base.cmap;
+    let bk = -1, hits = null;               // the block of records last searched, and its matches
     return row => {
+        if (pre && !row.d && row.b >= 0) {
+            const k = row.b >> BLK_BITS;
+            if (k !== bk) { bk = k; hits = blockMatches(row.base, k, lower, pre); }
+            if (hits) { if (!hits[row.b - (k << BLK_BITS)]) return isReverse; }
+            else { const raw = lower(recordText(row.base, row.b)); for (const q of pre) if (!raw.includes(q)) return isReverse; }
+            if (sure) return !isReverse;
+        }
         let match = true;
         for (let f of compiledColFilters) {
-            let cellVal = String(row.data[f.idx] || '');
+            let cellVal = String(cellOf(row, f.idx) || '');
             if (useSlug) cellVal = removeAccents(cellVal.toLowerCase()); else cellVal = cellVal.toLowerCase();
             if (isRegex) { if (f.re && !f.re.test(cellVal)) { match = false; break; } }
             else { if (!cellVal.includes(f.val)) { match = false; break; } }
@@ -221,7 +242,7 @@ function cellStr(v) { return v == null ? '' : String(v); }
 function valueFilterTest(t, skipCol) {
     const fs = Object.keys(t.valFilters).map(Number).filter(c => c !== skipCol).map(c => [c, t.valFilters[c]]);
     if (!fs.length) return null;
-    return row => { for (const [c, ex] of fs) if (ex.has(cellStr(row.data[c]))) return false; return true; };
+    return row => { for (const [c, ex] of fs) if (ex.has(cellStr(cellOf(row, c)))) return false; return true; };
 }
 
 function applyFilters() {
@@ -237,9 +258,11 @@ function applyFilters() {
     dupGroups(t);
     const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular, dg = t.onlyDups && t.dupMarks && t.dupMarks.group;
     const mk = t.rowMark && t.rowMark.only && t.rowMark.rows;
-    t.filteredData = (tt || vt || irr || dg || mk)
-        ? t.allData.filter(row => (!irr || row.data.length !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row)) && (!tt || tt(row)) && (!vt || vt(row)))
-        : t.allData;   /* no filter: reuse the same array, no copy in RAM */
+    if (tt || vt || irr || dg || mk) {
+        const keep = new Uint8Array(t.allData.length);   // tested in file order (visitRows), kept in view order
+        visitRows(t, t.allData, (row, i) => { if ((!irr || row.len !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row)) && (!tt || tt(row)) && (!vt || vt(row))) keep[i] = 1; });
+        t.filteredData = t.allData.filter((_, i) => keep[i]);
+    } else t.filteredData = t.allData;   /* no filter: reuse the same array, no copy in RAM */
     if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
 
     container.scrollTop = 0; t.scrollTop = 0; render();
@@ -254,7 +277,7 @@ function updateIrregular(t) {
     const chip = document.getElementById('irr-chip');
     const n = t && t.loaded ? t.headers.length : 0;
     let bad = 0;
-    if (n) for (const r of t.allData) if (r.data.length !== n) bad++;
+    if (n) for (const r of t.allData) if (r.len !== n) bad++;
     const q = t && t.loaded ? t.quoteErrors : 0;
     chip.style.display = bad || q || (t && t.onlyIrregular) ? '' : 'none';
     chip.classList.toggle('on', !!(t && t.onlyIrregular));
@@ -278,8 +301,22 @@ function toggleIrregular() {
     applyFilters();
 }
 
+/* The status bar's counter: rows shown (when a filter hides some) / total,
+   and columns, hidden ones counted apart. Other messages never overwrite it. */
+function updateCount(t) {
+    const box = document.getElementById('sb-count');
+    if (!t || !t.loaded) { box.style.display = 'none'; return; }
+    const shown = t.filteredData.length, total = t.allData.length, cols = t.headers.length, hid = t.hiddenCols.size;
+    box.style.display = '';
+    box.innerHTML = (shown !== total || hasFilter(t) ? `<b class="n-filt">${fmt(shown)}</b> / ` : '') + `<b class="n-total">${fmt(total)}</b> row${total === 1 ? '' : 's'}`
+        + ` · <b>${fmt(cols - hid)}</b> column${cols - hid === 1 ? '' : 's'}` + (hid ? ` <span class="hid">(${fmt(hid)} hidden)</span>` : '');
+    box.title = (shown !== total ? `${fmt(shown)} rows shown by the filters, out of ${fmt(total)}` : `${fmt(total)} rows`)
+        + ` · ${fmt(cols)} columns${hid ? `, ${fmt(hid)} hidden` : ''}`;
+}
+
 function updateStats() {
     const t = T();
+    updateCount(t);
     if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
     if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); }
     if (!t) { setStats('Ready.'); return; }
@@ -288,8 +325,7 @@ function updateStats() {
     document.getElementById('btn-extract').style.display = '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
-    if (hasFilters) setStatsHtml(`${esc(t.name)} | <b class="n-filt">${fmt(t.filteredData.length)}</b> / <b class="n-total">${fmt(t.allData.length)}</b> rows filtered${esc(gen)}`);
-    else setStatsHtml(`${esc(t.name)} | <b class="n-total">${fmt(t.allData.length)}</b> rows | ${t.headers.length} cols${esc(gen)}`);
+    setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}`);   // the counts: #sb-count, on the right
 }
 
 /* The column panel is position: fixed under its header, which only moves sideways (the header row is sticky). */

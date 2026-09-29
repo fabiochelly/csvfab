@@ -92,6 +92,30 @@ async function tabFile(t, onProgress) {
     return t.handle ? await t.handle.getFile() : t.file;
 }
 
+/* The same bytes as one ArrayBuffer, for the row store (and the File when
+   there is one, for its modification time). A bridge response is read
+   straight into a buffer of its Content-Length: no Blob, no second copy. */
+async function tabBytes(t, onProgress) {
+    if (t.path) {
+        const r = await srvFetch(srvFileUrl(t.path));
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const total = Number(r.headers.get('Content-Length') || 0);
+        if (!total || !r.body) return { bytes: await r.arrayBuffer(), file: null };
+        const out = new Uint8Array(total), reader = r.body.getReader();
+        let seen = 0;
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (seen + value.length > total) throw new Error('the file grew while it was read');
+            out.set(value, seen); seen += value.length;
+            if (onProgress) onProgress(seen / total);
+        }
+        return { bytes: seen === total ? out.buffer : out.buffer.slice(0, seen), file: null };
+    }
+    const file = t.handle ? await t.handle.getFile() : t.file;
+    return { bytes: await file.arrayBuffer(), file };
+}
+
 async function hasPerm(handle, mode) {
     if (!handle || !handle.queryPermission) return true;
     return await handle.queryPermission({ mode }) === 'granted';

@@ -108,7 +108,7 @@ function insertRow(id, below) {
     const t = T(); if (!t) return;
     const index = t.allData.findIndex(r => r.id === id);
     if (index === -1) return;
-    const row = { id: 0, data: t.headers.map(() => '') };
+    const row = newRow(t, t.headers.map(() => ''));
     t.allData.splice(index + below, 0, row);
     t.allData.forEach((r, i) => r.id = i + 1);
     t.rowCount = t.allData.length;

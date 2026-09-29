@@ -60,26 +60,35 @@ function compareResult() {
     const onlyHereCols = t.headers.filter((h, c) => c !== key && !pairs.some(p => p[0] === c));
     const onlyThereCols = src.headers.filter((h, o) => o !== skey && !pairs.some(p => p[1] === o));
 
-    const idx = new Map(); let dupThere = 0;
-    for (const r of cmp.rows) {
-        const k = norm(cellStr(r.data[skey]));
+    /* Keys and differences are worked out in file order (visitRows), the
+       results then gathered in each tab's own order: the first row wins. */
+    const idx = new Map(), oRows = cmp.rows, oKeys = new Array(oRows.length); let dupThere = 0;
+    visitRows(src, oRows, (r, i) => { oKeys[i] = norm(cellStr(cellOf(r, skey))); });
+    for (let i = 0; i < oRows.length; i++) {
+        const k = oKeys[i];
         if (!k.trim()) continue;
-        if (idx.has(k)) dupThere++; else idx.set(k, r);
+        if (idx.has(k)) dupThere++; else idx.set(k, oRows[i]);
     }
-    const hit = new Set(), onlyHere = [], changed = [];
-    let same = 0, noKey = 0;
-    for (const r of t.allData) {
-        const k = norm(cellStr(r.data[key]));
-        if (!k.trim()) { noKey++; continue; }
-        const o = idx.get(k);
-        if (!o) { onlyHere.push(r); continue; }
-        hit.add(k);
+    const rows = t.allData, keys = new Array(rows.length), diffs = new Array(rows.length);
+    visitRows(t, rows, (r, i) => {
+        const k = keys[i] = norm(cellStr(cellOf(r, key)));
+        const o = k.trim() && idx.get(k);
+        if (!o) return;
         let cells = null;
         for (const [c, oc] of pairs) {
-            const a = cellStr(r.data[c]), b = cellStr(o.data[oc]);
+            const a = cellStr(cellOf(r, c)), b = cellStr(cellOf(o, oc));
             if (a !== b && norm(a) !== norm(b)) (cells = cells || []).push([c, b]);
         }
-        if (cells) changed.push({ r, cells }); else same++;
+        diffs[i] = cells;
+    });
+    const hit = new Set(), onlyHere = [], changed = [];
+    let same = 0, noKey = 0;
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i], k = keys[i];
+        if (!k.trim()) { noKey++; continue; }
+        if (!idx.has(k)) { onlyHere.push(r); continue; }
+        hit.add(k);
+        if (diffs[i]) changed.push({ r, cells: diffs[i] }); else same++;
     }
     const onlyThere = [];
     for (const [k, r] of idx) if (!hit.has(k)) onlyThere.push(r);
@@ -135,13 +144,13 @@ function compareMark() {
 function compareStatusColumn() {
     const t = T(), res = cmp && cmp.res; if (!t || !res) return;
     const status = new Map();
-    res.onlyHere.forEach(r => status.set(r.data, 'only here'));
-    res.changed.forEach(({ r, cells }) => status.set(r.data, 'changed: ' + cells.map(([c]) => t.headers[c]).join(', ')));
+    res.onlyHere.forEach(r => status.set(r, 'only here'));
+    res.changed.forEach(({ r, cells }) => status.set(r, 'changed: ' + cells.map(([c]) => t.headers[c]).join(', ')));
     const norm = LK_NORM[document.querySelector('input[name="cmp-match"]:checked').value];
     const n = t.headers.length, name = `vs ${cmp.src.name}`;
     closeAllModals();
     restructure(t, t.headers.concat([name]),
-        d => { const out = pad(d, n).slice(0, n); out.push(status.get(d) || (norm(cellStr(d[res.key])).trim() ? 'same' : '')); return out.concat(d.slice(n)); },
+        (d, r) => { const out = pad(d, n).slice(0, n); out.push(status.get(r) || (norm(cellStr(d[res.key])).trim() ? 'same' : '')); return out.concat(d.slice(n)); },
         c => c, `column "${name}" added`);
 }
 
@@ -149,7 +158,7 @@ function compareStatusColumn() {
 function compareAppend() {
     const t = T(), res = cmp && cmp.res; if (!t || !res || !res.onlyThere.length) return;
     const map = t.headers.map((h, c) => c === res.key ? res.skey : (res.pairs.find(p => p[0] === c) || [0, -1])[1]);
-    const added = res.onlyThere.map(o => ({ id: 0, data: map.map(oc => oc < 0 ? '' : cellStr(o.data[oc])) }));
+    const added = res.onlyThere.map(o => newRow(t, map.map(oc => oc < 0 ? '' : cellStr(o.data[oc]))));
     const from = cmp.src.name;
     closeAllModals();
     commitRows(t, t.allData.concat(added), { id: '-', col: '---', old: 'append', new: `${added.length} rows`, what: `${plural(added.length, 'row')} appended from ${from}` });

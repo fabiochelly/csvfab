@@ -25,12 +25,12 @@ function openColPanel(e, col) {
     const tt = textFilterTest(t) || null, vt = valueFilterTest(t, col);
     const counts = new Map();
     let scope = 0;
-    for (const r of t.allData) {
-        if ((tt && !tt(r)) || (vt && !vt(r))) continue;
+    visitRows(t, t.allData, r => {
+        if ((tt && !tt(r)) || (vt && !vt(r))) return;
         scope++;
-        const v = cellStr(r.data[col]);
+        const v = cellStr(cellOf(r, col));
         counts.set(v, (counts.get(v) || 0) + 1);
-    }
+    });
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
     const entries = [...counts].sort((a, b) => b[1] - a[1] || coll.compare(a[0], b[0]));
 

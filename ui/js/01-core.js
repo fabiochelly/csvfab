@@ -42,7 +42,7 @@ function newTab(src) {
         id: ++tabSeq, file: src.file || null, handle: null, dirHandle: null, path: null, backedUp: false,
         name: src.name, size: src.size || 0,
         loaded: false, loading: false, error: null,
-        allData: [], filteredData: [], headers: [], rowCount: 0,
+        allData: [], filteredData: [], headers: [], rowCount: 0, base: null,   // base: the file's bytes and records (21-row-store)
         modificationsLog: [], hiddenCols: new Set(), colWidths: {},
         delimiter: '', detectedDelim: '', detectedEol: '\n',
         encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
@@ -111,18 +111,18 @@ async function closeTab(id) {
     if (!t) return;
     if (isDirty(t) && !await uiConfirm(`"${t.name}" has ${t.modificationsLog.length} unsaved edits. Close anyway?`, { ok: 'Close without saving', danger: true })) return;
     const idx = tabs.indexOf(t);
-    t.allData = []; t.filteredData = [];
+    t.allData = []; t.filteredData = []; t.base = null;
     tabs.splice(idx, 1);
     if (activeTabId === id) {
         activeTabId = null;
         if (tabs.length) activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
-        else { thead.innerHTML = ''; tbody.innerHTML = ''; applyColStyles(); updateSaveBtn(); refreshParseOpts(); setStats('Ready.'); }
+        else { thead.innerHTML = ''; tbody.innerHTML = ''; applyColStyles(); updateSaveBtn(); refreshParseOpts(); updateCount(null); setStats('Ready.'); }
     }
     renderTabBar();
 }
 
 /* --- RAM management: release the least recently used clean tabs --- */
-function unloadTab(t) { t.allData = []; t.filteredData = []; t.loaded = false; }
+function unloadTab(t) { t.allData = []; t.filteredData = []; t.base = null; t.loaded = false; }
 
 function evictIfNeeded() {
     const max = parseInt(document.getElementById('max-ram').value, 10);

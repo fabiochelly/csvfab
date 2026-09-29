@@ -13,29 +13,20 @@
    no line of its own. */
 function markPristine(t) {
     let line = t.syntheticHeader ? 0 : 1;
-    for (const r of t.allData) r.src = r.data.length <= 1 && cellStr(r.data[0]) === '' ? null : line++;
+    for (const r of t.allData) r.src = r.len <= 1 && cellStr(r.data[0]) === '' ? null : line++;
     t.headerSrc = t.syntheticHeader ? null : 0;
     t.colSrc = t.headers.map((_, i) => i);
     if (t.rowMark && t.rowMark.kind === 'review') t.rowMark = null;   // those changes are the file now
 }
 
-/* The file's lines as parsed now, with the same delimiter and encoding. */
-async function readDiskLines(t) {
-    const file = await tabFile(t, null);
-    if (file.size > MAX_DECODE) throw new Error('the file is too large to be compared in memory');
-    const text = new TextDecoder(t.detectedEnc || 'utf-8').decode(await file.arrayBuffer());
-    return new Promise((res, rej) => Papa.parse(text, {
-        worker: true, delimiter: t.detectedDelim || t.delimiter, skipEmptyLines: true,
-        complete: r => res(r.data), error: e => rej(new Error(String(e)))
-    }));
-}
-
+/* The file's records as read now, with the same delimiter and encoding
+   (readDiskRecords: .length and .get(i), decoded on demand). */
 async function computeChanges(t) {
-    const lines = await readDiskLines(t);
+    const lines = await readDiskRecords(t);
     const cs = t.colSrc || t.headers.map((_, i) => i);
-    const dh = t.headerSrc != null ? lines[t.headerSrc] || [] : null;
+    const dh = t.headerSrc != null && t.headerSrc < lines.length ? lines.get(t.headerSrc) : t.headerSrc != null ? [] : null;
     let width = dh ? dh.length : 0;
-    if (!dh) for (const l of lines) if (l.length > width) width = l.length;
+    if (!dh) for (let i = 0; i < lines.length; i++) { const l = lines.get(i).length; if (l > width) width = l; }
     const kept = new Set(cs.filter(s => s >= 0));
     const oldName = o => dh ? cellStr(dh[o]) : String(o);
     const cols = {
@@ -46,22 +37,28 @@ async function computeChanges(t) {
     };
     const seen = new Uint8Array(lines.length), changed = [], added = [];
     let cells = 0, last = -1, reordered = false;
-    for (const r of t.allData) {
-        if (r.src == null || r.src >= lines.length || seen[r.src]) { added.push(r); continue; }
-        seen[r.src] = 1;
-        if (r.src < last) reordered = true;
-        last = r.src;
-        const d = lines[r.src];
+    const diffs = new Array(t.allData.length);   // worked out in file order, gathered in the tab's
+    visitRows(t, t.allData, (r, i) => {
+        if (r.src == null || r.src >= lines.length) return;
+        const d = lines.get(r.src), rd = r.data;
         let diff = null;
         for (let c = 0; c < cs.length; c++) {
             if (cs[c] < 0) continue;
             const before = cellStr(d[cs[c]]);
-            if (cellStr(r.data[c]) !== before) (diff = diff || []).push([c, before]);
+            if (cellStr(rd[c]) !== before) (diff = diff || []).push([c, before]);
         }
+        diffs[i] = diff;
+    });
+    t.allData.forEach((r, i) => {
+        if (r.src == null || r.src >= lines.length || seen[r.src]) { added.push(r); return; }
+        seen[r.src] = 1;
+        if (r.src < last) reordered = true;
+        last = r.src;
+        const diff = diffs[i];
         if (diff) { changed.push({ r, cells: diff }); cells += diff.length; }
-    }
+    });
     const deleted = [];
-    for (let i = 0; i < lines.length; i++) if (!seen[i] && i !== t.headerSrc) deleted.push({ line: i + 1, data: lines[i] });
+    for (let i = 0; i < lines.length; i++) if (!seen[i] && i !== t.headerSrc) deleted.push({ line: i + 1, data: lines.get(i) });
     return { cols, changed, cells, added, deleted, reordered };
 }
 

@@ -1,17 +1,14 @@
 // --- Inline Edit Module ---
-/* In-place editing. Double-click, Enter/F2, or simply typing on the
+/* In-place editing. Double-click or F2 (caret at the end), Enter (text selected), or simply typing on the
    selection (the key typed replaces the content, as in Excel). When the
    edited cell belongs to a multi-cell selection: Enter writes the value
    into every selected cell, Ctrl+Enter fills them with a series starting
    from it; clicking elsewhere only commits the edited cell. Escape cancels. */
-tbody.addEventListener('dblclick', function (e) {
-    const td = e.target.closest('td');
-    if (!td || td.classList.contains('col-idx') || td.classList.contains('editing')) return;
-    startEdit(td, null);
-});
-
 let closeEditor = null;
-function startEdit(td, typed) {
+/* typed: the key that started the edit (it replaces the value); caretEnd:
+   the caret after the value (F2, double-click) rather than all of it
+   selected (Enter). */
+function startEdit(td, typed, caretEnd) {
     const t = T(); if (!t) return;
     const viewIdx = +td.parentElement.getAttribute('data-idx');
     const colIdx = +td.getAttribute('data-c');
@@ -44,7 +41,7 @@ function startEdit(td, typed) {
     };
     input.addEventListener('input', grow);
     grow(); input.focus();
-    if (typed != null) input.setSelectionRange(input.value.length, input.value.length); else input.select();
+    if (typed != null || caretEnd) input.setSelectionRange(input.value.length, input.value.length); else input.select();
     const onScroll = () => finish('one');
     container.addEventListener('scroll', onScroll, { once: true });
     setStats(multi ? `${t.name} | Enter: this value in the ${fmt((multi.r1 - multi.r0 + 1) * visibleCols(t).filter(c => c >= multi.c0 && c <= multi.c1).length)} selected cells · Ctrl+Enter: a series from it · Shift+Enter: new line · Escape: cancel`
@@ -60,10 +57,10 @@ function startEdit(td, typed) {
         if (mode === 'cancel') { render(); selStats(t); return; }
         if (mode === 'one' || !multi) {
             if (v !== oldVal) {
-                const raw = rowObj.data[colIdx];
-                rowObj.data[colIdx] = v;
+                const ed = rowEdits();
+                ed.set(rowObj, colIdx, v);
                 t.modificationsLog.push({ id: rowObj.id, col: t.headers[colIdx], old: oldVal, new: v, what: `edit in ${t.headers[colIdx]}`,
-                    undo: () => { rowObj.data[colIdx] = raw; } });
+                    undo: () => ed.undo() });
                 updateSaveBtn(); renderTabBar();
             }
             render();
@@ -91,18 +88,15 @@ function startEdit(td, typed) {
 /* Writes [row, column, value] triples as one undoable edit; only the cells
    whose value changes are touched. Returns how many changed. */
 function setCells(t, changes, verb) {
-    const before = [];
+    const before = [], ed = rowEdits();
     for (const [row, c, v] of changes) {
         if (cellStr(row.data[c]) === v) continue;
-        before.push([row, c, row.data[c]]);
-        while (row.data.length <= c) row.data.push('');
-        row.data[c] = v;
+        before.push([row, c]);
+        ed.set(row, c, v);
     }
     if (!before.length) { setStats(`${t.name} | Nothing changed.`); return 0; }
-    flash(before.map(([row, c]) => [row, c]));
-    t.modificationsLog.push({ id: '-', col: '---', old: verb, new: `${before.length} cells`, what: `${fmt(before.length)} cells ${verb}`, undo: () => {
-        for (let k = before.length - 1; k >= 0; k--) { const [row, c, v] = before[k]; row.data[c] = v; }
-    } });
+    flash(before);
+    t.modificationsLog.push({ id: '-', col: '---', old: verb, new: `${before.length} cells`, what: `${fmt(before.length)} cells ${verb}`, undo: () => ed.undo() });
     updateSaveBtn(); renderTabBar();
     setStats(`${t.name} | ${fmt(before.length)} cells ${verb} — not written yet, use Save.`);
     return before.length;

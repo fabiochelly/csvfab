@@ -1,8 +1,12 @@
-// --- ASYNC CSV WRITING ENGINE ---    // --- ASYNC CSV WRITING ENGINE ---
+// --- ASYNC CSV WRITING ENGINE ---
 /* Rows are serialised in slices with a yield between them, so a million-row
    file neither freezes the UI nor has to exist as one giant string: a sink
-   is either an array of chunks (download) or a FileSystemWritableFileStream
-   writing straight to disk. */
+   is either an array of chunks (the bridge) or a FileSystemWritableFileStream
+   writing straight to disk.
+   A row still its record (no edit gave it an array), written with the
+   file's own delimiter and encoding and every column in place, is copied
+   as its bytes — a run of such rows as one slice of the file — so saving
+   a large file with a few edits costs little more than a copy. */
 async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverride, encOverride) {
     const delim = delimOverride || currentDelim(t);
     const we = encOverride && typeof encOverride === 'object' ? encOverride : writeEnc(t, encOverride);
@@ -23,16 +27,47 @@ async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverrid
         const sv = String(v ?? '');
         return (sv.includes(delim) || sv.includes('"') || sv.includes('\n') || sv.includes('\r')) ? `"${sv.replace(/"/g, '""')}"` : sv;
     };
+    const B = t.base, raw = !!B && whole && !B.cmap && !B.transcoded && B.delim === delim && B.enc === we.enc;
+    /* Same line break as the file: a record's span, blank lines after it
+       included, is written as is; otherwise the record and our break. */
+    const sameEol = raw && B.eol === eol, eolBytes = encode(eol);
+    const endsNl = raw && B.u8.length > 0 && (B.u8[B.u8.length - 1] === 10 || B.u8[B.u8.length - 1] === 13);
+    let lastYield = performance.now();
     for (let i = 0; i < total; i += chunkSize) {
-        let chunkStr = "";
+        const parts = [];
+        let str = '', runS = -1, runE = -1;
+        const flushStr = () => { if (str) { parts.push(encode(str)); str = ''; } };
+        const flushRun = () => { if (runS >= 0) { parts.push(B.u8.subarray(runS, runE)); runS = -1; } };
         for (let j = i; j < Math.min(i + chunkSize, total); j++) {
-            const d = dataToExport[j].data;
-            const rowStr = (whole && d.length > width ? d : columnsToExport.map(cIdx => d[cIdx])).map(quote).join(delim);
-            chunkStr += rowStr + eol;
+            const r = dataToExport[j];
+            if (raw && !r.d && r.b >= 0) {
+                flushStr();
+                const s = B.starts[r.b];
+                if (sameEol) {
+                    const e = B.starts[r.b + 1];
+                    if (runS >= 0 && s === runE) runE = e; else { flushRun(); runS = s; runE = e; }
+                    if (r.b === B.n - 1 && !endsNl) { flushRun(); parts.push(eolBytes); }   // the file's last line had no break
+                } else {
+                    flushRun();
+                    let e = B.starts[r.b + 1];
+                    while (e > s && (B.u8[e - 1] === 10 || B.u8[e - 1] === 13)) e--;
+                    parts.push(B.u8.subarray(s, e), eolBytes);
+                }
+                continue;
+            }
+            flushRun();
+            const d = r.data;
+            str += (whole && d.length > width ? d : columnsToExport.map(cIdx => d[cIdx])).map(quote).join(delim) + eol;
         }
-        await sink(chunkStr);
-        setProgress((i + chunkSize) / total);
-        await new Promise(resolve => setTimeout(resolve, 0));
+        flushStr(); flushRun();
+        if (parts.length) await rawSink(parts.length === 1 ? parts[0] : new Blob(parts));
+        /* Yield now and then, not at every slice: Chromium clamps a nested
+           setTimeout(0) to 4 ms, which was 9 s of waiting on 20 M rows. */
+        if (performance.now() - lastYield > 30) {
+            setProgress((i + chunkSize) / total);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            lastYield = performance.now();
+        }
     }
 }
 
@@ -288,7 +323,7 @@ async function writeToHandle(t, handle, dataToExport, columnsToExport, delim, en
     const w = await handle.createWritable();
     let bytes = 0;
     try {
-        await streamCSV(t, dataToExport, columnsToExport, async c => { bytes += c.length; await w.write(c); }, delim, enc);
+        await streamCSV(t, dataToExport, columnsToExport, async c => { bytes += c.size ?? c.length; await w.write(c); }, delim, enc);
         await w.close();
     } catch (err) {
         try { await w.abort(); } catch (_) { }
@@ -383,10 +418,10 @@ async function refreshStamp(t) {
 }
 /* SHA-256 of the bytes — of their first, middle and last MB past 64 MB, which
    is plenty to tell our own write from someone else's same-size edit. */
-async function fingerprint(blob) {
-    const n = blob.size, M = 1 << 20;
+async function fingerprint(blob) {                 // a Blob / File, or an ArrayBuffer
+    const buf = blob instanceof ArrayBuffer, n = buf ? blob.byteLength : blob.size, M = 1 << 20;
     const part = n <= 64 * M ? blob : new Blob([blob.slice(0, M), blob.slice(Math.floor(n / 2) - M / 2, Math.floor(n / 2) + M / 2), blob.slice(n - M)]);
-    const d = await crypto.subtle.digest('SHA-256', await part.arrayBuffer());
+    const d = await crypto.subtle.digest('SHA-256', part instanceof ArrayBuffer ? part : await part.arrayBuffer());
     return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -507,23 +542,20 @@ function applySearchReplace() {
     const swap = re ? v => v.replace(re, rText) : v => v.replaceAll(fText, rText);
 
     let repCount = 0;
-    const before = [];                    // [row, column, old value]: what undo puts back
-    t.filteredData.forEach(row => {
+    const before = [], ed = rowEdits();   // before: [row, column], for the flash
+    visitRows(t, t.filteredData, row => {
         row.data.forEach((val, cIdx) => {
             if (only >= 0 && cIdx !== only) return;
             if (val == null || val === '') return;
             const nv = swap(String(val));
-            if (nv !== String(val)) {
-                before.push([row, cIdx, val]);
-                row.data[cIdx] = nv;
-                repCount++;
-            }
+            if (nv !== String(val)) { before.push([row, cIdx]); repCount++; }
         });
     });
+    for (const [row, c] of before) ed.set(row, c, swap(String(row.data[c])));
 
-    if (repCount) flash(before.map(([row, c]) => [row, c]));
+    if (repCount) flash(before);
     if (repCount) t.modificationsLog.push({ id: '-', col: '(find & replace)', old: fText, new: rText + ` — ${repCount} cells`, what: `${fmt(repCount)} cells replaced`,
-        undo: () => { for (const [r, c, v] of before) r.data[c] = v; } });
+        undo: () => ed.undo() });
     updateSaveBtn(); renderTabBar();
     /* The replacement stays in memory: nothing touches the disk until Save. */
     document.getElementById('sr-count').innerText = repCount

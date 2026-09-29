@@ -39,13 +39,13 @@ function duplicateRow(id) {
     const t = T(); if (!t) return;
     const index = t.allData.findIndex(r => r.id === id);
     if (index === -1) return;
-    const newRow = { id: 0, data: [...t.allData[index].data] };
-    t.allData.splice(index + 1, 0, newRow);
+    const copy = newRow(t, t.allData[index].data.slice());
+    t.allData.splice(index + 1, 0, copy);
     t.allData.forEach((r, idx) => r.id = idx + 1);
     t.rowCount = t.allData.length;
     t.modificationsLog.forEach(log => { if (typeof log.id === 'number' && log.id > id) log.id++; });
     t.modificationsLog.push({ id: index + 2, col: '---', old: '---', new: 'Row duplicated', what: 'row duplicated', undo: t => {
-        t.allData.splice(t.allData.indexOf(newRow), 1);
+        t.allData.splice(t.allData.indexOf(copy), 1);
     } });
     updateSaveBtn(); applyFilters(); renderTabBar();
 }

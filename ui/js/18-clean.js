@@ -70,15 +70,16 @@ function scanClean(t) {
     const filled = new Array(t.headers.length).fill(false);
     let emptyRows = 0;
     const visit = v => { if (v == null || v === '') return; const s = String(v); for (const o of cellOps) if (o.test(s)) counts[o.id]++; };
-    for (const r of t.allData) {
+    visitRows(t, t.allData, r => {
+        const d = r.data;
         let blank = true;
-        for (let c = 0; c < r.data.length; c++) {
-            const v = r.data[c];
+        for (let c = 0; c < d.length; c++) {
+            const v = d[c];
             visit(v);
             if (!isBlank(v)) { blank = false; if (c < filled.length) filled[c] = true; }
         }
         if (blank) emptyRows++;
-    }
+    });
     if (!t.syntheticHeader) t.headers.forEach(visit);
     counts.rows = emptyRows;
     const emptyCols = filled.map((f, c) => f ? -1 : c).filter(c => c >= 0);
@@ -115,34 +116,40 @@ function applyClean() {
     closeAllModals();
     const fns = CLEAN_OPS.filter(o => o.fn && cleanOn.has(o.id)).map(o => o.fn);
     const clean = v => fns.reduce((s, f) => f(s), v);
-    const prevAll = t.allData, prevHeaders = t.headers, prevMoji = t.mojibake, view = viewSnap(t), changes = [];
-    if (fns.length) for (const r of t.allData) {
+    const prevAll = t.allData, prevHeaders = t.headers, prevMoji = t.mojibake, view = viewSnap(t), ed = rowEdits();
+    let changed = 0;
+    if (fns.length) visitRows(t, t.allData, r => {
         const d = r.data;
+        let nd = null;                    // a copy, once the row has a cell to change: r.data may be shared
         for (let c = 0; c < d.length; c++) {
             const old = d[c];
             if (old == null || old === '') continue;
             const nv = clean(String(old));
-            if (nv !== old) { changes.push([d, c, old]); d[c] = nv; }
+            if (nv !== old) { (nd = nd || d.slice())[c] = nv; changed++; }
         }
-    }
+        if (nd) ed.put(r, nd);
+    });
     if (fns.length && !t.syntheticHeader) t.headers = t.headers.map(h => clean(h));
     const heads = t.headers.filter((h, c) => h !== prevHeaders[c]).length;
 
     let rows = t.allData, dropped = 0;
-    if (cleanOn.has('rows')) { rows = rows.filter(r => !r.data.every(isBlank)); dropped = t.allData.length - rows.length; }
+    if (cleanOn.has('rows')) {
+        const keep = new Uint8Array(rows.length);
+        visitRows(t, rows, (r, i) => { if (!r.data.every(isBlank)) keep[i] = 1; });
+        rows = rows.filter((_, i) => keep[i]); dropped = t.allData.length - rows.length;
+    }
     /* The columns found blank at opening: blank means spaces and invisible
        characters only, so no cell option can have filled one since. */
     const gone = new Set(cleanOn.has('cols') ? cleanScan.emptyCols : []);
-    let prevData = null;
+    let undoRows = null;
     if (gone.size) {
-        prevData = prevAll.map(r => r.data);
-        for (const r of rows) r.data = r.data.filter((v, c) => !gone.has(c));
+        undoRows = remapRows(t, t.headers.map((_, c) => c).filter(c => !gone.has(c)));
         t.headers = t.headers.filter((h, c) => !gone.has(c));
         const map = []; let k = 0;
         for (let c = 0; c < prevHeaders.length; c++) map[c] = gone.has(c) ? -1 : k++;
         remapCols(t, c => c < map.length ? map[c] : c - gone.size);
     }
-    const cells = changes.length + heads;
+    const cells = changed + heads;
     if (!cells && !dropped && !gone.size) { setStats(`${t.name} | Nothing to clean.`); return; }
 
     t.allData = rows;
@@ -154,8 +161,8 @@ function applyClean() {
     const what = parts.join(', ');
     t.modificationsLog.push({ id: '-', col: '---', old: 'clean-up', new: what, what, undo: t => {
         t.allData = prevAll;
-        if (prevData) prevAll.forEach((r, i) => r.data = prevData[i]);
-        for (let k = changes.length - 1; k >= 0; k--) { const [d, c, old] = changes[k]; d[c] = old; }
+        if (undoRows) undoRows();
+        ed.undo();
         t.headers = prevHeaders; viewRestore(t, view); t.mojibake = prevMoji;
     } });
     cleanScan = null;

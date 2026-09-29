@@ -15,10 +15,10 @@ function bulkFn() {
 }
 function bulkChanges() {
     const t = T(), col = +document.getElementById('bulk-col').value, f = bulkFn(), out = [];
-    for (const r of t.filteredData) {
-        const old = r.data[col], nv = f(cellStr(old));
+    visitRows(t, t.filteredData, r => {
+        const old = cellOf(r, col), nv = f(cellStr(old));
         if (nv !== cellStr(old)) out.push([r, old, nv]);
-    }
+    });
     return out;
 }
 function openBulk() {
@@ -42,9 +42,10 @@ function applyBulk() {
     const col = +document.getElementById('bulk-col').value, ch = bulkChanges();
     closeAllModals();
     if (!ch.length) return;
-    for (const [r, , nv] of ch) r.data[col] = nv;
+    const ed = rowEdits();
+    for (const [r, , nv] of ch) ed.set(r, col, nv);
     t.modificationsLog.push({ id: '-', col: t.headers[col], old: 'bulk', new: `${ch.length} cells`, what: `${fmt(ch.length)} cells edited in ${t.headers[col]}`,
-        undo: () => { for (const [r, old] of ch) r.data[col] = old; } });
+        undo: () => ed.undo() });
     updateSaveBtn(); renderTabBar(); render();
     setStats(`${t.name} | ${fmt(ch.length)} cells edited in ${t.headers[col]} — not written yet, use Save.`);
 }
@@ -85,9 +86,54 @@ function dateKey(v) {
 }
 function sortKind(t, col) {
     const counts = { n: 0, d: 0, t: 0 }; let seen = 0;
-    for (const r of t.allData) { const ty = cellType(r.data[col]); if (ty) { counts[ty]++; if (++seen >= 2000) break; } }
+    for (const r of t.allData) { const ty = cellType(cellOf(r, col)); if (ty) { counts[ty]++; if (++seen >= 2000) break; } }
     return seen && counts.n / seen >= 0.9 ? 'n' : (seen && counts.d / seen >= 0.9 ? 'd' : 't');
 }
+/* Text keys → ranks: the distinct values sorted once with the collator
+   (values it calls equal share a rank, so they keep their order, as ties
+   do), then every row gets its value's rank. Empty (null) → NaN. */
+function textRanks(col, coll) {
+    const rank = new Map();
+    for (let i = 0; i < col.length; i++) { const v = col[i]; if (v !== null && !rank.has(v)) rank.set(v, 0); }
+    const uniq = [...rank.keys()].sort(coll.compare);
+    let r = 0;
+    for (let i = 0; i < uniq.length; i++) { if (i && coll.compare(uniq[i - 1], uniq[i]) !== 0) r++; rank.set(uniq[i], r); }
+    const out = new Float64Array(col.length);
+    for (let i = 0; i < col.length; i++) out[i] = col[i] === null ? NaN : rank.get(col[i]);
+    return out;
+}
+/* A stable LSD radix sort of `order` on a Float64 key per row, 16 bits a
+   pass: no comparison function, so 20 million rows sort in seconds rather
+   than the better part of a minute. A double's bits compare as unsigned
+   integers once the sign is folded; descending flips them; an empty key
+   (NaN) is set to all ones, last both ways. */
+function radixOrder(order, keys, dir) {
+    const n = order.length, hi = new Uint32Array(n), lo = new Uint32Array(n);
+    const f = new Float64Array(1), u = new Uint32Array(f.buffer);
+    for (let i = 0; i < n; i++) {
+        const x = keys[i];
+        if (x !== x) { hi[i] = lo[i] = 0xFFFFFFFF; continue; }
+        f[0] = x === 0 ? 0 : x;                          // -0 sorts as 0
+        let h = u[1], l = u[0];
+        if (h & 0x80000000) { h = ~h; l = ~l; } else h |= 0x80000000;
+        if (dir < 0) { h = ~h; l = ~l; }
+        hi[i] = h >>> 0; lo[i] = l >>> 0;
+        if (hi[i] === 0xFFFFFFFF && lo[i] === 0xFFFFFFFF) lo[i] = 0xFFFFFFFE;   // keep all ones for the empty ones
+    }
+    let src = order, dst = new Uint32Array(n);
+    const cnt = new Uint32Array(65536);
+    for (const [arr, sh] of [[lo, 0], [lo, 16], [hi, 0], [hi, 16]]) {
+        cnt.fill(0);
+        for (let i = 0; i < n; i++) cnt[(arr[src[i]] >>> sh) & 0xFFFF]++;
+        if (n && cnt[(arr[src[0]] >>> sh) & 0xFFFF] === n) continue;   // one digit for all: nothing to move
+        let sum = 0;
+        for (let d = 0; d < 65536; d++) { const c = cnt[d]; cnt[d] = sum; sum += c; }
+        for (let i = 0; i < n; i++) { const v = src[i]; dst[cnt[(arr[v] >>> sh) & 0xFFFF]++] = v; }
+        const tmp = src; src = dst; dst = tmp;
+    }
+    return src;
+}
+
 /* A plain click sorts on that column alone (again: reverses it). With `add`
    (Shift+click) the column becomes a further key, or flips if it is one. */
 function sortBy(col, forceDir, add) {
@@ -100,24 +146,29 @@ function sortBy(col, forceDir, add) {
     } else keys = [{ col, dir: forceDir || (prevSort && prevSort.length === 1 && prevSort[0].col === col ? -prevSort[0].dir : 1) }];
     const specs = keys.map(k => ({ ...k, kind: sortKind(t, k.col) }));
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
-    const keyed = t.allData.map(r => ({ r, k: specs.map(sp => {
-        const v = r.data[sp.col], s = v == null ? '' : String(v).trim();
-        const k = !s ? null : sp.kind === 'n' ? numKey(s) : sp.kind === 'd' ? dateKey(s) : s;
-        return (typeof k === 'number' && isNaN(k)) ? null : k;
-    }) }));
-    keyed.sort((a, b) => {
-        for (let i = 0; i < specs.length; i++) {
-            const x = a.k[i], y = b.k[i];
-            if (x === null || y === null) { if (x !== y) return x === null ? 1 : -1; continue; }
-            const d = specs[i].kind === 't' ? coll.compare(x, y) : x - y;
-            if (d) return specs[i].dir * d;
+    /* One key column per sort key — numbers in a Float64Array (NaN: empty),
+       text in an array (null: empty) — and a sort of row indices: no object
+       per row. Array.prototype.sort is stable, so ties keep the current order. */
+    const n = t.allData.length, cols = specs.map(sp => sp.kind === 't' ? new Array(n) : new Float64Array(n));
+    visitRows(t, t.allData, (r, i) => {
+        for (let k = 0; k < specs.length; k++) {
+            const sp = specs[k], v = cellOf(r, sp.col), s = v == null ? '' : String(v).trim();
+            cols[k][i] = sp.kind === 't' ? (s || null) : !s ? NaN : sp.kind === 'n' ? numKey(s) : dateKey(s);
         }
-        return 0;
     });
+    let order = new Uint32Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    for (let k = specs.length - 1; k >= 0; k--) {        // least significant key first: each pass is stable
+        const num = specs[k].kind === 't' ? textRanks(cols[k], coll) : cols[k];
+        order = radixOrder(order, num, specs[k].dir);
+    }
+    const all = t.allData, sorted = new Array(n);
+    for (let i = 0; i < n; i++) sorted[i] = all[order[i]];
     t.sort = keys;
     container.scrollTop = 0;
     const desc = specs.map(sp => `${t.headers[sp.col]} ${sp.dir > 0 ? '↑' : '↓'}`).join(', then ');
-    commitRows(t, keyed.map(x => x.r), { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
+    cols.length = 0; order.length = 0;    // the undo closure below shares this scope: don't let it keep them
+    commitRows(t, sorted, { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
         t => { t.sort = prevSort; });
     renderHeader(); applyColStyles();
     const kinds = specs.length === 1 ? ` (${{ n: 'numbers', d: 'dates', t: 'text' }[specs[0].kind]})` : '';
@@ -159,10 +210,12 @@ function dupKeys(t, spec) {
     const use = cols.length ? cols : t.headers.map((_, i) => i);
     const str = v => String(v == null ? '' : v);
     const norm = spec.match === 'slug' ? v => slugify(str(v)) : spec.match === 'loose' ? v => str(v).trim().toLocaleLowerCase('fr') : str;
-    return t.allData.map(r => {
-        const parts = use.map(c => norm(r.data[c]));
-        return parts.every(p => p.trim() === '') ? null : parts.join('\u0001');
+    const keys = new Array(t.allData.length);
+    visitRows(t, t.allData, (r, i) => {
+        const parts = use.map(c => norm(cellOf(r, c)));
+        keys[i] = parts.every(p => p.trim() === '') ? null : parts.join('\u0001');
     });
+    return keys;
 }
 function dedupeKeep() {
     const t = T(), keys = dupKeys(t, dedupeSpec(t));
@@ -267,7 +320,7 @@ function render() {
     for (let i = start; i < Math.min(end, data.length); i++) {
         const r = data[i], mk = markedCells(t, r);
         const displayId = r.id.toLocaleString('fr-FR');
-        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.data.length !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
+        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
             <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
                 <span class="row-num">${displayId}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/></svg></span>
