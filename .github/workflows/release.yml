@@ -1,5 +1,6 @@
 # On a v* tag: the source archives (for install.sh / install.ps1), the Windows
-# installer (Inno Setup), SHA256SUMS, and a GitHub release holding them all.
+# installer (Inno Setup), SHA256SUMS, a GitHub release holding them all — then
+# the package channels (AUR, Homebrew tap, winget: packages.yml).
 name: release
 on:
   push:
@@ -52,3 +53,9 @@ jobs:
       - name: Publish
         env: { GH_TOKEN: '${{ github.token }}' }
         run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "csvfab ${GITHUB_REF_NAME#v}" --generate-notes
+
+  packages:
+    needs: release
+    uses: ./.github/workflows/packages.yml
+    with: { tag: '${{ github.ref_name }}' }
+    secrets: inherit

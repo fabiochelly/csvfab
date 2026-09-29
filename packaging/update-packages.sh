@@ -14,7 +14,8 @@ TAR_SUM=$(sum "$TAR"); EXE_SUM=$(sum "$EXE")
 echo "source $TAR_SUM"; echo "setup  $EXE_SUM"
 
 sed -i -e "s/^pkgver=.*/pkgver=$V/" -e "s/^pkgrel=.*/pkgrel=1/" -e "s/^sha256sums=.*/sha256sums=('$TAR_SUM')/" packaging/aur/PKGBUILD
-(cd packaging/aur && makepkg --printsrcinfo > .SRCINFO)
+# .SRCINFO needs makepkg (Arch only); the release workflow's AUR step regenerates it itself.
+if command -v makepkg >/dev/null; then (cd packaging/aur && makepkg --printsrcinfo > .SRCINFO); else echo "makepkg absent: .SRCINFO not regenerated" >&2; fi
 
 sed -i -e "s#archive/refs/tags/v[^\"]*\.tar\.gz#archive/refs/tags/v$V.tar.gz#" -e "s/sha256 \".*\"/sha256 \"$TAR_SUM\"/" packaging/homebrew/csvfab.rb
 if [ -n "${CSVFAB_TAP:-}" ]; then mkdir -p "$CSVFAB_TAP/Formula" && cp packaging/homebrew/csvfab.rb "$CSVFAB_TAP/Formula/csvfab.rb"; fi

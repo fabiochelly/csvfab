@@ -1,0 +1,66 @@
+# Publishes a released version to the package channels: the AUR (PKGBUILD +
+# .SRCINFO pushed with a deploy key), the Homebrew tap (formula pushed with a
+# token) and winget (a pull request on microsoft/winget-pkgs, through komac).
+# Called by release.yml once the GitHub release exists, or by hand for a tag
+# already released:  gh workflow run packages.yml -f tag=v1.2.0
+# Each channel runs only when its secret is set: AUR_SSH_PRIVATE_KEY (the
+# private half of the key registered on the AUR account), WINGET_TOKEN (a
+# classic token with public_repo, also used to push the tap).
+name: packages
+on:
+  workflow_call:
+    inputs:
+      tag: { required: true, type: string }
+  workflow_dispatch:
+    inputs:
+      tag: { description: 'Release tag, e.g. v1.2.0', required: true, type: string }
+permissions:
+  contents: write
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, fetch-depth: 0 }
+      - name: Fill the package files with the release checksums
+        run: sh packaging/update-packages.sh "${TAG#v}"
+      - name: Commit them to main
+        run: |
+          git config user.name "Fabio Chelly"
+          git config user.email "4060753+fabiochelly@users.noreply.github.com"
+          git add packaging
+          git diff --cached --quiet || { git commit -m "Packages for ${TAG#v}" && git push; }
+
+
+      - name: Homebrew tap
+        if: env.WINGET_TOKEN != ''
+        run: |
+          git clone -q "https://x-access-token:${WINGET_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-csvfab" tap
+          mkdir -p tap/Formula && cp packaging/homebrew/csvfab.rb tap/Formula/csvfab.rb
+          cd tap
+          git config user.name "Fabio Chelly"
+          git config user.email "4060753+fabiochelly@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -m "csvfab ${TAG#v}" && git push; }
+
+      - name: winget
+        if: env.WINGET_TOKEN != ''
+        env: { GITHUB_TOKEN: '${{ secrets.WINGET_TOKEN }}' }
+        run: |
+          curl -fsSL https://github.com/russellbanks/Komac/releases/download/v2.16.0/komac-2.16.0-x86_64-unknown-linux-gnu.tar.gz | tar xz komac
+          ./komac submit --yes "packaging/winget/manifests/f/FabioChelly/csvfab/${TAG#v}"
+      - name: AUR
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: csvfab
+          pkgbuild: ./packaging/aur/PKGBUILD
+          commit_username: Fabio Chelly
+          commit_email: 4060753+fabiochelly@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: csvfab ${{ inputs.tag }}
