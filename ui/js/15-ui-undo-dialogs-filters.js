@@ -173,7 +173,7 @@ function closeAllModals() {
 /* Text filters (global search + per-column inputs, Invert applying to
    both) as one row test: null when none is set, false when a regex does
    not compile yet (the view is then left as it was). */
-function textFilterTest(t) {
+function textFilterTest(t, sparse) {   // sparse: the rows to test are few among the file's (a narrowing search)
     let globalQuery = t.globalQuery;
     const isRegex = t.useRegex, isReverse = t.useReverse, useSlug = t.useSlug;
     const colInputs = Object.keys(t.colFilters).map(k => ({ idx: parseInt(k, 10), rawVal: t.colFilters[k] }));
@@ -208,10 +208,13 @@ function textFilterTest(t) {
     let bk = -1, hits = null;               // the block of records last searched, and its matches
     return row => {
         if (pre && !row.d && row.b >= 0) {
-            const k = row.b >> BLK_BITS;
-            if (k !== bk) { bk = k; hits = blockMatches(row.base, k, lower, pre); }
-            if (hits) { if (!hits[row.b - (k << BLK_BITS)]) return isReverse; }
-            else { const raw = lower(recordText(row.base, row.b)); for (const q of pre) if (!raw.includes(q)) return isReverse; }
+            const k = row.b >> BLK_BITS, mode = useSlug ? 's' : 'l';
+            if (sparse) { const raw = loweredRecord(row.base, row.b, lower, mode); for (const q of pre) if (!raw.includes(q)) return isReverse; }
+            else {
+                if (k !== bk) { bk = k; hits = blockMatches(row.base, k, lower, pre, mode); }
+                if (hits) { if (!hits[row.b - (k << BLK_BITS)]) return isReverse; }
+                else { const raw = lower(recordText(row.base, row.b)); for (const q of pre) if (!raw.includes(q)) return isReverse; }
+            }
             if (sure) return !isReverse;
         }
         let match = true;
@@ -245,28 +248,73 @@ function valueFilterTest(t, skipCol) {
     return row => { for (const [c, ex] of fs) if (ex.has(cellStr(cellOf(row, c)))) return false; return true; };
 }
 
+/* What the rows are: any edit, undo, re-read or re-order changes one of
+   these (every edit pushes or pops a log entry; convertHeader changes the
+   length). Results computed from the rows — a filter's matches, duplicate
+   groups, a column's profile — are reused while the stamp is the same. */
+function dataStamp(t) { return [t.allData, t.allData.length, t.modificationsLog.length, t.modificationsLog[t.modificationsLog.length - 1], t.headers, t.base && t.base.cmap]; }
+function sameStamp(a, b) { return !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]); }
+/* A small id per object (a value filter's Set), for signatures. */
+const objIds = new WeakMap(); let objSeq = 0;
+function objId(o) { if (!objIds.has(o)) objIds.set(o, ++objSeq); return objIds.get(o); }
+/* Everything a filter depends on besides the text queries. */
+function filterSig(t, skipCol) {
+    return [t.useRegex, t.useSlug, t.useReverse, t.onlyIrregular, t.onlyDups, t.dupSpec && JSON.stringify(t.dupSpec), t.rowMark && t.rowMark.only && objId(t.rowMark),
+        ...Object.keys(t.valFilters).filter(c => +c !== skipCol).sort().map(c => c + ':' + objId(t.valFilters[c]))].join('|');
+}
+
+/* Typing in a filter: on a small file each keystroke filters at once; the
+   wait grows with what the last filtering cost (up to 400 ms on a large
+   one), rather than a fixed 400 ms that made 5 000 rows feel slow. */
+let filterTimer = 0, lastFilterMs = 0;
+function filterSoon() {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(applyFilters, lastFilterMs < 25 ? 0 : Math.min(400, 80 + lastFilterMs));
+}
+
+/* A query that only grew (typing on: "dup" → "dupo"), with nothing else
+   changed, can only match fewer rows: then only the rows shown are tested. */
+function narrowsLast(t) {
+    const L = t.lastFilter;
+    if (!L || t.useRegex || t.useReverse || !sameStamp(L.stamp, dataStamp(t)) || L.sig !== filterSig(t, -1)) return false;
+    const low = v => (t.useSlug ? removeAccents(String(v).toLowerCase()) : String(v).toLowerCase());
+    if (!low(t.globalQuery).includes(low(L.g))) return false;
+    for (const c of Object.keys(L.cols)) if (t.colFilters[c] == null || !low(t.colFilters[c]).includes(low(L.cols[c]))) return false;
+    return true;
+}
+
 function applyFilters() {
     const t = T(); if (!t || !t.loaded) return;
+    clearTimeout(filterTimer);
+    const t0 = performance.now();
     collectUIState(t);
     if (!keepSel) sel = null;             // view indices are about to change
 
     /* Highlight context used by render() */
     t.hl = { globalQuery: t.globalQuery, colFilters: t.colFilters, isRegex: t.useRegex, useSlug: t.useSlug, reverse: t.useReverse };
 
-    const tt = textFilterTest(t);
+    let tt = textFilterTest(t);
     if (tt === false) return;
-    dupGroups(t);
+    const narrow = tt && narrowsLast(t);
+    if (narrow && t.filteredData.length * 8 < t.allData.length) tt = textFilterTest(t, true);   // few rows left: record by record
+    if (!narrow) dupGroups(t);
     const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular, dg = t.onlyDups && t.dupMarks && t.dupMarks.group;
     const mk = t.rowMark && t.rowMark.only && t.rowMark.rows;
-    if (tt || vt || irr || dg || mk) {
+    if (narrow) {
+        const from = t.filteredData, keep = new Uint8Array(from.length);   // the rows shown are already through every other filter
+        visitRows(t, from, (row, i) => { if (tt(row)) keep[i] = 1; });
+        t.filteredData = from.filter((_, i) => keep[i]);
+    } else if (tt || vt || irr || dg || mk) {
         const keep = new Uint8Array(t.allData.length);   // tested in file order (visitRows), kept in view order
         visitRows(t, t.allData, (row, i) => { if ((!irr || row.len !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row)) && (!tt || tt(row)) && (!vt || vt(row))) keep[i] = 1; });
         t.filteredData = t.allData.filter((_, i) => keep[i]);
+        if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
     } else t.filteredData = t.allData;   /* no filter: reuse the same array, no copy in RAM */
-    if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
+    t.lastFilter = { stamp: dataStamp(t), sig: filterSig(t, -1), g: t.globalQuery, cols: { ...t.colFilters } };
 
     container.scrollTop = 0; t.scrollTop = 0; render();
     updateStats();
+    lastFilterMs = performance.now() - t0;
 }
 
 /* Field count ≠ header width: a stray delimiter, or an unclosed quote that

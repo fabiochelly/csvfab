@@ -292,14 +292,38 @@ function setCmap(base, cm) { base.cmap = cm; base.keys.fill(-1); }
 /* Which records of block k contain every query, lower() applied to the
    block's text once (a million toLowerCase calls cost more than the
    search itself). null when lower() changes the text's length (a few
-   Unicode letters do): the caller then tests record by record. */
-function blockMatches(base, k, lower, queries) {
-    if (!base.blk || base.blk.k !== k) { base.blk = loadBlock(base, k); base.lastB = -2; }
-    const blk = base.blk;
-    if (!blk.ok) return null;
-    const text = lower(blk.text);
-    if (text.length !== blk.text.length) return null;
-    const b0 = blk.b0, nb = Math.min(base.n, b0 + (1 << BLK_BITS)) - b0, o = blk.o, c0 = blk.c0;
+   Unicode letters do): the caller then tests record by record.
+   Up to LOWER_CACHE bytes of file, the lowered blocks are kept (per
+   mode: lower case, or lower case without accents): typing a search runs
+   one filtering per keystroke, and the bytes never change. */
+const LOWER_CACHE = 128 << 20;
+function loweredBlock(base, k, lower, mode) {
+    const cache = base.u8.length <= LOWER_CACHE ? (base.lower = base.lower || {})[mode] = (base.lower[mode] || new Map()) : null;
+    let text = cache ? cache.get(k) : undefined;
+    if (text === undefined) {
+        if (!base.blk || base.blk.k !== k) { base.blk = loadBlock(base, k); base.lastB = -2; }
+        const blk = base.blk;
+        text = blk.ok ? lower(blk.text) : null;
+        if (text !== null && text.length !== blk.text.length) text = null;
+        if (cache) cache.set(k, text);
+    }
+    return text;
+}
+/* One record's lowered text, sliced from its lowered block when that one is
+   cached — for a search narrowing down rows already found, which are too
+   few per block to be worth searching whole blocks for. */
+function loweredRecord(base, b, lower, mode) {
+    const k = b >> BLK_BITS, cache = base.lower && base.lower[mode], text = cache ? cache.get(k) : undefined;
+    if (text == null) return lower(recordText(base, b));
+    const o = base.chars || base.starts, c0 = o[k << BLK_BITS];
+    let s = o[b] - c0, e = o[b + 1] - c0;
+    while (e > s && (text.charCodeAt(e - 1) === 10 || text.charCodeAt(e - 1) === 13)) e--;
+    return text.slice(s, e);
+}
+function blockMatches(base, k, lower, queries, mode) {
+    const text = loweredBlock(base, k, lower, mode);
+    if (text === null) return null;
+    const b0 = k << BLK_BITS, nb = Math.min(base.n, b0 + (1 << BLK_BITS)) - b0, o = base.chars || base.starts, c0 = o[b0];
     const off = i => o[b0 + i] - c0;
     let hits = null;
     for (const q of queries) {

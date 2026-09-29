@@ -22,15 +22,22 @@ function openColPanel(e, col) {
     if (colPanel && colPanel.col === col) return closeColPanel();
     closeColPanel(); closeDDs();
 
-    const tt = textFilterTest(t) || null, vt = valueFilterTest(t, col);
-    const counts = new Map();
-    let scope = 0;
-    visitRows(t, t.allData, r => {
-        if ((tt && !tt(r)) || (vt && !vt(r))) return;
-        scope++;
-        const v = cellStr(cellOf(r, col));
-        counts.set(v, (counts.get(v) || 0) + 1);
-    });
+    /* Counted once per state: reopening the panel on the same rows, filters and column reuses the counts. */
+    const key = [col, filterSig(t, col), t.globalQuery, JSON.stringify(t.colFilters)].join('\u0001');
+    let counts, scope;
+    const c = t.cpCache;
+    if (c && c.key === key && sameStamp(c.stamp, dataStamp(t))) ({ counts, scope } = c);
+    else {
+        const tt = textFilterTest(t) || null, vt = valueFilterTest(t, col);
+        counts = new Map(); scope = 0;
+        visitRows(t, t.allData, r => {
+            if ((tt && !tt(r)) || (vt && !vt(r))) return;
+            scope++;
+            const v = cellStr(cellOf(r, col));
+            counts.set(v, (counts.get(v) || 0) + 1);
+        });
+        t.cpCache = { key, stamp: dataStamp(t), counts, scope };
+    }
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
     const entries = [...counts].sort((a, b) => b[1] - a[1] || coll.compare(a[0], b[0]));
 

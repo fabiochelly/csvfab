@@ -288,6 +288,5 @@ function renderHeader() {
     thead.innerHTML = `<tr>${hCells}</tr><tr class="filter-row">${fCells}</tr>`;
     if (srBar.style.display === 'flex') fillSRCols();
     document.querySelectorAll('.resizer').forEach(setupResizer);
-    const filterSoon = debounce(applyFilters, 400);
     document.querySelectorAll('.f-in').forEach(i => i.oninput = () => { i.classList.toggle('has-value', i.value !== ''); filterSoon(); });
 }

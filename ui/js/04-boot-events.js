@@ -86,7 +86,7 @@ function reread(t) {
     updateSaveBtn(); refreshParseOpts(); parseTab(t);
 }
 
-document.getElementById('global-search').oninput = debounce(applyFilters, 400);
+document.getElementById('global-search').oninput = filterSoon;
 document.getElementById('use-regex').onchange = applyFilters;
 document.getElementById('use-slug').onchange = applyFilters;
 document.getElementById('use-reverse').onchange = applyFilters;

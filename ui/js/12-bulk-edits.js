@@ -236,7 +236,9 @@ function dedupeKeep() {
    t.dupSpec keeps the settings, and the groups are recomputed at each
    applyFilters(), so edits and deletions update them. */
 function dupGroups(t) {
-    t.dupMarks = null;
+    const spec = t.dupSpec && JSON.stringify(t.dupSpec);
+    if (spec && t.dupCache && t.dupCache.spec === spec && sameStamp(t.dupCache.stamp, dataStamp(t))) return;   // same rows, same spec: same groups
+    t.dupMarks = null; t.dupCache = null;
     if (!t.dupSpec) return;
     const keys = dupKeys(t, t.dupSpec);
     if (!keys) { t.dupSpec = null; t.onlyDups = false; return; }   // a compared column is gone
@@ -250,6 +252,7 @@ function dupGroups(t) {
         group.set(r, first.get(k));
     });
     t.dupMarks = { group, groups: first.size };
+    t.dupCache = { spec, stamp: dataStamp(t) };
 }
 function markDuplicates() {
     const t = T(); if (!t) return;
