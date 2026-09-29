@@ -46,13 +46,37 @@ function selRange(t) {
 const visibleCols = t => t.headers.map((_, i) => i).filter(i => !t.hiddenCols.has(i));
 function setSel(t, ar, ac, fr, fc) {
     sel = { tab: t.id, ar, ac, fr, fc };
-    render(); selStats(t);
+    paintSel(t); selStats(t);
 }
-/* Status bar: size of the range, and sum / average when it holds numbers. */
+/* The selection's classes moved on the cells drawn, nothing redrawn: a click,
+   an arrow key or a drag step used to re-render the whole grid (~15 ms on
+   an 85-column file). The rows drawn later get them from cellCls(). */
+function paintSel(t) {
+    for (const td of tbody.querySelectorAll('td.sel, td.cur, td.fh')) td.classList.remove('sel', 'cur', 'fh');
+    const rg = selRange(t); if (!rg) return;
+    for (const tr of tbody.querySelectorAll('tr[data-idx]')) {
+        const i = +tr.dataset.idx; if (i < rg.r0 || i > rg.r1) continue;
+        for (const td of tr.querySelectorAll('td[data-c]')) {
+            const c = +td.dataset.c; if (c < rg.c0 || c > rg.c1) continue;
+            td.classList.add('sel');
+            if (i === sel.fr && c === sel.fc) td.classList.add('cur');
+            if (!fillDrag && i === rg.r1 && c === rg.c1) td.classList.add('fh');
+        }
+    }
+}
+/* Status bar: size of the range, and sum / average when it holds numbers.
+   A large range sums a moment later: a drag re-selects at every move. */
+let selSumTimer = 0;
 function selStats(t) {
     const rg = selRange(t); if (!rg) return updateStats();
     const cols = visibleCols(t).filter(c => c >= rg.c0 && c <= rg.c1), rows = rg.r1 - rg.r0 + 1;
     let msg = `${t.name} | ${fmt(rows)} × ${fmt(cols.length)} selected`;
+    clearTimeout(selSumTimer);
+    if (rows * cols.length > 20000 && rows * cols.length <= 1e6) { setStats(msg); selSumTimer = setTimeout(() => { if (T() === t && sel) selSums(t, rg, cols, msg); }, 120); return; }
+    selSums(t, rg, cols, msg);
+}
+function selSums(t, rg, cols, msg) {
+    const rows = rg.r1 - rg.r0 + 1;
     if (rows * cols.length <= 1e6) {
         let n = 0, sum = 0;
         for (let r = rg.r0; r <= rg.r1; r++) for (const c of cols) {
@@ -79,7 +103,8 @@ function revealCell(r, c) {
         if (x0 < container.scrollLeft + idxColW) container.scrollLeft = x0 - idxColW;
         else if (x1 > container.scrollLeft + container.clientWidth - 16) container.scrollLeft = x1 - container.clientWidth + 16;
     }
-    render();
+    renderOnScroll();                     // the window follows, as for any scroll (a far jump redraws)
+    paintSel(t);
 }
 
 tbody.addEventListener('mousedown', e => {
@@ -266,11 +291,17 @@ function writeCells(t, grid, fillOnly, verb) {
         if (added.length) { const gone = new Set(added); t.allData = t.allData.filter(r => !gone.has(r)); }
         ed.undo();
     } });
-    const keepTop = container.scrollTop;
-    keepSel = true; applyFilters(); keepSel = false;
-    container.scrollTop = keepTop;
+    /* Nothing filtered nor added: the rows stay where they are, only those
+       written are redrawn (Delete, a paste). Otherwise the filters decide. */
+    const quiet = !added.length && !hasFilter(t) && !t.dupSpec;
+    if (!quiet) {
+        const keepTop = container.scrollTop;
+        keepSel = true; applyFilters(); keepSel = false;
+        container.scrollTop = keepTop;
+    }
     sel = { tab: t.id, ar: rg.r0, ac: rg.c0, fr: Math.min(fill ? rg.r1 : r1, t.filteredData.length - 1), fc: fill ? rg.c1 : c1 };
-    updateSaveBtn(); renderTabBar(); render();
+    updateSaveBtn(); renderTabBar();
+    if (quiet) { redrawRows(t, rg.r0, Math.max(rg.r1, rg.r0 + grid.length - 1)); paintSel(t); } else render();
     setStats(`${t.name} | ${fmt(n)} cells ${verb}${added.length ? `, ${fmt(added.length)} rows added` : ''}`
         + (dropRows ? ` · ${fmt(dropRows)} rows left out (a filter is active)` : '') + (dropCols ? ` · ${fmt(dropCols)} columns past the last one left out` : '')
         + ' — not written yet, use Save.');

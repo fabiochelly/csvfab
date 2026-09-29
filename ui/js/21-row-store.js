@@ -146,21 +146,32 @@ function csvScanWorker() {
         } catch (err) { post({ error: String(err && err.message || err) }); }
     };
 }
-let scanWorkerUrl = null;
-function runScan(msg, onProgress) {
+/* One worker is kept ready between files: starting one (thread + script)
+   cost tens of milliseconds on each open, noticeable on a small file. A
+   second scan meanwhile (a lookup source read in the background) gets its
+   own, dropped afterwards. */
+let scanWorkerUrl = null, idleWorker = null;
+function scanWorker() {
     if (!scanWorkerUrl) scanWorkerUrl = URL.createObjectURL(new Blob([`(${csvScanWorker.toString()})()`], { type: 'text/javascript' }));
+    const w = idleWorker || new Worker(scanWorkerUrl);
+    idleWorker = null;
+    return w;
+}
+function runScan(msg, onProgress) {
     return new Promise((res, rej) => {
-        const w = new Worker(scanWorkerUrl);
+        const w = scanWorker();
+        const done = () => { w.onmessage = w.onerror = null; if (!idleWorker) idleWorker = w; else w.terminate(); };
         w.onmessage = e => {
             const m = e.data;
             if (m.progress != null) { if (onProgress) onProgress(m.progress, m.phase); return; }
-            w.terminate();
+            done();
             if (m.error) rej(new Error(m.error)); else res(m);
         };
-        w.onerror = e => { w.terminate(); rej(new Error(e.message || 'scan failed')); };
+        w.onerror = e => { w.onmessage = w.onerror = null; w.terminate(); rej(new Error(e.message || 'scan failed')); };
         w.postMessage(msg, [msg.buf]);
     });
 }
+setTimeout(() => { if (!idleWorker) idleWorker = scanWorker(); }, 1500);   // started before the first file
 
 /* Delimiter and line break, guessed by Papa on the first 64 KB (or taken
    from the tab), before the scan that needs them. */

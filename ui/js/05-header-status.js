@@ -246,12 +246,16 @@ refreshParseOpts();
 /* Each column's kind — numbers, dates or text — from its first 400 rows
    (≥ 90 % of the non-empty cells, as for sorting), shown as an icon. */
 function columnKinds(t) {
+    const c = t.kindsCache;
+    if (c && sameStamp(c.stamp, dataStamp(t))) return c.kinds;   // renderHeader() runs after sorts, filters, undos: same rows, same kinds
     const rows = t.allData.slice(0, 400);
-    return t.headers.map((_, c) => {
+    const kinds = t.headers.map((_, c) => {
         const k = { n: 0, d: 0, t: 0 }; let f = 0;
         for (const r of rows) { const ty = cellType(r.data[c]); if (ty) { k[ty]++; f++; } }
         return !f ? '' : k.n / f >= 0.9 ? 'n' : k.d / f >= 0.9 ? 'd' : 't';
     });
+    t.kindsCache = { stamp: dataStamp(t), kinds };
+    return kinds;
 }
 function typeIcon(k) {
     if (k === 'n') return '<span class="ty ty-n" title="Numbers">#</span>';
@@ -274,7 +278,7 @@ function renderHeader() {
         const sortInd = sk < 0 ? '' : `<span class="sort-ind">${t.sort[sk].dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${sk + 1}</sup>` : ''}</span>`;
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondblclick="titleDblClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Column ${i} (from 0) · Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
+                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Column ${i} (from 0) · Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
                 <div class="col-actions">
                     <span class="c-btn" onclick="addColumn(${i})" title="Add column right">+</span>
                     <span class="c-btn del" onclick="deleteColumn(${i})" title="Delete column">−</span>

@@ -1,13 +1,34 @@
 /* ---------------------------------------------------------------
    RENAME & MOVE COLUMNS
    A title answers three gestures: click sorts, double-click renames in
-   place, drag moves the column. The click waits a moment so that the
-   first click of a double-click does not sort. Shift+click adds the
-   column as a further sort key.
+   place, drag moves the column. Shift+click adds the column as a further
+   sort key. The click sorts at once — it used to wait 240 ms in case a
+   second click came — and the second click of a double-click undoes that
+   sort (scroll position included) before renaming. Both are caught on
+   click (e.detail): the sort re-renders the header, so the browser's own
+   dblclick would find the title it started on gone.
 ----------------------------------------------------------------*/
-let sortTimer = 0;
-function titleClick(e, i) { const add = e.shiftKey; clearTimeout(sortTimer); sortTimer = setTimeout(() => sortBy(i, 0, add), 240); }
-function titleDblClick(e, i) { clearTimeout(sortTimer); renameColumn(i, e.currentTarget); }
+let titleSort = null;                     // { t, entry, top, left }: the sort the first click just made
+function titleClick(e, i) {
+    const t = T(); if (!t) return;
+    if (e.detail === 2) {
+        if (titleSort && titleSort.t === t && t.modificationsLog[t.modificationsLog.length - 1] === titleSort.entry) {
+            const { entry, top, left } = titleSort;
+            undo();
+            document.querySelectorAll('#toasts .toast').forEach(x => { if (x._entry === entry) x.remove(); });
+            container.scrollTop = top; container.scrollLeft = left; t.scrollTop = top; render();
+            setStats(t.name);
+        }
+        titleSort = null;
+        const span = thead.querySelector(`th[data-col="${i}"] .col-name`);
+        if (span) renameColumn(i, span);
+        return;
+    }
+    if (e.detail > 2) return;
+    const top = container.scrollTop, left = container.scrollLeft, n = t.modificationsLog.length;
+    sortBy(i, 0, e.shiftKey);
+    titleSort = t.modificationsLog.length > n ? { t, entry: t.modificationsLog[t.modificationsLog.length - 1], top, left } : null;
+}
 
 function renameColumn(i, span) {
     const t = T(); if (!t || !t.loaded) return;
@@ -334,7 +355,6 @@ tbody.addEventListener('drop', e => {
 
 let dragCol = null;
 function colDragStart(e, i) {
-    clearTimeout(sortTimer);
     dragCol = i;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/x-csv-column', String(i));

@@ -440,6 +440,11 @@ def write_xlsx(open_rows, out_path, sheet="Sheet1", header=True):
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "csvfab"
     protocol_version = "HTTP/1.1"
+    # TCP_NODELAY : en-têtes et corps partent en deux écritures sur une
+    # connexion gardée ouverte ; avec Nagle + l'ACK différé du client, la
+    # seconde attendait ~40 ms (mesuré : 46 ms par /api/stat, 3 à chaque
+    # ouverture de fichier).
+    disable_nagle_algorithm = True
 
     # --- plomberie -------------------------------------------------------
     def log_message(self, fmt, *a):

@@ -24,6 +24,7 @@ function toast(msg, o = {}) {
     el.onmouseenter = () => clearTimeout(timer);
     el.onmouseleave = () => { timer = setTimeout(leave, 2500); };
     el.querySelector('.tx').onclick = leave;
+    if (o.undo) el._entry = o.undo.entry;
     if (o.undo) el.querySelector('.tu').onclick = () => {
         const { t, entry } = o.undo;
         if (T() === t && t.modificationsLog[t.modificationsLog.length - 1] === entry) undo();
@@ -162,7 +163,7 @@ document.addEventListener('keydown', (e) => {
     if (colPanel) return closeColPanel();
     if (document.querySelector('.dd-menu.open')) return closeDDs();
     if (srBar.style.display === 'flex') return toggleSRBar();
-    if (sel) { sel = null; render(); updateStats(); }
+    if (sel) { const t = T(); sel = null; if (t) paintSel(t); updateStats(); }
 });
 function closeAllModals() {
     document.getElementById('modal-bg').style.display = 'none';

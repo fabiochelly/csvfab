@@ -54,7 +54,7 @@ function startEdit(td, typed, caretEnd) {
         const v = input.value;
         container.removeEventListener('scroll', onScroll);
         input.remove(); td.classList.remove('editing');
-        if (mode === 'cancel') { render(); selStats(t); return; }
+        if (mode === 'cancel') { paintSel(t); selStats(t); return; }
         if (mode === 'one' || !multi) {
             if (v !== oldVal) {
                 const ed = rowEdits();
@@ -62,8 +62,8 @@ function startEdit(td, typed, caretEnd) {
                 t.modificationsLog.push({ id: rowObj.id, col: t.headers[colIdx], old: oldVal, new: v, what: `edit in ${t.headers[colIdx]}`,
                     undo: () => ed.undo() });
                 updateSaveBtn(); renderTabBar();
+                redrawRows(t, viewIdx, viewIdx);   // that row alone
             }
-            render();
             return;
         }
         /* The whole selection: the same value, or a series seeded by it — down

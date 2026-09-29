@@ -170,9 +170,19 @@ function sortBy(col, forceDir, add) {
     cols.length = 0; order.length = 0;    // the undo closure below shares this scope: don't let it keep them
     commitRows(t, sorted, { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
         t => { t.sort = prevSort; });
-    renderHeader(); applyColStyles();
+    sortMarks(t);
     const kinds = specs.length === 1 ? ` (${{ n: 'numbers', d: 'dates', t: 'text' }[specs[0].kind]})` : '';
     setStats(`${t.name} | Sorted by ${desc}${kinds} — not written yet, use Save.`);
+}
+
+/* The ▲ / ▼ marks of the header, in place: rebuilding the whole header after
+   each sort cost ~20 ms on an 85-column file (its layout, as for the rows). */
+function sortMarks(t) {
+    thead.querySelectorAll('.sort-ind').forEach(x => x.remove());
+    (t.sort || []).forEach((k, n) => {
+        const span = thead.querySelector(`th[data-col="${k.col}"] .col-name`);
+        if (span) span.insertAdjacentHTML('beforeend', `<span class="sort-ind">${k.dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${n + 1}</sup>` : ''}</span>`);
+    });
 }
 
 /* Keeps only the rows the filters show. The filters are then cleared: they
@@ -341,9 +351,11 @@ function viewCols(L) {
    way) and, once every column has a pinned width, its columns (a screen's
    width each side). */
 function drawWindow(t) {
-    const n = t.filteredData.length, [v0, v1] = viewRows(t), page = v1 - v0 + 1;
+    const n = t.filteredData.length, [v0, v1] = viewRows(t), L = colLayout(t);
+    /* Widths not measured yet: every column is drawn once to measure them, so
+       only the rows in view (80 rows × 85 columns cost ~70 ms of layout). */
+    const page = L ? v1 - v0 + 1 : 0;
     const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: null, c1: null, cols: null, left: 0, right: 0 };
-    const L = colLayout(t);
     if (L) {
         const [k0, k1] = viewCols(L), a = container.scrollLeft - container.clientWidth, b = container.scrollLeft + 2 * container.clientWidth;
         let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
@@ -374,6 +386,18 @@ function rowsHtml(t, i0, i1, w) {
             + '</tr>';
     }
     return html;
+}
+/* Rows i0…i1 redrawn in place (those in the window), after an edit that
+   moves no row: a cell edit, a paste, Delete. */
+function redrawRows(t, i0, i1) {
+    if (!drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
+    const L = colLayout(t);
+    if (drawn.c0 != null && (!L || L.vis.join(',') !== drawn.vis)) return render();
+    const w = drawn.c0 == null ? { cols: null } : { cols: L.vis.slice(drawn.c0, drawn.c1 + 1), left: drawn.c0, right: L.vis.length - 1 - drawn.c1 };
+    for (let i = Math.max(i0, drawn.r0); i <= Math.min(i1, drawn.r1); i++) {
+        const tr = tbody.querySelector(`tr[data-idx="${i}"]`);
+        if (tr) tr.outerHTML = rowsHtml(t, i, i, w);
+    }
 }
 const spacer = (cls, rows, span) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none;"></td></tr>`;
 
