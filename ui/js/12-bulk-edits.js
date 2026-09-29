@@ -352,14 +352,18 @@ function drawWindow(t) {
     }
     return w;
 }
+/* One cell of row i, as HTML. */
+function cellHtml(t, i, r, d, mk, cIdx, rg, fp) {
+    const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]);
+    return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m)}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, t.hl))}</td>`;
+}
 /* Rows i0…i1 of the view, as HTML, in the window's columns. */
 function rowsHtml(t, i0, i1, w) {
-    const data = t.filteredData, hl = t.hl, rg = selRange(t), fp = fillRect();
+    const data = t.filteredData, rg = selRange(t), fp = fillRect();
     let html = '';
     for (let i = i0; i <= i1; i++) {
         const r = data[i], mk = markedCells(t, r), d = r.data;
-        const cell = cIdx => { const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]);
-            return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m)}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`; };
+        const cell = cIdx => cellHtml(t, i, r, d, mk, cIdx, rg, fp);
         html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
             <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
@@ -373,27 +377,56 @@ function rowsHtml(t, i0, i1, w) {
 }
 const spacer = (cls, rows, span) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none;"></td></tr>`;
 
-/* On scroll, the window follows the viewport a few rows at a time: only
-   the rows entering and leaving it are added and removed. Re-laying out
-   the whole table cost 15 ms on 80 rows of an 85-column file; adding rows
-   costs ~1.5 ms plus ~0.4 ms a row, so small steps (every ROW_STEP rows)
-   stay far under a frame. A sideways move past the columns drawn redraws
-   everything. */
-const ROW_STEP = 4;
+/* The drawn rows move from columns drawn.c0…c1 to w.c0…w.c1 (indices into
+   the visible columns): in each row, the cells leaving are removed, the
+   ones entering inserted, and the spacer cell on each side (colspan: the
+   visible columns it stands for) resized, created or dropped. */
+function shiftCols(t, w, vis) {
+    const o0 = drawn.c0, o1 = drawn.c1, n0 = w.c0, n1 = w.c1, data = t.filteredData, rg = selRange(t), fp = fillRect();
+    const nl = n0, nr = vis.length - 1 - n1;
+    for (const tr of tbody.querySelectorAll('tr[data-idx]')) {
+        const i = +tr.dataset.idx, r = data[i], mk = markedCells(t, r), d = r.data;
+        const html = (a, b) => { let h = ''; for (let k = a; k <= b; k++) h += cellHtml(t, i, r, d, mk, vis[k], rg, fp); return h; };
+        const idxTd = tr.firstElementChild;
+        let ls = idxTd.nextElementSibling; if (ls && !ls.classList.contains('hsp')) ls = null;
+        let rs = tr.lastElementChild; if (rs === ls || !rs.classList.contains('hsp')) rs = null;
+        /* Left edge */
+        for (let k = o0; k < Math.min(n0, o1 + 1); k++) (ls || idxTd).nextElementSibling.remove();
+        if (n0 < o0) (ls || idxTd).insertAdjacentHTML('afterend', html(n0, o0 - 1));
+        if (nl && !ls) { idxTd.insertAdjacentHTML('afterend', `<td class="hsp" colspan="${nl}"></td>`); }
+        else if (nl) ls.colSpan = nl;
+        else if (ls) ls.remove();
+        /* Right edge */
+        for (let k = o1; k > Math.max(n1, o0 - 1); k--) (rs ? rs.previousElementSibling : tr.lastElementChild).remove();
+        if (n1 > o1) (rs || tr).insertAdjacentHTML(rs ? 'beforebegin' : 'beforeend', html(o1 + 1, n1));
+        if (nr && !rs) tr.insertAdjacentHTML('beforeend', `<td class="hsp" colspan="${nr}"></td>`);
+        else if (nr) rs.colSpan = nr;
+        else if (rs) rs.remove();
+    }
+    drawn.c0 = n0; drawn.c1 = n1;
+}
+
+/* On scroll, the window follows the viewport a few rows (ROW_STEP) or
+   columns (COL_STEP) at a time: only the rows or cells entering and
+   leaving it are added and removed. Re-laying out the whole table cost
+   15 ms on 80 rows of an 85-column file, and a sideways move past the
+   columns drawn redrew it all (~50 ms); adding rows costs ~1.5 ms plus
+   ~0.4 ms a row, so small steps stay far under a frame. */
+const ROW_STEP = 4, COL_STEP = 2;
 function renderOnScroll() {
     const t = T();
     if (!t || !t.loaded || !drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
-    const w0 = drawWindow(t);
-    const rowsOk = Math.abs(w0.r0 - drawn.r0) < ROW_STEP && Math.abs(w0.r1 - drawn.r1) < ROW_STEP;
-    let colsOk = true;
-    if (drawn.c0 != null) {
-        const L = colLayout(t);
-        if (!L) colsOk = false;
-        else { const [k0, k1] = viewCols(L); colsOk = (k0 - 1 >= drawn.c0 || drawn.c0 === 0) && (k1 + 1 <= drawn.c1 || drawn.c1 >= L.vis.length - 1); }
-    } else colsOk = !colLayout(t);        // widths just pinned: switch to drawing only the columns in view
-    if (rowsOk && colsOk) return;
-    const w = w0;
-    if (!colsOk || w.c0 !== drawn.c0 || w.c1 !== drawn.c1 || w.r0 > drawn.r1 || w.r1 < drawn.r0) return render();
+    const L = colLayout(t);
+    /* Widths just pinned (all columns were drawn), or columns shown or hidden since: draw anew. */
+    if (drawn.c0 == null ? !!L : (!L || L.vis.join(',') !== drawn.vis)) return render();
+    const w = drawWindow(t);
+    const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP;
+    const colsMove = L && (Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP);
+    if (!rowsMove && !colsMove) return;
+    if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) return render();   // a jump: nothing to keep
+    if (colsMove) shiftCols(t, w, L.vis);
+    else if (L) Object.assign(w, { c0: drawn.c0, c1: drawn.c1, cols: L.vis.slice(drawn.c0, drawn.c1 + 1), left: drawn.c0, right: L.vis.length - 1 - drawn.c1 });   // rows entering take the columns drawn
+    if (!rowsMove) return;
     const top = tbody.firstElementChild, btm = tbody.lastElementChild;
     /* Rows leaving at either end, then rows entering. */
     for (let i = drawn.r0; i < w.r0; i++) top.nextElementSibling.remove();
@@ -414,7 +447,8 @@ function render() {
     const w = drawWindow(t), span = t.headers.length + 1;
     /* Both spacers are always there (height 0 at an end): the scroll updates resize them. */
     tbody.innerHTML = spacer('sp-top', w.r0, span) + rowsHtml(t, w.r0, w.r1, w) + spacer('sp-btm', data.length - 1 - w.r1, span);
-    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1 };
+    const L = colLayout(t);
+    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L ? L.vis.join(',') : null };
     pinColWidths(t);
 }
 

@@ -458,7 +458,7 @@ function handleColCheck(e, idx) {
     } else {
         if (isChecked) t.hiddenCols.delete(idx); else t.hiddenCols.add(idx);
     }
-    lastCheckedCol = idx; applyColStyles(); pinColWidths(t); updateCount(t);
+    lastCheckedCol = idx; applyColStyles(); render(); updateCount(t);   // render: the spacers' colspans count the visible columns
 }
 
 /* Single style tag holding hidden columns + column widths of the ACTIVE tab */

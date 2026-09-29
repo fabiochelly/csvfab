@@ -438,7 +438,7 @@ td.col-idx { position: sticky; }
    cost a fifth of the layout of the rows a scroll adds. */
 .row-btn { background-image: radial-gradient(circle, currentColor 1.3px, transparent 1.6px); background-size: 4px 4.5px; background-repeat: repeat-y; background-position: center; background-origin: content-box; background-clip: content-box; padding: 4.25px 0; box-sizing: border-box; }
 tr:hover .row-btn, .row-btn.open { display: flex; }
-.row-btn:hover, .row-btn.open { background: var(--surf-3); color: var(--txt-strong); }
+.row-btn:hover, .row-btn.open { background-color: var(--surf-3); color: var(--txt-strong); }   /* the colour only: the dots are the background image */
 #row-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }
 .dd-item.danger, .dd-item.danger .lbl svg { color: var(--danger-txt); }
 .dd-item.danger:hover { background: rgba(var(--danger-rgb), .14); }
