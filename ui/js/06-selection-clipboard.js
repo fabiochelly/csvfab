@@ -53,6 +53,7 @@ function setSel(t, ar, ac, fr, fc) {
    an 85-column file). The rows drawn later get them from cellCls(). */
 function paintSel(t) {
     for (const td of tbody.querySelectorAll('td.sel, td.cur, td.fh')) td.classList.remove('sel', 'cur', 'fh');
+    stripSel(t);                              // the selection's band on the scroll strip
     const rg = selRange(t); if (!rg) return;
     for (const tr of tbody.querySelectorAll('tr[data-idx]')) {
         const i = +tr.dataset.idx; if (i < rg.r0 || i > rg.r1) continue;

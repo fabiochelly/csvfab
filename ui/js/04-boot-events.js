@@ -125,6 +125,7 @@ function setTheme(name) {
     h.style.colorScheme = name === 'light' || name === 'latte' ? 'light' : 'dark';
     try { localStorage.setItem('csvfab-theme', name); } catch (e) { }
     refreshParseOpts();                       // the status bar swatch, and the theme menu if it is open
+    if (T() && T().loaded) stripUpdate(T(), true);   // the strip's marks in the new palette
 }
 
 let quitting = false;

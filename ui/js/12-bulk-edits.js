@@ -567,18 +567,20 @@ function syncLayer() {
     const gridLayer = document.getElementById('grid-layer');
     if (gridLayer.scrollTop !== container.scrollTop) gridLayer.scrollTop = container.scrollTop;
     if (gridLayer.scrollLeft !== container.scrollLeft) gridLayer.scrollLeft = container.scrollLeft;
+    stripFollow();                        // the scroll strip's thumb (28-…)
 }
 /* The layer the size of the viewport, the spacer the rest of the table's extent
    (rows × ROW_H + the header, and the pinned widths' sum — measured only while
    widths are still unknown). */
 function syncSpace(t) {
     const gridLayer = document.getElementById('grid-layer'), scrollSpace = document.getElementById('scroll-space');
-    const cw = container.clientWidth, ch = container.clientHeight;
-    gridLayer.style.width = cw + 'px'; gridLayer.style.height = ch + 'px';
-    if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; return; }
+    const cw = container.clientWidth, ch = container.clientHeight, sbw = container.offsetWidth - cw;
+    gridLayer.style.width = (sbw >= 16 ? cw : cw - (24 - sbw)) + 'px'; gridLayer.style.height = ch + 'px';   // overlay scrollbars: room left for the strip (24 = STRIP_W, a const of 28-… not yet declared when this runs at boot)
+    if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; stripLayout(null); return; }
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
     const h = thead.offsetHeight + t.filteredData.length * ROW_H;
     scrollSpace.style.height = Math.max(0, h - ch) + 'px';
     scrollSpace.style.width = Math.max(1, w) + 'px';
     syncLayer();
+    stripLayout(t);
 }

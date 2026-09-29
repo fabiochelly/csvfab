@@ -1,7 +1,10 @@
 /* csvfab — layout and components. Colours come from ui/themes.css. */
 
 /* Dark native widgets: scrollbars, select lists, date pickers follow the theme. */
-:root { color-scheme: dark; scrollbar-color: var(--scroll) transparent; --card-w: 400px; }   /* --card-w: the row card's width (22-row-card.js) */
+/* No scrollbar-color here: since Chromium 121 that standard property, once set, makes every
+   ::-webkit-scrollbar rule below ignored — the thumb styling, and the 24 px wide scrollbar of
+   the grid that the scroll strip (28-…) sits on. The rules below style the scrollbars alone. */
+:root { color-scheme: dark; --card-w: 400px; }   /* --card-w: the row card's width (22-row-card.js) */
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surf-3); border: 3px solid transparent; border-radius: 8px; background-clip: padding-box; }
@@ -81,6 +84,19 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
    rows last drawn until the next ones replace them, never a blank. */
 #grid-layer { position: sticky; top: 0; left: 0; overflow: hidden; z-index: 1; }
 #scroll-space { width: 1px; height: 0; }
+/* The vertical scrollbar of the grid is 24 px wide: the scroll strip (28-…) sits over it. */
+#view-container::-webkit-scrollbar { width: 24px; }
+#scroll-strip { position: fixed; z-index: 1100; box-sizing: border-box; background: var(--surf-2); border-left: 1px solid var(--brd); cursor: pointer; user-select: none; touch-action: none; overflow: visible; }
+#scroll-strip .ss-marks { position: absolute; left: 0; top: 0; pointer-events: none; }
+#scroll-strip .ss-labels { position: absolute; inset: 0; pointer-events: none; font: 600 9px 'Inter', sans-serif; letter-spacing: -.02em; color: var(--txt-dim); }
+#scroll-strip .ss-labels span { position: absolute; left: 0; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; line-height: 12px; margin-top: -6px; }
+#scroll-strip .ss-labels.sorted span { color: var(--txt-mut); }
+#scroll-strip .ss-sel { position: absolute; left: 0; width: 3px; background: var(--prim); pointer-events: none; display: none; }
+#scroll-strip .ss-thumb { position: absolute; left: 2px; right: 2px; border-radius: 5px; background: rgba(var(--gray-rgb), .28); border: 1px solid rgba(var(--hi-rgb), .18); box-sizing: border-box; pointer-events: none; }
+#scroll-strip:hover .ss-thumb, #scroll-strip.drag .ss-thumb { background: rgba(var(--accent-rgb), .35); border-color: rgba(var(--accent-rgb), .7); }
+#scroll-strip .ss-tip { display: none; position: absolute; right: calc(100% + 8px); padding: 4px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+    background: var(--surf); border: 1px solid var(--brd-2); box-shadow: 0 6px 20px rgba(0,0,0,.4); font: 12px 'Inter', sans-serif; color: var(--txt-hi); }
+#scroll-strip.tip .ss-tip { display: block; }
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
 #tbody td.flash { animation: cellflash 1.2s ease-out; }
 @keyframes cellflash { 0%, 25% { background-color: rgba(var(--warn-rgb), .38); } }
