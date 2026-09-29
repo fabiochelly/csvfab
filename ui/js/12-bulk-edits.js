@@ -302,36 +302,116 @@ function applyDedupe() {
     setStats(`${t.name} | ${fmt(dup)} duplicate rows deleted — not written yet, use Save.`);
 }
 
-/* Virtual rendering: only the visible slice of the ACTIVE tab is in the DOM */
+/* ---------------------------------------------------------------
+   VIRTUAL RENDERING
+   Only a window of the ACTIVE tab is in the DOM, in both directions:
+   the rows around the viewport and, once every column has a pinned
+   width, only the columns around it — the others stand as one spacer
+   cell on each side (colspan over the visible columns they replace).
+   The window reaches one screen beyond the viewport each way, and a
+   scroll re-renders only when the viewport nears its edge: the browser
+   scrolls what is already drawn before any script runs, so rendering
+   exactly the viewport showed black bands at every scroll, and an
+   85-column file rebuilt 2 500 cells per scroll event.
+----------------------------------------------------------------*/
+let drawn = null;                         // { t, r0, r1, c0, c1 }: the window in the DOM (c0/c1: indices into visible columns)
+
+/* The visible columns and their left edges in the table (after the row numbers), or null while widths are unknown. */
+function colLayout(t) {
+    const vis = visibleCols(t), x = new Array(vis.length + 1);
+    let s = idxColW;
+    for (let k = 0; k < vis.length; k++) { const w = t.colWidths[vis[k]]; if (w == null) return null; x[k] = s; s += w; }
+    x[vis.length] = s;
+    return { vis, x };
+}
+function viewRows(t) {
+    const top = Math.max(0, Math.floor((container.scrollTop - thead.offsetHeight) / ROW_H));   // rows start below the header
+    return [top, top + Math.ceil(container.clientHeight / ROW_H)];
+}
+function viewCols(L) {
+    const a = container.scrollLeft + idxColW, b = container.scrollLeft + container.clientWidth;
+    let k0 = 0; while (k0 < L.vis.length - 1 && L.x[k0 + 1] <= a) k0++;
+    let k1 = k0; while (k1 < L.vis.length - 1 && L.x[k1 + 1] < b) k1++;
+    return [k0, k1];
+}
+/* The window to draw around the viewport: its rows (a screen beyond it each
+   way) and, once every column has a pinned width, its columns (a screen's
+   width each side). */
+function drawWindow(t) {
+    const n = t.filteredData.length, [v0, v1] = viewRows(t), page = v1 - v0 + 1;
+    const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: null, c1: null, cols: null, left: 0, right: 0 };
+    const L = colLayout(t);
+    if (L) {
+        const [k0, k1] = viewCols(L), a = container.scrollLeft - container.clientWidth, b = container.scrollLeft + 2 * container.clientWidth;
+        let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
+        let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
+        Object.assign(w, { c0, c1, cols: L.vis.slice(c0, c1 + 1), left: c0, right: L.vis.length - 1 - c1 });
+    }
+    return w;
+}
+/* Rows i0…i1 of the view, as HTML, in the window's columns. */
+function rowsHtml(t, i0, i1, w) {
+    const data = t.filteredData, hl = t.hl, rg = selRange(t), fp = fillRect();
+    let html = '';
+    for (let i = i0; i <= i1; i++) {
+        const r = data[i], mk = markedCells(t, r), d = r.data;
+        const cell = cIdx => { const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]);
+            return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m)}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`; };
+        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
+            <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
+                <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
+                <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
+            </td>`
+            + (w.cols ? (w.left ? `<td class="hsp" colspan="${w.left}"></td>` : '') + w.cols.map(cell).join('') + (w.right ? `<td class="hsp" colspan="${w.right}"></td>` : '')
+                : d.map((_, cIdx) => cell(cIdx)).join(''))
+            + '</tr>';
+    }
+    return html;
+}
+const spacer = (cls, rows, span) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none;"></td></tr>`;
+
+/* On scroll, the window follows the viewport a few rows at a time: only
+   the rows entering and leaving it are added and removed. Re-laying out
+   the whole table cost 15 ms on 80 rows of an 85-column file; adding rows
+   costs ~1.5 ms plus ~0.4 ms a row, so small steps (every ROW_STEP rows)
+   stay far under a frame. A sideways move past the columns drawn redraws
+   everything. */
+const ROW_STEP = 4;
+function renderOnScroll() {
+    const t = T();
+    if (!t || !t.loaded || !drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
+    const w0 = drawWindow(t);
+    const rowsOk = Math.abs(w0.r0 - drawn.r0) < ROW_STEP && Math.abs(w0.r1 - drawn.r1) < ROW_STEP;
+    let colsOk = true;
+    if (drawn.c0 != null) {
+        const L = colLayout(t);
+        if (!L) colsOk = false;
+        else { const [k0, k1] = viewCols(L); colsOk = (k0 - 1 >= drawn.c0 || drawn.c0 === 0) && (k1 + 1 <= drawn.c1 || drawn.c1 >= L.vis.length - 1); }
+    } else colsOk = !colLayout(t);        // widths just pinned: switch to drawing only the columns in view
+    if (rowsOk && colsOk) return;
+    const w = w0;
+    if (!colsOk || w.c0 !== drawn.c0 || w.c1 !== drawn.c1 || w.r0 > drawn.r1 || w.r1 < drawn.r0) return render();
+    const top = tbody.firstElementChild, btm = tbody.lastElementChild;
+    /* Rows leaving at either end, then rows entering. */
+    for (let i = drawn.r0; i < w.r0; i++) top.nextElementSibling.remove();
+    for (let i = drawn.r1; i > w.r1; i--) btm.previousElementSibling.remove();
+    if (w.r0 < drawn.r0) top.insertAdjacentHTML('afterend', rowsHtml(t, w.r0, drawn.r0 - 1, w));
+    if (w.r1 > drawn.r1) btm.insertAdjacentHTML('beforebegin', rowsHtml(t, drawn.r1 + 1, w.r1, w));
+    top.style.height = w.r0 * ROW_H + 'px';
+    btm.style.height = (drawn.n - 1 - w.r1) * ROW_H + 'px';
+    drawn.r0 = w.r0; drawn.r1 = w.r1;
+}
+
 function render() {
     const t = T();
+    drawn = null;
     if (!t || !t.loaded) { tbody.innerHTML = ''; return; }
     const data = t.filteredData;
     if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="100" style="padding: 20px; text-align: center;">No results found</td></tr>'; return; }
-
-    const start = Math.max(0, Math.floor((container.scrollTop - thead.offsetHeight) / ROW_H));   // rows start below the header
-    const end = start + Math.ceil(container.clientHeight / ROW_H) + 3;
-    const colSpan = t.headers.length + 1;
-    const hl = t.hl, rg = selRange(t), fp = fillRect();
-
-    let html = '';
-    if (start > 0) html += `<tr style="height: ${start * ROW_H}px; background: transparent;"><td colspan="${colSpan}" style="padding:0; border:none;"></td></tr>`;
-
-    for (let i = start; i < Math.min(end, data.length); i++) {
-        const r = data[i], mk = markedCells(t, r);
-        const displayId = r.id.toLocaleString('fr-FR');
-        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
-            <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
-                <span class="row-num">${displayId}</span>
-                <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/></svg></span>
-            </td>
-            ${r.data.map((c, cIdx) => `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, mk && mk.has(t.headers[cIdx]))}${mk && mk.has(t.headers[cIdx]) ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, hl))}</td>`).join('')}
-        </tr>`;
-    }
-
-    const btm = Math.max(0, (data.length - end) * ROW_H);
-    if (btm > 0) html += `<tr style="height: ${btm}px; background: transparent;"><td colspan="${colSpan}" style="padding:0; border:none;"></td></tr>`;
-    tbody.innerHTML = html;
+    const w = drawWindow(t), span = t.headers.length + 1;
+    /* Both spacers are always there (height 0 at an end): the scroll updates resize them. */
+    tbody.innerHTML = spacer('sp-top', w.r0, span) + rowsHtml(t, w.r0, w.r1, w) + spacer('sp-btm', data.length - 1 - w.r1, span);
+    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1 };
     pinColWidths(t);
 }
 
@@ -343,13 +423,13 @@ function render() {
    until it is shown; an added column is picked up on the next render. */
 function pinColWidths(t) {
     if (!t.loaded || !t.filteredData.length) return;   // header alone would size to the labels
-    /* A window opened from the file manager is born tiny, then tiled to full size:
-       measuring in between would freeze every column at that tiny size. */
-    if (container.clientWidth < 400) return;
     const missing = [];
     for (let i = 0; i < t.headers.length; i++) if (t.colWidths[i] == null && !t.hiddenCols.has(i)) missing.push(i);
     const cells = thead.rows[0] && thead.rows[0].cells;
-    if (!missing.length || !cells) return;
+    if (!missing.length || !cells) return;   // the usual case, checked first: reading a size below forces a layout of the fresh rows
+    /* A window opened from the file manager is born tiny, then tiled to full size:
+       measuring in between would freeze every column at that tiny size. */
+    if (container.clientWidth < 400) return;
     let changed = false;
     if (!idxColW) idxColW = Math.ceil(cells[0].getBoundingClientRect().width);
     missing.forEach(i => {

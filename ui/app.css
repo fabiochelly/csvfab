@@ -235,6 +235,10 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
     background: var(--bg); color: var(--txt-strong); font: inherit; outline: none; box-shadow: 0 0 0 3px rgba(var(--prim-rgb), .22); }
 /* Range selection: tinted cells, the active cell outlined. */
 #tbody td:not(.col-idx) { user-select: none; }
+#tbody td.hsp { padding: 0; border-left: none; border-right: none; }   /* stands for the columns out of view */
+/* No ligatures nor kerning in the cells (a monospace font has no use for them): the
+   text of each row a scroll brings in is shaped by the fast path — half the layout. */
+#tbody td { text-rendering: optimizeSpeed; font-variant-ligatures: none; }
 #tbody td.sel { background: rgba(var(--accent-rgb), .18) !important; }
 #tbody td.cur { box-shadow: inset 0 0 0 2px var(--prim); }
 #tbody td.fh { position: relative; }
@@ -430,7 +434,9 @@ thead .col-idx { z-index: 120; }
 td.col-idx { position: sticky; }
 .row-btn { display: none; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 18px; height: 22px; border-radius: 4px;
     align-items: center; justify-content: center; cursor: pointer; color: var(--txt-mut); }
-.row-btn svg { width: 14px; height: 14px; }
+/* The ⋮ drawn by the background (three dots in the text colour): an SVG in every row
+   cost a fifth of the layout of the rows a scroll adds. */
+.row-btn { background-image: radial-gradient(circle, currentColor 1.3px, transparent 1.6px); background-size: 4px 4.5px; background-repeat: repeat-y; background-position: center; background-origin: content-box; background-clip: content-box; padding: 4.25px 0; box-sizing: border-box; }
 tr:hover .row-btn, .row-btn.open { display: flex; }
 .row-btn:hover, .row-btn.open { background: var(--surf-3); color: var(--txt-strong); }
 #row-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }

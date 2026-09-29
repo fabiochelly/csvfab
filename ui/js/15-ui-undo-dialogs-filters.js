@@ -334,7 +334,7 @@ container.onscroll = () => {
     const t = T(); if (t) t.scrollTop = container.scrollTop;
     if (colPanel && container.scrollLeft !== lastScrollLeft) closeColPanel();
     lastScrollLeft = container.scrollLeft;
-    render();
+    renderOnScroll();
 };
 window.onresize = resizeContainer;
 /* render() only mounts the rows that fit the container's height at that

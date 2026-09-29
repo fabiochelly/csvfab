@@ -474,10 +474,12 @@ function applyColStyles() {
         let sum = idxColW, all = idxColW > 0;
         t.headers.forEach((_, c) => { if (t.hiddenCols.has(c)) return; if (t.colWidths[c] == null) all = false; else sum += t.colWidths[c]; });
         if (all) css += `#mainTable { width: ${sum}px; }\n`;
-        t.hiddenCols.forEach(c => { css += `#mainTable tr td:nth-child(${c + 2}), #mainTable tr th:nth-child(${c + 2}) { display: none !important; }\n`; });
+        /* Header cells by position (the header always has every column), body
+           cells by data-c: a row drawn with only the columns in view has fewer. */
+        t.hiddenCols.forEach(c => { css += `#mainTable td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
         Object.keys(t.colWidths).forEach(k => {
             const c = parseInt(k, 10), w = t.colWidths[k];
-            css += `#mainTable tr td:nth-child(${c + 2}), #mainTable tr th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; overflow: hidden; }\n`;
+            css += `#mainTable td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; overflow: hidden; }\n`;
         });
     }
     let styleTag = document.getElementById('tab-cols-style');

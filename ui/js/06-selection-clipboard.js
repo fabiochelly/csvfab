@@ -69,16 +69,17 @@ function revealCell(r, c) {
     const top = thead.offsetHeight, y = top + r * ROW_H;   // row r's top in content coordinates, below the sticky header
     if (y < container.scrollTop + top) container.scrollTop = y - top;
     else if (y + ROW_H > container.scrollTop + container.clientHeight) container.scrollTop = y + ROW_H - container.clientHeight;
-    render();
-    const t = T(), vis = t ? visibleCols(t) : [];
-    if (c === vis[0]) { container.scrollLeft = 0; return; }   // the first column: all the way left, nothing cut off
-    const td = tbody.querySelector(`tr[data-idx="${r}"] td[data-c="${c}"]`);
-    if (td) {
-        /* Left of the cell: the sticky row-number column, which covers what scrolls under it. */
-        const b = td.getBoundingClientRect(), cb = container.getBoundingClientRect(), left = cb.left + (idxColW || 70);
-        if (b.left < left) container.scrollLeft -= left - b.left;
-        else if (b.right > cb.right - 16) container.scrollLeft += b.right - cb.right + 16;
+    /* Sideways from the pinned widths: the cell may be outside the columns
+       drawn. Left of it, the sticky row numbers cover what scrolls under them;
+       the first column goes all the way left, nothing cut off. */
+    const t = T(), L = t && colLayout(t), k = L ? L.vis.indexOf(c) : -1;
+    if (k === 0) container.scrollLeft = 0;
+    else if (k > 0) {
+        const x0 = L.x[k], x1 = L.x[k + 1];
+        if (x0 < container.scrollLeft + idxColW) container.scrollLeft = x0 - idxColW;
+        else if (x1 > container.scrollLeft + container.clientWidth - 16) container.scrollLeft = x1 - container.clientWidth + 16;
     }
+    render();
 }
 
 tbody.addEventListener('mousedown', e => {
