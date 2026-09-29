@@ -15,7 +15,7 @@ A desktop CSV editor that **edits the file in place** — fast on files of sever
 
 | | |
 |---|---|
-| **Arch Linux** (AUR) | `yay -S csvfab` |
+| **Arch Linux** | the script below — the AUR package `csvfab` will follow once the AUR reopens registrations |
 | **macOS** (Homebrew) | `brew install fabiochelly/csvfab/csvfab` |
 | **Windows** (winget) | `winget install FabioChelly.csvfab` |
 | **Linux / macOS** (script) | `curl -fsSL https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.sh \| sh` |
