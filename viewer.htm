@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>csvfab</title>
-    <!-- The theme is applied before the first paint, so the other one never flashes. -->
-    <script>try { var th = localStorage.getItem('csvfab-theme'); if (th && th !== 'dark') document.documentElement.dataset.theme = th; } catch (e) {}</script>
+    <!-- The theme is applied before the first paint, so the other one never flashes — and
+         its background with it, set on <html> right here: the window's first frames, before
+         the stylesheets arrive, are the theme's colour rather than the browser's default.
+         (The colours repeat each palette's --bg; THEME_SWATCH in 01-core.js holds them too.) -->
+    <script>try { var th = localStorage.getItem('csvfab-theme'); if (th && th !== 'dark') document.documentElement.dataset.theme = th; } catch (e) {}
+        (function (h, t) { var bg = { dark: '#0d1117', tokyonight: '#15161e', catppuccin: '#11111b', vscode: '#1a1b26', light: '#ffffff', latte: '#eff1f5' }[t] || '#0d1117';
+            h.style.background = bg; h.style.colorScheme = t === 'light' || t === 'latte' ? 'light' : 'dark'; })(document.documentElement, document.documentElement.dataset.theme || 'dark');</script>
     <link rel="icon" href="icons/csvfab.svg" type="image/svg+xml">
     <script src="papaparse.min.js"></script>
     <!-- Vendored so the desktop app works offline; the CDN is only a safety net. -->

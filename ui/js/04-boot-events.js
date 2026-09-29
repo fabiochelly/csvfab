@@ -114,7 +114,10 @@ window.addEventListener('keydown', (e) => {
    Picked from the round two-colour swatch at the right end of the status bar. */
 function currentTheme() { return document.documentElement.dataset.theme || 'dark'; }
 function setTheme(name) {
-    if (name === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = name;
+    const h = document.documentElement;
+    if (name === 'dark') delete h.dataset.theme; else h.dataset.theme = name;
+    h.style.background = THEME_SWATCH[name][0];   // the pre-paint background set in viewer.htm follows the theme
+    h.style.colorScheme = name === 'light' || name === 'latte' ? 'light' : 'dark';
     try { localStorage.setItem('csvfab-theme', name); } catch (e) { }
     refreshParseOpts();                       // the status bar swatch, and the theme menu if it is open
 }
