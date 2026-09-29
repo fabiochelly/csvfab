@@ -5,7 +5,10 @@
    first, 12 at most, one entry per file.
 ----------------------------------------------------------------*/
 let recents = [];
-idbGet('recents').then(l => { recents = l || []; renderWelcome(); });
+/* Drawn at once, recents added when IndexedDB answers: at a cold start its
+   storage service comes up late, and the welcome screen waited for it. */
+renderWelcome();
+idbGet('recents').then(l => { recents = l || []; if (recents.length) renderWelcome(); });
 async function recordRecent(entries) {
     let list = recents.slice();
     for (const e of entries) {
