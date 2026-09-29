@@ -21,14 +21,12 @@ csvfab.py est exposé sous le nom de commande « csvfab » (lien ou raccourci).
     csvfab --version
 """
 
-import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import time
-import urllib.request
 
 VERSION = "1.0.2"
 HERE = os.path.dirname(os.path.realpath(__file__))   # suit le lien ~/.local/bin ou /usr/bin
@@ -75,8 +73,18 @@ STATE = state_dir()
 # polluer le navigateur principal (c'est aussi pourquoi le port est fixe).
 PROFILE = os.path.join(STATE, "profile")
 
-# Pas de proxy pour 127.0.0.1, même si l'environnement en déclare un.
-HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_http = None
+
+
+def http():
+    """urllib et json sont importés à la demande : ~20 ms d'imports qui, au
+    démarrage à froid, retardaient d'autant le lancement de Chromium."""
+    global _http
+    if _http is None:
+        import urllib.request
+        # Pas de proxy pour 127.0.0.1, même si l'environnement en déclare un.
+        _http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return _http
 
 
 def notify(msg):
@@ -85,6 +93,7 @@ def notify(msg):
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, msg, "csvfab", 0x10)
         elif MACOS:
+            import json
             text = json.dumps(msg, ensure_ascii=False)   # guillemets et \\ échappés
             subprocess.run(["osascript", "-e", f'display notification {text} with title "csvfab"'],
                            timeout=5, capture_output=True)
@@ -109,8 +118,11 @@ def detached():
 
 
 def ping():
+    if not port_open():              # le cas du démarrage à froid, sans urllib
+        return None
+    import json
     try:
-        with HTTP.open(URL + "api/ping", timeout=1) as r:
+        with http().open(URL + "api/ping", timeout=1) as r:
             return json.load(r)
     except Exception:
         return None
@@ -136,6 +148,9 @@ def start_server():
     subprocess.Popen([sys.executable or "python3", os.path.join(HERE, "server.py")],
                      env={**os.environ, "CSVFAB_PORT": str(PORT)},
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, **detached())
+
+
+def wait_server():
     for _ in range(1000):            # 5 s ; Python démarre plus lentement sous Windows
         if port_open():
             return
@@ -165,11 +180,12 @@ def read_token():
 # Ils sont déposés dans la file du serveur ; la fenêtre (celle qui existe déjà,
 # ou celle qu'on ouvre juste après) la vide et en fait des onglets.
 def queue_paths(paths, token):
+    import json, urllib.request
     body = json.dumps({"paths": [os.path.abspath(p) for p in paths]}).encode()
     req = urllib.request.Request(URL + "api/open", data=body, method="POST", headers={
         "X-Csv-Token": token, "Content-Type": "application/json"})
     try:
-        with HTTP.open(req, timeout=3) as r:
+        with http().open(req, timeout=3) as r:
             r.read()
     except Exception:
         die("le serveur a refusé les fichiers")
@@ -240,7 +256,13 @@ def open_window():
             # chromium-flags.conf charge partout, ici dans notre page).
             "--disable-component-update", "--disable-background-networking", "--disable-extensions"]
     if not (WINDOWS or MACOS):
-        args += ["--class=csvfab", "--name=csvfab"]
+        args += ["--class=csvfab", "--name=csvfab",
+                 # Sans trousseau : --password-store=gnome-libsecret (celui de
+                 # chromium-flags.conf sous Omarchy) interroge le trousseau par
+                 # D-Bus au démarrage, ~40 ms. Il ne chiffre que les cookies et
+                 # mots de passe, dont une page locale n'a pas ; localStorage et
+                 # IndexedDB (thème, dossier de sauvegarde) ne sont pas chiffrés.
+                 "--password-store=basic"]
         # uwsm-app place l'appli dans son propre scope systemd, comme toute
         # appli lancée sous Omarchy ; sans lui on se contente du détachement.
         if shutil.which("uwsm-app"):
@@ -259,10 +281,15 @@ def main(paths):
     migrate_state()
     status = ping()
     if not status:
-        # Pas de serveur, donc pas de fenêtre : Chromium (~0,4 s avant sa
-        # première requête) démarre pendant que le serveur finit le sien.
+        # Pas de serveur, donc pas de fenêtre. Chromium est lancé sans attendre
+        # que le serveur ouvre son port (~15 ms) : il lui faut ~250 ms avant sa
+        # première requête. Sauf sous Windows, où Python démarre parfois plus
+        # lentement que Chromium — une page « connexion refusée » ne réessaie pas.
         start_server()
+        if WINDOWS:
+            wait_server()
         open_window()
+        wait_server()
         wait_ping()
     token = read_token()
     if not token:
