@@ -28,8 +28,9 @@ function barStyle(t, c, v) {
     const rgb = x < 0 ? 'var(--danger-rgb)' : 'var(--accent-rgb)';
     return ` style="background-image: linear-gradient(90deg, transparent ${a.toFixed(1)}%, rgba(${rgb}, .28) ${a.toFixed(1)}%, rgba(${rgb}, .28) ${(a + w).toFixed(1)}%, transparent ${(a + w).toFixed(1)}%)"`;
 }
-function cellCls(i, c, rg, fp, row, marked) {
+function cellCls(i, c, rg, fp, row, marked, ov) {
     const k = marked ? ['mkc'] : [];
+    if (ov) k.push('ov');
     if (flashCells.size) { const f = flashCells.get(row); if (f && f.has(c)) k.push('flash'); }
     if (rg && i >= rg.r0 && i <= rg.r1 && c >= rg.c0 && c <= rg.c1) {
         k.push('sel');

@@ -394,32 +394,17 @@
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="14 3 14 9 20 9"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="19" x2="15" y2="19"></line></svg>Review changes…</span>
             </div>
             <div class="dd-sep"></div>
-            <!-- Submenus (.has-sub > .dd-menu.sub): shown while the pointer is on the item or on them. -->
-            <div class="dd-item has-sub">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit</span><span class="chev">›</span>
-                <div class="dd-menu sub">
-                    <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find &amp; replace in the filtered rows">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Find &amp; replace</span>
-                    </div>
-                    <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
-                    </div>
-                    <div class="dd-sep"></div>
-                    <div class="dd-item" onclick="closeDDs(); fillDown()" title="In each selected column, continue the series started by the filled cells at the top (numbers, dates, 'Lot 7', days, months…) — or drag the square at the selection's corner">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13"></path><polyline points="6 11 12 17 18 11"></polyline><line x1="5" y1="21" x2="19" y2="21"></line></svg>Fill series down</span><span class="k">Ctrl+D</span>
-                    </div>
-                    <div class="dd-item" onclick="closeDDs(); fillBlanks()" title="In the selected columns, each empty cell takes the value above it — for exports where a group's label is written only once">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="16" width="16" height="5" rx="1" stroke-dasharray="3 2"></rect><path d="M12 8v6"></path><polyline points="9 11 12 14 15 11"></polyline></svg>Fill empty cells from above</span>
-                    </div>
-                    <div class="dd-sep"></div>
-                    <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
-                    </div>
-                    <div class="dd-item" onclick="closeDDs(); openAnon()" title="Replace names, e-mails, phone numbers, postal codes… by plausible fakes, the same value always giving the same fake">
-                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><path d="M9 10a3 3 0 1 0 6 0"></path><path d="M5 5l14 14"></path></svg>Anonymise…</span>
-                    </div>
-                </div>
+            <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find &amp; replace in the filtered rows">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Find &amp; replace</span>
             </div>
+            <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openAnon()" title="Replace names, e-mails, phone numbers, postal codes… by plausible fakes, the same value always giving the same fake">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><path d="M9 10a3 3 0 1 0 6 0"></path><path d="M5 5l14 14"></path></svg>Anonymise…</span>
+            </div>
+            <div class="dd-sep"></div>
+            <!-- Submenus (.has-sub > .dd-menu.sub): shown while the pointer is on the item or on them. -->
             <div class="dd-item has-sub">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="9" y1="4" x2="9" y2="20"></line><line x1="15" y1="4" x2="15" y2="20"></line></svg>Columns</span><span class="chev">›</span>
                 <div class="dd-menu sub">
@@ -447,6 +432,17 @@
             <div class="dd-item has-sub">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="10" x2="21" y2="10"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>Rows</span><span class="chev">›</span>
                 <div class="dd-menu sub">
+                    <div class="dd-item" onclick="closeDDs(); openBulk()" title="Change one column in every row the filters show">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>Edit filtered rows…</span>
+                    </div>
+                    <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="closeDDs(); fillDown()" title="In each selected column, continue the series started by the filled cells at the top (numbers, dates, 'Lot 7', days, months…) — or drag the square at the selection's corner">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13"></path><polyline points="6 11 12 17 18 11"></polyline><line x1="5" y1="21" x2="19" y2="21"></line></svg>Fill series down</span><span class="k">Ctrl+D</span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); fillBlanks()" title="In the selected columns, each empty cell takes the value above it — for exports where a group's label is written only once">
+                        <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="16" width="16" height="5" rx="1" stroke-dasharray="3 2"></rect><path d="M12 8v6"></path><polyline points="9 11 12 14 15 11"></polyline></svg>Fill empty cells from above</span>
+                    </div>
+                    <div class="dd-sep"></div>
                     <div class="dd-item" onclick="closeDDs(); openDedupe()" title="Mark or delete rows that repeat others, on the columns you choose">
                         <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>Duplicates…</span>
                     </div>

@@ -377,10 +377,39 @@ function drawWindow(t, lean) {
     }
     return w;
 }
+/* Whether a cell keeps its clip (td.ov: overflow hidden + ellipsis). A clip is a
+   property node and a paint chunk of its own, and the 600 of a drawn window made
+   Chromium's layerization the biggest cost of a scroll step (~3 of the 13 ms a row
+   insertion took); yet almost no cell overflows, the widths being pinned from the
+   values themselves. The cells are monospace, so a plain Latin value fits when its
+   length × the advance stays under the column's width less padding and border;
+   anything else — highlight marks, line breaks, other scripts — keeps the clip.
+   Widths not pinned yet: the cell is at most 480 px wide (td max-width). A column
+   being resized clips every cell (#mainTable.rz) until the rows are redrawn. */
+const PLAIN_RE = /^[\x20-\x7e\xa0-\u024f\u2013-\u2026\u20ac]*$/;
+let cellAdvPx = 0;
+function cellAdv() {
+    if (cellAdvPx) return cellAdvPx;
+    const probe = document.createElement('td'); tbody.appendChild(probe);
+    const st = getComputedStyle(probe), ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`; ctx.fontKerning = 'none';
+    probe.remove();
+    return cellAdvPx = ctx.measureText('0'.repeat(50)).width / 50 || 8;
+}
+function cellOv(t, cIdx, c, html) {
+    if (c == null || c === '') return false;
+    const s = typeof c === 'string' ? c : String(c);
+    if (html.indexOf('<') >= 0 || !PLAIN_RE.test(s)) return true;
+    const w = t.colWidths[cIdx], n = s.length;
+    /* As nowrap renders it: runs of spaces as one, none at the ends. The width was pinned
+       at ceil(longest value + padding + border), so that value fits by construction. */
+    const len = s.indexOf('  ') < 0 && s[0] !== ' ' && s[n - 1] !== ' ' ? n : s.replace(/ {2,}/g, ' ').trim().length;
+    return len * cellAdv() > (w == null ? 480 : w) - 21 + 0.05;
+}
 /* One cell of row i, as HTML. */
 function cellHtml(t, i, r, d, mk, cIdx, rg, fp) {
-    const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]);
-    return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m)}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${showBreaks(highlightCell(c, cIdx, t.hl))}</td>`;
+    const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = showBreaks(highlightCell(c, cIdx, t.hl));
+    return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${html}</td>`;
 }
 /* Rows i0…i1 of the view, as HTML, in the window's columns. */
 function rowsHtml(t, i0, i1, w) {
@@ -455,8 +484,13 @@ function shiftCols(t, w, vis) {
    leaving it are added and removed. Re-laying out the whole table cost
    15 ms on 80 rows of an 85-column file, and a sideways move past the
    columns drawn redrew it all (~50 ms); adding rows costs ~1.5 ms plus
-   ~0.4 ms a row, so small steps stay far under a frame. */
-const ROW_STEP = 4, COL_STEP = 2;
+   ~0.4 ms a row, so small steps stay far under a frame. Traced under a wheel
+   scroll (1.4 M rows × 10 columns, then 85 columns): a step's frame is ~11 ms
+   of main thread whatever the step, mostly fixed costs of the table's relayout,
+   the paint walk and the compositor update; 8 rows a step instead of 4 halves
+   the number of those frames for 2 ms more each (12–14 ms, still within 60 Hz),
+   12 % less work in all. */
+const ROW_STEP = 8, COL_STEP = 2;
 /* A jump redraw (script + layout) past JUMP_BUDGET ms gives the following frames
    back: the next jumps are skipped for as long as that redraw took, the layer still
    showing the rows last drawn, and a trailing timer draws the last position. A
@@ -578,6 +612,8 @@ function syncSpace(t) {
     gridLayer.style.width = (sbw >= 16 ? cw : cw - (24 - sbw)) + 'px'; gridLayer.style.height = ch + 'px';   // overlay scrollbars: room left for the strip (24 = STRIP_W, a const of 28-… not yet declared when this runs at boot)
     if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; stripLayout(null); return; }
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
+    const tbl = document.getElementById('mainTable'), nohs = !!L && w <= cw;   // no sideways scroll: the row numbers need not stick (app.css)
+    if (tbl.classList.contains('nohs') !== nohs) tbl.classList.toggle('nohs', nohs);
     const h = thead.offsetHeight + t.filteredData.length * ROW_H;
     scrollSpace.style.height = Math.max(0, h - ch) + 'px';
     scrollSpace.style.width = Math.max(1, w) + 'px';

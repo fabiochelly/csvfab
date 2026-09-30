@@ -127,11 +127,16 @@ function stripMarks(t, g) {
     /* One band per pixel row, the strongest kind winning: 1 irregular, 2 duplicate, 3 marked. */
     const H = Math.ceil(g.H), bands = new Uint8Array(H + 1), rows = t.filteredData, n = t.headers.length;
     const mk = t.rowMark && t.rowMark.rows, dg = t.dupMarks && t.dupMarks.group, scale = g.H / g.sh;
-    const irrAll = t.onlyIrregular;
+    /* Irregular rows exist only when the scan found records of another width (base.irr):
+       a row born here or edited has the header's width, a short one was short in the file.
+       Nothing to mark — the usual case — and the rows are not visited at all: that pass
+       (~6 ns a row, 9 ms on 1.4 M rows) ran at every edit and every resize event. */
+    const irrAll = t.onlyIrregular, irr = !irrAll && !!(t.base && t.base.irr);
+    if (!mk && !dg && !irr) return;
     for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         let k = 0;
-        if (mk && mk.has(r)) k = 3; else if (dg && dg.has(r)) k = 2; else if (!irrAll && r.len !== n) k = 1;
+        if (mk && mk.has(r)) k = 3; else if (dg && dg.has(r)) k = 2; else if (irr && r.len !== n) k = 1;
         if (!k) continue;
         const y = Math.floor((g.th + i * ROW_H) * scale);
         if (bands[y] < k) bands[y] = k;
@@ -146,19 +151,29 @@ function stripMarks(t, g) {
     flush(H + 1);
 }
 const stripCompact = new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 });
-/* Row numbers along the band at round steps: 1, 2 or 5 × a power of ten, the smallest
-   that keeps the ticks LABEL_STEP apart — 10, 20, 30 on 150 rows; 1k, 2k, 3k on 15 000;
-   50k, 100k… on 600 000. Sampling the row under each pixel step gave 45, 302, 559. */
-function niceStep(x) { const p = 10 ** Math.floor(Math.log10(Math.max(1, x))); return [1, 2, 5, 10].map(m => m * p).find(v => v >= x); }
+/* Row numbers along the band at a step that is a power of ten — the smallest whose
+   ticks sit LABEL_STEP apart, from the geometry itself (a step of k rows is
+   k × ROW_H × H / sh pixels): 10, 20 … 150 on 150 rows, 1k … 5k on 5 000, 100k … 1,4M
+   on 1.4 M. Every multiple of the step is written, decimals included (1,1M after 1M),
+   and the last one, at the band's very end, is held inside it. Steps of 2 or 5 × 10^n
+   (500, 1k, 1,5k…) were tried and refused: multiples of a power of ten only — except
+   that under 5 ticks the step is halved (1 600 rows: 500, 1k, 1,5k rather than a lone
+   1k), which always fits, the ticks being then over H / 10 apart. */
+function tickStep(g, n) {
+    const px = k => k * ROW_H * g.H / g.sh;   // a step of k rows, in pixels
+    let step = 10 ** Math.max(0, Math.ceil(Math.log10(LABEL_STEP / px(1)) - 1e-9));
+    if (step >= 10 && n < 5 * step && px(step / 2) >= LABEL_STEP) step /= 2;
+    return step;
+}
 function stripLabels(t, g) {
     const el = stripEl(), box = el.children[1], s = el._s, rows = t.filteredData;
     const out = [];
     let last = null;
     if (s.col < 0) {                          // not sorted: round row positions
-        const step = niceStep(rows.length / Math.max(1, Math.floor((g.H - 20) / LABEL_STEP)));
+        const step = tickStep(g, rows.length);
         for (let k = step; k <= rows.length; k += step) {
-            const y = rowY(g, k - 1);
-            if (y < 8 || y > g.H - 10) continue;
+            const y = Math.min(g.H - 6, rowY(g, k - 1));
+            if (y < 8) continue;
             const label = stripCompact.format(k).replace(/\s/g, '');
             out.push(`<span style="top: ${y}px" title="${esc(label)}">${esc(label)}</span>`);
         }

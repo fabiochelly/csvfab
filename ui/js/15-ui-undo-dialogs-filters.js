@@ -424,6 +424,8 @@ function setupResizer(resizer) {
         t.colWidths[colIdx] = newW;
         applyColStyles();
     };
-    const mouseUpHandler = () => { document.removeEventListener('mousemove', mouseMoveHandler); document.removeEventListener('mouseup', mouseUpHandler); resizer.style.background = ""; };
-    resizer.addEventListener('mousedown', (e) => { x = e.clientX; w = resizer.parentElement.getBoundingClientRect().width; document.addEventListener('mousemove', mouseMoveHandler); document.addEventListener('mouseup', mouseUpHandler); resizer.style.background = "var(--prim)"; });
+    /* Every cell clipped while the drag lasts (.rz), then redrawn: a cell that fitted
+       the old width may overflow the new one, and its clip is decided at render (cellOv). */
+    const mouseUpHandler = () => { document.removeEventListener('mousemove', mouseMoveHandler); document.removeEventListener('mouseup', mouseUpHandler); resizer.style.background = ""; document.getElementById('mainTable').classList.remove('rz'); render(); };
+    resizer.addEventListener('mousedown', (e) => { x = e.clientX; w = resizer.parentElement.getBoundingClientRect().width; document.getElementById('mainTable').classList.add('rz'); document.addEventListener('mousemove', mouseMoveHandler); document.addEventListener('mouseup', mouseUpHandler); resizer.style.background = "var(--prim)"; });
 }

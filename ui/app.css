@@ -266,7 +266,15 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #tbody td.hsp { padding: 0; border-left: none; border-right: none; }   /* stands for the columns out of view */
 /* No ligatures nor kerning in the cells (a monospace font has no use for them): the
    text of each row a scroll brings in is shaped by the fast path — half the layout. */
-#tbody td { text-rendering: optimizeSpeed; font-variant-ligatures: none; }
+#tbody td { text-rendering: optimizeSpeed; font-variant-ligatures: none; overflow: visible; text-overflow: clip; }
+/* A cell is clipped (ellipsis) only when its value overflows — td.ov, decided by cellOv()
+   in 12-…: every overflow: hidden is a clip node and a paint chunk of its own, and the 600
+   of a drawn window made Chromium's layerization the biggest cost of a scroll step. While
+   a column is being resized every cell is clipped (.rz), the rows being redrawn at the end. */
+#tbody td.ov, #mainTable.rz #tbody td { overflow: hidden; text-overflow: ellipsis; }
+/* A grid narrower than its viewport (.nohs, from syncSpace()): the row numbers have nothing
+   to stick to, and a sticky cell costs property nodes and a paint chunk at every step. */
+#mainTable.nohs td.col-idx { position: relative; z-index: auto; }
 #tbody td.sel { background: rgba(var(--accent-rgb), .18) !important; }
 #tbody td.cur { box-shadow: inset 0 0 0 2px var(--prim); }
 #tbody td.fh { position: relative; }

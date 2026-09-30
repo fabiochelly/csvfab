@@ -499,7 +499,7 @@ function applyColStyles() {
         t.hiddenCols.forEach(c => { css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
         Object.keys(t.colWidths).forEach(k => {
             const c = parseInt(k, 10), w = t.colWidths[k];
-            css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; overflow: hidden; }\n`;
+            css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }\n`;
         });
     }
     let styleTag = document.getElementById('tab-cols-style');
