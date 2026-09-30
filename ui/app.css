@@ -277,7 +277,7 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #tbody .row { position: absolute; left: 0; height: 35px; display: flex; contain: strict; }   /* paint containment: an untouched row keeps its cached paint, the walk skips it */
 #tbody .cell { flex: none; height: 35px; box-sizing: border-box; line-height: 34px; border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd);
     padding: 0 10px; white-space: nowrap; font-size: 13px; cursor: cell; text-rendering: optimizeSpeed; font-variant-ligatures: none; }
-#tbody .cell.col-idx { position: sticky; left: 0; }
+#tbody .cell.col-idx { position: sticky; left: 0; border-right: 2px solid var(--prim); }   /* the accent rule of .col-idx, which #tbody .cell's border would override */
 #tbody .hsp { flex: none; height: 35px; }   /* stands for the columns before the window */
 #tbody .cell.fh { position: relative; }
 /* A cell is clipped (ellipsis) only when its value overflows — .ov, decided by cellOv()
