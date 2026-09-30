@@ -390,12 +390,15 @@
             <div class="dd-item disabled" id="menu-undo" onclick="closeDDs(); undo()" title="Undo the last edit, one at a time, back to the last save">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>Undo</span><span class="k">Ctrl+Z</span>
             </div>
+            <div class="dd-item disabled" id="menu-redo" onclick="closeDDs(); redo()" title="Redo what was just undone — until the next new edit">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>Redo</span><span class="k">Ctrl+Y</span>
+            </div>
             <div class="dd-item" onclick="closeDDs(); openReview()" title="Every change Save would write, compared with the file on disk: cells before and after, rows added and deleted, columns">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="14 3 14 9 20 9"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="19" x2="15" y2="19"></line></svg>Review changes…</span>
             </div>
             <div class="dd-sep"></div>
-            <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find &amp; replace in the filtered rows">
-                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Find &amp; replace</span>
+            <div class="dd-item" onclick="closeDDs(); toggleSRBar()" title="Find in the rows shown without filtering them (every match highlighted, F3 for the next), and replace">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>Find &amp; replace</span><span class="k">Ctrl+F</span>
             </div>
             <div class="dd-item" onclick="closeDDs(); openClean()" title="Garbled accents, invisible characters, odd spaces, empty rows and columns — over the whole file">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
@@ -502,11 +505,15 @@
 </div>
 
 <div id="sr-bar">
-    <span style="font-family: 'Inter', sans-serif; font-size: 13px;">Find &amp; Replace in <b>filtered</b> rows:</span>
-    <input type="text" id="sr-find" class="bs-input" placeholder="Find text..." autocomplete="off">
+    <span style="font-family: 'Inter', sans-serif; font-size: 13px;">Find &amp; replace in the <b>rows shown</b>:</span>
+    <input type="text" id="sr-find" class="bs-input" placeholder="Find text..." autocomplete="off" onkeydown="findKey(event)">
+    <span class="sr-nav" title="Every match is highlighted; step through them without filtering">
+        <button class="sr-arrow" onclick="findStep(-1)" title="Previous match (Shift+Enter, Shift+F3)">‹</button><span id="sr-pos"></span><button class="sr-arrow" onclick="findStep(1)" title="Next match (Enter, F3)">›</button>
+    </span>
     <input type="text" id="sr-replace" class="bs-input" placeholder="Replace with..." autocomplete="off">
-    <select id="sr-col" class="bs-input bs-select" title="Where to replace"></select>
-    <label class="sr-chk" title="Find is a regular expression; the replacement can use $1, $2… for its groups"><input type="checkbox" id="sr-regex"> Regex</label>
+    <select id="sr-col" class="bs-input bs-select" title="Where to find and replace" onchange="findChanged()"></select>
+    <label class="sr-chk" title="Find is a regular expression; the replacement can use $1, $2… for its groups"><input type="checkbox" id="sr-regex" onchange="findChanged()"> Regex</label>
+    <label class="sr-chk" title="Distinguish upper and lower case (off: 'paris' also finds 'PARIS')"><input type="checkbox" id="sr-case" onchange="findChanged()"> Match case</label>
     <button class="btn btn-warn" onclick="applySearchReplace()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; vertical-align: text-bottom;"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
         Apply

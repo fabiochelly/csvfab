@@ -41,6 +41,7 @@ function paletteCommands() {
     add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
     add('File', 'Quit csvfab', quitApp, 'Ctrl+Q');
     add('Edit', 'Undo' + (loaded && isDirty(t) ? ` — ${t.modificationsLog[t.modificationsLog.length - 1].what || 'last edit'}` : ''), undo, 'Ctrl+Z', loaded && isDirty(t));
+    add('Edit', 'Redo' + (loaded && t.redoStack.length ? ` — ${t.redoStack[t.redoStack.length - 1].what || 'edit'}` : ''), redo, 'Ctrl+Y', loaded && t.redoStack.length > 0);
     add('Edit', 'Review changes — what Save would write', openReview, '', loaded && isDirty(t));
     add('Edit', 'Find & replace', toggleSRBar, '', loaded);
     add('View', (rowCardIsOpen() ? 'Close the row card' : 'Row card — the selected row as a form'), () => toggleRowCard(), 'Ctrl+I', loaded);
@@ -71,6 +72,10 @@ function paletteCommands() {
     if (loaded && t.rowMark) add('Rows', 'Remove the marks', () => clearRowMark());
     add('Columns', 'Convert formats — dates, numbers, phone numbers…', () => openConvert(), '', loaded);
     add('Columns', 'Show or hide columns…', openColManager, '', loaded);
+    add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
+    add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
+    add('View', sessionOn() ? 'Do not reopen the last files at start' : 'Reopen the last files at start', toggleSessionRestore, sessionOn() ? '✓' : '');
+    add('Edit', 'Find — step through the matches without filtering', () => { if (!findBarOpen()) toggleSRBar(); document.getElementById('sr-find').focus(); }, 'Ctrl+F', loaded);
     THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));
     const s = t || parseDefaults;
     PARSE_DELIMS.forEach(([v, l]) => add('Reading', 'Delimiter: ' + l, () => setDelimiter(v), s.delimiter === v ? '✓' : ''));

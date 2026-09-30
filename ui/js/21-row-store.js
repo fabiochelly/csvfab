@@ -383,18 +383,24 @@ function visitRows(t, rows, fn) {
 
 function makeRowClass(base) {
     return class Row {
-        constructor(b, src, d) { this.id = 0; this.src = src; this.b = b; this.d = d; }
-        get data() { return this.d || baseCells(base, this.b); }
+        constructor(b, src, d) { this.id = 0; this.src = src; this.b = b; this._d = d; }
+        /* d is an accessor: while an undo runs (dRec set by undo(), 15-…) every
+           assignment is recorded with the value it replaces, which is what redo
+           puts back — so no undo closure needs a redo of its own. */
+        get d() { return this._d; }
+        set d(v) { if (dRec !== null) dRec.push(this, this._d); this._d = v; }
+        get data() { return this._d || baseCells(base, this.b); }
         set data(v) { this.d = v; }
         /* Field count without decoding. */
         get len() {
-            if (this.d) return this.d.length;
+            if (this._d) return this._d.length;
             if (!(base.irr && base.irr[this.b])) return base.cmap ? base.cmap.length : base.width;
             return base.cmap ? baseCells(base, this.b).length : base.odd.get(this.b);   // an irregular row: few, decode it
         }
         get base() { return base; }
     };
 }
+let dRec = null;   // the recorder of Row.d assignments (an array of row, previous d pairs), or null
 /* A row born here (inserted, pasted, duplicated, appended): no record, no line. */
 function newRow(t, cells) { return new t.base.Row(-1, null, cells); }
 

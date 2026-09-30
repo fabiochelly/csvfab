@@ -576,6 +576,40 @@ function pinColWidths(t) {
     applyColStyles();
 }
 
+/* Fit columns to their content — a double-click on a title's resize handle
+   (one column), or the palette (every visible one): the widest value of the
+   rows shown, every row up to FIT_ALL rows (shared between the columns when
+   several are fitted, 20 000 each at least: 20 columns × 200 000 took 2.4 s),
+   an even sample past that, read with cellOf (no split); the title's own
+   width as the floor. Wider than the 480 px an automatic width stops at,
+   since it is asked for: FIT_MAX. */
+const FIT_ALL = 200000, FIT_MAX = 900;
+function fitColumns(cols) {
+    const t = T(); if (!t || !t.loaded) return;
+    const rows = t.filteredData, n = rows.length, step = Math.max(1, Math.ceil(n / Math.max(20000, FIT_ALL / cols.length)));
+    for (const c of cols) {
+        let w = titleWidth(c);
+        for (let i = 0; i < n; i += step) w = Math.max(w, textWidth(cellStr(cellOf(rows[i], c))) + 21);
+        t.colWidths[c] = Math.min(Math.max(Math.ceil(w), 60), FIT_MAX);
+    }
+    applyColStyles(); render();
+    setStats(`${t.name} | ${cols.length === 1 ? `Column "${t.headers[cols[0]]}"` : `${fmt(cols.length)} columns`} fitted to ${step > 1 ? 'a sample of ' : ''}the rows shown.`);
+}
+/* A title's natural width: its text in the header's font, plus the type icon, the number, the ▾ and the padding. */
+function titleWidth(c) {
+    const th = thead.rows[0] && thead.rows[0].cells[c + 1], span = th && th.querySelector('.col-name');
+    if (!span) return 60;
+    const st = getComputedStyle(span), ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
+    let w = 0; for (const el of span.childNodes) w += el.nodeType === 3 ? ctx.measureText(el.textContent).width : el.getBoundingClientRect().width + 6;
+    return Math.ceil(w) + 26 + 22;                                     // .col-title's padding-right (the ▾), the th's padding and border
+}
+function resetColWidths() {
+    const t = T(); if (!t || !t.loaded) return;
+    t.colWidths = {}; applyColStyles(); render();                     // pinColWidths measures them again at this render
+    setStats(`${t.name} | Column widths reset.`);
+}
+
 /* ---------------------------------------------------------------
    SCROLLING
    The table is not scrolled by the browser: it sits in #grid-layer, a

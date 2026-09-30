@@ -103,8 +103,8 @@ function settleWaiters(t, rows) { if (t.waiters) t.waiters.splice(0).forEach(f =
 
 async function parseTab(t) {
     t.loading = true; t.error = null; t.loaded = false;
-    t.allData = []; t.filteredData = []; t.quoteErrors = 0; t.base = null;
-    const active = () => t.id === activeTabId;
+    t.allData = []; t.filteredData = []; t.quoteErrors = 0; t.base = null; t.redoStack = [];
+    const active = () => t.id === activeTabId, top = t.scrollTop;   // where the tab was (evicted, or restored from the last session): the scroll events of the emptied grid zero t.scrollTop meanwhile
     t.rowMark = null;
 
     if (active()) { setStats(`Reading ${t.name}…`); startProgress(); }
@@ -167,8 +167,8 @@ async function parseTab(t) {
     if (active()) {
         convertHeader(t, wantsSynthetic(t, t.headerMode));
         renderHeader(); applyColStyles(); refreshParseOpts();
-        applyFilters();
-        container.scrollTop = t.scrollTop; render();
+        applyFilters();                   // zeroes t.scrollTop: back to where the tab was, now that the extent is known
+        t.scrollTop = top; container.scrollTop = top; render();
     }
     renderTabBar();
     settleWaiters(t, t.allData);          // before eviction, which may release this very tab again

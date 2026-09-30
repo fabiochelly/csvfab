@@ -55,12 +55,16 @@ function updateSaveBtn() {
     document.getElementById('save-split').classList.toggle('dirty', n > 0);
     document.getElementById('btn-discard').style.display = n > 0 ? '' : 'none';
     document.getElementById('menu-undo').classList.toggle('disabled', !(n > 0));
+    /* A new edit since the last undo: what was undone can no longer be replayed on top of it. */
+    if (t && t.redoStack.length && (n !== t.redoAt || t.modificationsLog[n - 1] !== t.redoAnchor)) t.redoStack = [];
+    document.getElementById('menu-redo').classList.toggle('disabled', !(t && t.redoStack.length));
     /* A new undoable edit since last time: announce it, with Undo. */
     if (t) {
         const last = t.modificationsLog[n - 1];
         if (n > (t._seenLog || 0) && last && last !== t._seenLast && last.what && !/^edit in /.test(last.what))
             toast(last.what.charAt(0).toUpperCase() + last.what.slice(1), { undo: { t, entry: last }, kind: /delet|remov|clear/i.test(last.what) ? 'danger' : 'ok' });
         t._seenLog = n; t._seenLast = last;
+        if (t.loaded) findRefresh(t);    // an edit that redraws only its rows still changes the find count (29-…)
     }
 }
 
@@ -69,32 +73,84 @@ function updateSaveBtn() {
    widths, scroll) survives unless columns were added or deleted, which
    would leave those index-keyed maps pointing at the wrong columns. */
 /* ---------------------------------------------------------------
-   UNDO
+   UNDO / REDO
    Every modificationsLog entry carries an undo(t) closure that puts back
    exactly what that edit changed, so the log doubles as the undo stack:
    popping it down to empty lands on the last save, and the Save button
    stops being yellow. Saving clears the log — there is no undo past it.
+   Redo needs no closure of its own: undo() records what the undo closure
+   touches — every Row.d assignment (the accessor in 21-…), and, compared
+   before and after, t.allData, t.headers, the view maps, the column map
+   and the line endings — and the entry, moved to t.redoStack, gets a
+   redo(t) that puts those back. An undo closure must therefore never
+   mutate t.allData in place (splice): it replaces it, so that the array
+   recorded before the undo is the one to restore. Any new edit empties
+   the stack (updateSaveBtn: the last entry is no longer the one the
+   stack was built on), as do a save and a re-read.
 ----------------------------------------------------------------*/
 function viewSnap(t) {
     return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null, colSrc: t.colSrc && t.colSrc.slice() };
 }
+/* Copies, not the snapshot's own objects: a closure may run twice (undo, redo, undo). */
 function viewRestore(t, v) {
-    t.hiddenCols = v.hidden; t.colWidths = v.widths; t.colFilters = v.filters; t.valFilters = v.vals; t.dataBars = v.bars; t.sort = v.sort; t.colSrc = v.colSrc;
+    t.hiddenCols = new Set(v.hidden); t.colWidths = { ...v.widths }; t.colFilters = { ...v.filters }; t.valFilters = { ...v.vals }; t.dataBars = { ...v.bars };
+    t.sort = v.sort ? v.sort.map(k => ({ ...k })) : null; t.colSrc = v.colSrc && v.colSrc.slice();
 }
+const sameView = (a, b) => JSON.stringify(viewKey(a)) === JSON.stringify(viewKey(b));
+function viewKey(v) { return [[...v.hidden].sort(), v.widths, v.filters, Object.keys(v.vals).map(k => [k, [...v.vals[k]]]), v.bars, v.sort, v.colSrc]; }
+const REDO_MAX = 40e6;                    // recorded row assignments past which an edit is not redoable (a restructure of 20 M rows)
 function undo() {
     const t = T(); if (!t || !t.loaded) return;
     const e = t.modificationsLog.pop();
     if (!e) { setStats(`${t.name} | Nothing to undo.`); return; }
-    if (e.undo) e.undo(t);
+    const before = { rows: t.allData, headers: t.headers, hcopy: t.headers.slice(), view: viewSnap(t), eol: t.detectedEol, moji: t.mojibake, cmap: t.base.cmap };
+    dRec = [];
+    try { if (e.undo) e.undo(t); } finally { var rec = dRec; dRec = null; }
+    const R = {
+        rows: t.allData !== before.rows ? before.rows : null,
+        /* The undo replaced the headers (redo assigns the array back, a later undo may hold it) or changed them in place (redo does the same). */
+        headers: t.headers !== before.headers ? before.headers : before.hcopy.some((h, i) => h !== t.headers[i]) || t.headers.length !== before.hcopy.length ? { inPlace: before.hcopy } : null,
+        view: sameView(before.view, viewSnap(t)) ? null : before.view,
+        eol: t.detectedEol !== before.eol ? before.eol : undefined, moji: t.mojibake !== before.moji ? before.moji : undefined,
+        cmap: t.base.cmap !== before.cmap ? before.cmap : undefined, d: rec
+    };
+    e.redo = rec.length > REDO_MAX ? null : t => {
+        if (R.rows) t.allData = R.rows;
+        if (R.headers) { if (R.headers.inPlace) t.headers.splice(0, t.headers.length, ...R.headers.inPlace); else t.headers = R.headers; }
+        if (R.view) viewRestore(t, R.view);
+        if (R.eol !== undefined) t.detectedEol = R.eol;
+        if (R.moji !== undefined) t.mojibake = R.moji;
+        if (R.cmap !== undefined) setCmap(t.base, R.cmap);
+        for (let k = R.d.length - 2; k >= 0; k -= 2) R.d[k].d = R.d[k + 1];   // last assignment first: a row assigned twice ends as before the first
+    };
+    if (e.redo) t.redoStack.push(e); else t.redoStack = [];   // an edit too big to redo: nothing above it could be replayed either
+    t.redoAt = t.modificationsLog.length; t.redoAnchor = t.modificationsLog[t.redoAt - 1];
+    afterUndoRedo(t);
+    setStats(`${t.name} | Undone: ${e.what || 'last edit'}${t.modificationsLog.length ? ` — ${t.modificationsLog.length} left` : ' — back to the saved file'}.`);
+}
+function redo() {
+    const t = T(); if (!t || !t.loaded) return;
+    const e = t.redoStack.pop();
+    if (!e) { setStats(`${t.name} | Nothing to redo.`); return; }
+    e.redo(t); e.redo = null;
+    t.modificationsLog.push(e);
+    t.redoAt = t.modificationsLog.length; t.redoAnchor = e;
+    afterUndoRedo(t);
+    setStats(`${t.name} | Redone: ${e.what || 'edit'}${t.redoStack.length ? ` — ${t.redoStack.length} more to redo` : ''}.`);
+}
+function afterUndoRedo(t) {
     t.allData.forEach((r, i) => r.id = i + 1);
     t.rowCount = t.allData.length;
     renderHeader(); applyColStyles(); applyFilters(); updateSaveBtn(); renderTabBar(); updateStats(); refreshParseOpts();
-    setStats(`${t.name} | Undone: ${e.what || 'last edit'}${t.modificationsLog.length ? ` — ${t.modificationsLog.length} left` : ' — back to the saved file'}.`);
 }
 window.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (!((k === 'z') || (k === 'y' && !e.shiftKey))) return;
     if (e.target.closest && e.target.closest('input, textarea, select')) return;   // a text field keeps its own undo
-    e.preventDefault(); undo();
+    if (document.getElementById('dlg') || document.getElementById('cmdk').classList.contains('open')) return;
+    e.preventDefault();
+    if (k === 'y' || e.shiftKey) redo(); else undo();
 });
 
 async function discardEdits() {
@@ -306,6 +362,7 @@ function applyFilters() {
 
     /* Highlight context used by render() */
     t.hl = { globalQuery: t.useExpr ? '' : t.globalQuery, colFilters: t.colFilters, isRegex: t.useRegex, useSlug: t.useSlug, reverse: t.useReverse };   // an expression highlights nothing
+    findHl(t);                            // the replace bar's find, highlighted apart (29-…)
 
     let tt = textFilterTest(t);
     if (tt === false) { updateStats(); return; }   // an invalid regex or expression: the view stays, the status bar says why
@@ -392,6 +449,7 @@ function updateStats() {
     const ex = t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '';
     setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}${ex}`);   // the counts: #sb-count, on the right
     rowCardSync();
+    findRefresh(t);                       // the find count follows every change (29-…)
 }
 
 /* The column panel is position: fixed under its header, which only moves sideways (the header row is sticky). */
@@ -428,4 +486,5 @@ function setupResizer(resizer) {
        the old width may overflow the new one, and its clip is decided at render (cellOv). */
     const mouseUpHandler = () => { document.removeEventListener('mousemove', mouseMoveHandler); document.removeEventListener('mouseup', mouseUpHandler); resizer.style.background = ""; document.getElementById('grid-layer').classList.remove('rz'); render(); };
     resizer.addEventListener('mousedown', (e) => { x = e.clientX; w = resizer.parentElement.getBoundingClientRect().width; document.getElementById('grid-layer').classList.add('rz'); document.addEventListener('mousemove', mouseMoveHandler); document.addEventListener('mouseup', mouseUpHandler); resizer.style.background = "var(--prim)"; });
+    resizer.addEventListener('dblclick', e => { e.stopPropagation(); fitColumns([colIdx]); });   // fit the column to its content (12-…)
 }

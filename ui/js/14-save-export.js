@@ -534,20 +534,24 @@ function applySearchReplace() {
     if (!fText) return;
 
     const colSel = document.getElementById('sr-col').value, only = colSel === '' ? -1 : +colSel;
+    const cs = document.getElementById('sr-case').checked;
     let re = null;
     if (document.getElementById('sr-regex').checked) {
-        try { re = new RegExp(fText, 'g'); }
+        try { re = new RegExp(fText, cs ? 'g' : 'gi'); }
         catch (e) { uiAlert(`This regular expression is not valid.\n\n${e.message}`); return; }
     }
-    const swap = re ? v => v.replace(re, rText) : v => v.replaceAll(fText, rText);
+    /* Case ignored (the default, as in the filters): the text becomes a regex, its
+       replacement a function so that a $ in it stays literal. */
+    const swap = re ? v => v.replace(re, rText) : cs ? v => v.replaceAll(fText, rText)
+        : v => v.replace(new RegExp(fText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), () => rText);
 
     let repCount = 0;
     const before = [], ed = rowEdits();   // before: [row, column], for the flash
     /* Plain text: a record whose raw text does not hold it has no cell that does — most
-       rows are then skipped without being split (the text is case-sensitive, as replaceAll is). */
-    const raw = !re && t.base ? fText : null;
+       rows are then skipped without being split. */
+    const raw = !re && t.base ? (cs ? fText : fText.toLowerCase()) : null;
     visitRows(t, t.filteredData, row => {
-        if (raw && !row.d && row.b >= 0 && recordText(row.base, row.b).indexOf(raw) < 0) return;
+        if (raw && !row.d && row.b >= 0 && (cs ? recordText(row.base, row.b) : recordText(row.base, row.b).toLowerCase()).indexOf(raw) < 0) return;
         row.data.forEach((val, cIdx) => {
             if (only >= 0 && cIdx !== only) return;
             if (val == null || val === '') return;

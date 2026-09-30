@@ -70,9 +70,10 @@ function renderWelcome() {
             </div>`).join('')}</div>` : ''}
         <div class="wl-keys">
             ${k('Command palette', kb('Ctrl+K'))}${k('Save', kb('Ctrl+S'))}
-            ${k('Undo', kb('Ctrl+Z'))}${k('Copy / paste a range', kb('Ctrl+C') + ' ' + kb('Ctrl+V'))}
+            ${k('Undo / redo', kb('Ctrl+Z') + ' ' + kb('Ctrl+Y'))}${k('Copy / paste a range', kb('Ctrl+C') + ' ' + kb('Ctrl+V'))}
             ${k('Fill a series down', kb('Ctrl+D'))}${k('Switch tab', kb('Alt+←') + ' ' + kb('Alt+→'))}
             ${k('Row card', kb('Ctrl+I'))}${k('Go to row', kb('Ctrl+G'))}
+            ${k('Find / next match', kb('Ctrl+F') + ' ' + kb('F3'))}
         </div>
     </div>`;
 }
@@ -122,7 +123,7 @@ function insertRow(id, below) {
     t.allData.forEach((r, i) => r.id = i + 1);
     t.rowCount = t.allData.length;
     t.modificationsLog.push({ id: index + below + 1, col: '---', old: '---', new: 'Row inserted', what: `row inserted ${below ? 'below' : 'above'} row ${id}`,
-        undo: t => { t.allData.splice(t.allData.indexOf(row), 1); } });
+        undo: t => { t.allData = t.allData.filter(r => r !== row); } });   // a new array, never a splice (redo, 15-…)
     const keepTop = container.scrollTop;
     updateSaveBtn(); applyFilters(); renderTabBar();
     container.scrollTop = keepTop; render();
@@ -152,7 +153,7 @@ function deleteRow(id) {
     t.rowCount = t.allData.length;
     t.modificationsLog.forEach(log => { if (typeof log.id === 'number' && log.id > id) log.id--; });
     t.modificationsLog.push({ id: '-', col: '---', old: 'Row deleted', new: '---', what: `row ${id} deleted`, undo: t => {
-        t.allData.splice(index, 0, gone);
+        t.allData = t.allData.toSpliced(index, 0, gone);   // a new array, never a splice (redo, 15-…)
     } });
     updateSaveBtn(); applyFilters(); renderTabBar();
 }

@@ -346,7 +346,7 @@ tbody.addEventListener('drop', e => {
     const keepTop = container.scrollTop;
     t.allData.forEach((r, i) => r.id = i + 1);
     t.modificationsLog.push({ id: '-', col: '---', old: 'row moved', new: `${from + 1} → ${to + 1}`, what: `row ${from + 1} moved to ${to + 1}`, undo: t => {
-        t.allData.splice(t.allData.indexOf(src), 1); t.allData.splice(from, 0, src); t.sort = prevSort;
+        t.allData = t.allData.filter(r => r !== src).toSpliced(from, 0, src); t.sort = prevSort;   // a new array, never a splice (redo, 15-…)
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
     container.scrollTop = keepTop; render();              // stay where the row was dropped
@@ -504,7 +504,7 @@ function applyColStyles() {
     }
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
-    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
+    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); saveSessionSoon(); }   // unchanged (most calls): no restyle of the whole table
 }
 
 function openColManager() {

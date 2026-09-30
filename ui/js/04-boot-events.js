@@ -160,6 +160,7 @@ function toggleSRBar() {
     srBar.style.display = srBar.style.display === 'flex' ? 'none' : 'flex';
     if (srBar.style.display === 'flex') { fillSRCols(); document.getElementById('sr-find').focus(); }
     resizeContainer();
+    const t = T(); if (t && t.loaded) findRefresh(t);   // the find marks come and go with the bar (29-…)
 }
 /* The column list follows the active tab's headers. */
 function fillSRCols() {

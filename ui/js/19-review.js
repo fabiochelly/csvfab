@@ -16,6 +16,7 @@ function markPristine(t) {
     for (const r of t.allData) r.src = r.len <= 1 && cellStr(r.data[0]) === '' ? null : line++;
     t.headerSrc = t.syntheticHeader ? null : 0;
     t.colSrc = t.headers.map((_, i) => i);
+    t.redoStack = [];                          // redoing past a save would restore a colSrc from before it
     if (t.rowMark && t.rowMark.kind === 'review') t.rowMark = null;   // those changes are the file now
 }
 

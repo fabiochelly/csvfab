@@ -43,7 +43,7 @@ function newTab(src) {
         name: src.name, size: src.size || 0,
         loaded: false, loading: false, error: null,
         allData: [], filteredData: [], headers: [], rowCount: 0, base: null,   // base: the file's bytes and records (21-row-store)
-        modificationsLog: [], hiddenCols: new Set(), colWidths: {},
+        modificationsLog: [], redoStack: [], redoAt: 0, redoAnchor: undefined, hiddenCols: new Set(), colWidths: {},   // redoStack: the entries undone, replayable while the log's end is still redoAnchor (15-…)
         delimiter: '', detectedDelim: '', detectedEol: '\n',
         encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
         headerMode: 'auto', syntheticHeader: false,
@@ -79,6 +79,7 @@ function renderTabBar() {
     emptyState.style.display = tabs.length ? 'none' : 'block';
     document.getElementById('grid-layer').style.display = tabs.length ? '' : 'none';
     resizeContainer();
+    saveSessionSoon();                    // the open files, for the next start (30-…)
 }
 
 function activateTab(id) {
