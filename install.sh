@@ -48,9 +48,8 @@ fi
 
 # --- sources: this folder, or the release archive ---------------------------
 SRC=""
-case "$0" in
-    */*) d=$(cd "$(dirname "$0")" && pwd); [ -f "$d/csvfab.py" ] && [ -f "$d/viewer.htm" ] && SRC="$d" ;;
-esac
+# $0 is the script's path from a checkout ("./install.sh", "sh install.sh"), "sh" under curl | sh.
+if [ -f "$0" ]; then d=$(cd "$(dirname "$0")" && pwd); [ -f "$d/csvfab.py" ] && [ -f "$d/viewer.htm" ] && SRC="$d"; fi
 if [ -z "$SRC" ]; then
     command -v curl >/dev/null 2>&1 || die "curl is required to download csvfab."
     TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
