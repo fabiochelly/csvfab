@@ -14,7 +14,7 @@ function startEdit(td, typed, caretEnd) {
     const colIdx = +td.getAttribute('data-c');
     if (closeEditor) {                        // one editor at a time: commit the open one…
         closeEditor();
-        td = tbody.querySelector(`tr[data-idx="${viewIdx}"] td[data-c="${colIdx}"]`);   // …whose re-render replaced this cell
+        td = tbody.querySelector(`.row[data-idx="${viewIdx}"] .cell[data-c="${colIdx}"]`);   // …whose re-render replaced this cell
         if (!td) return;
     }
     const rowObj = t.filteredData[viewIdx];

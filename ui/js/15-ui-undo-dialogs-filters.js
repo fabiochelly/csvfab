@@ -422,10 +422,10 @@ function setupResizer(resizer) {
         const newW = Math.max(25, w + (e.clientX - x)), th = resizer.parentElement;
         th.style.width = `${newW}px`; th.style.minWidth = `${newW}px`;
         t.colWidths[colIdx] = newW;
-        applyColStyles();
+        applyColStyles(); placeCells(t);      // the drawn cells follow, in place
     };
     /* Every cell clipped while the drag lasts (.rz), then redrawn: a cell that fitted
        the old width may overflow the new one, and its clip is decided at render (cellOv). */
-    const mouseUpHandler = () => { document.removeEventListener('mousemove', mouseMoveHandler); document.removeEventListener('mouseup', mouseUpHandler); resizer.style.background = ""; document.getElementById('mainTable').classList.remove('rz'); render(); };
-    resizer.addEventListener('mousedown', (e) => { x = e.clientX; w = resizer.parentElement.getBoundingClientRect().width; document.getElementById('mainTable').classList.add('rz'); document.addEventListener('mousemove', mouseMoveHandler); document.addEventListener('mouseup', mouseUpHandler); resizer.style.background = "var(--prim)"; });
+    const mouseUpHandler = () => { document.removeEventListener('mousemove', mouseMoveHandler); document.removeEventListener('mouseup', mouseUpHandler); resizer.style.background = ""; document.getElementById('grid-layer').classList.remove('rz'); render(); };
+    resizer.addEventListener('mousedown', (e) => { x = e.clientX; w = resizer.parentElement.getBoundingClientRect().width; document.getElementById('grid-layer').classList.add('rz'); document.addEventListener('mousemove', mouseMoveHandler); document.addEventListener('mouseup', mouseUpHandler); resizer.style.background = "var(--prim)"; });
 }

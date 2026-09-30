@@ -326,18 +326,30 @@ function applyDedupe() {
 /* ---------------------------------------------------------------
    VIRTUAL RENDERING
    Only a window of the ACTIVE tab is in the DOM, in both directions:
-   the rows around the viewport and, once every column has a pinned
-   width, only the columns around it — the others stand as one spacer
-   cell on each side (colspan over the visible columns they replace).
-   The window reaches one screen beyond the viewport each way, and a
-   scroll re-renders only when the viewport nears its edge: the browser
-   scrolls what is already drawn before any script runs, so rendering
-   exactly the viewport showed black bands at every scroll, and an
-   85-column file rebuilt 2 500 cells per scroll event.
+   the rows around the viewport and only the columns around it. The
+   rows are div.row placed absolutely in #tbody at top = i × ROW_H,
+   each a flex line of div.cell with their widths (in flow, not
+   positioned: a positioned box is a paint layer, and 600 of them made
+   the layerization cost more than the table's layout it saved) — not
+   a <table>: a table relays out every drawn row and repaints the
+   whole window at every insertion (~1.8 ms fixed on this machine,
+   whatever the count), so a step's frame cost ~12 ms and dropped a
+   frame at 120 Hz; independent rows cost only what enters, and the
+   paint stays local (traced on a synthetic grid: 10.5 → 8.5 ms a
+   step with 8 rows, and under 8 ms with rows inserted one by one).
+   The header stays a table (#mainTable, sticky at the top of the
+   layer): its cells are pinned to the same widths, so both line up.
+   Nothing is laid out to measure a width: pinColWidths() computes
+   them from the values (monospace: length × advance) and the header
+   cells' own natural width. The window reaches one screen beyond the
+   viewport each way; a scroll draws only what enters (renderOnScroll)
+   and the order of the rows in the DOM is immaterial. Rows not drawn
+   show the stripes of #tbody's background until they arrive.
 ----------------------------------------------------------------*/
-let drawn = null;                         // { t, r0, r1, c0, c1 }: the window in the DOM (c0/c1: indices into visible columns)
+let drawn = null;                         // { t, n, r0, r1, c0, c1, vis }: the window in the DOM (c0/c1: indices into visible columns)
 
-/* The visible columns and their left edges in the table (after the row numbers), or null while widths are unknown. */
+/* The visible columns and their left edges (after the row numbers); every
+   visible column has a width once pinColWidths() ran, which render() does first. */
 function colLayout(t) {
     const vis = visibleCols(t), x = new Array(vis.length + 1);
     let s = idxColW;
@@ -356,76 +368,77 @@ function viewCols(L) {
     return [k0, k1];
 }
 /* The window to draw around the viewport: its rows (a screen beyond it each
-   way) and, once every column has a pinned width, its columns (a screen's
-   width each side). */
+   way) and its columns (a screen's width each side), as indices into the
+   visible columns of L. lean (a jump while the scrollbar is dragged): a
+   quarter of a screen around the viewport instead of a whole one — the next
+   frame of the drag will land elsewhere anyway, and a lighter redraw keeps
+   the thumb following the mouse; the incremental steps grow the window back
+   once the motion slows. */
 function drawWindow(t, lean) {
     const n = t.filteredData.length, [v0, v1] = viewRows(t), L = colLayout(t);
-    /* Widths not measured yet: every column is drawn once to measure them, so
-       only the rows in view (80 rows × 85 columns cost ~70 ms of layout).
-       lean (a jump while the scrollbar is dragged): a quarter of a screen around
-       the viewport instead of a whole one — the next frame of the drag will land
-       elsewhere anyway, and a lighter redraw keeps the thumb following the mouse;
-       the incremental steps grow the window back once the motion slows. */
-    const page = L ? (lean ? Math.ceil((v1 - v0 + 1) / 4) : v1 - v0 + 1) : 0;
-    const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: null, c1: null, cols: null, left: 0, right: 0 };
-    if (L) {
-        const m = lean ? container.clientWidth / 4 : container.clientWidth;
-        const [k0, k1] = viewCols(L), a = container.scrollLeft - m, b = container.scrollLeft + container.clientWidth + m;
-        let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
-        let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
-        Object.assign(w, { c0, c1, cols: L.vis.slice(c0, c1 + 1), left: c0, right: L.vis.length - 1 - c1 });
-    }
+    const page = lean ? Math.ceil((v1 - v0 + 1) / 4) : v1 - v0 + 1;
+    const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: 0, c1: -1, L };
+    if (!L || !L.vis.length) return w;
+    const m = lean ? container.clientWidth / 4 : container.clientWidth;
+    const [k0, k1] = viewCols(L), a = container.scrollLeft - m, b = container.scrollLeft + container.clientWidth + m;
+    let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
+    let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
+    w.c0 = c0; w.c1 = c1;
     return w;
 }
-/* Whether a cell keeps its clip (td.ov: overflow hidden + ellipsis). A clip is a
-   property node and a paint chunk of its own, and the 600 of a drawn window made
-   Chromium's layerization the biggest cost of a scroll step (~3 of the 13 ms a row
-   insertion took); yet almost no cell overflows, the widths being pinned from the
-   values themselves. The cells are monospace, so a plain Latin value fits when its
-   length × the advance stays under the column's width less padding and border;
-   anything else — highlight marks, line breaks, other scripts — keeps the clip.
-   Widths not pinned yet: the cell is at most 480 px wide (td max-width). A column
-   being resized clips every cell (#mainTable.rz) until the rows are redrawn. */
-const PLAIN_RE = /^[\x20-\x7e\xa0-\u024f\u2013-\u2026\u20ac]*$/;
-let cellAdvPx = 0;
+/* The cells' font, measured once on a canvas: the advance of one character (the
+   cells are monospace) and a context for values in other scripts. */
+const PLAIN_RE = /^[\x20-\x7e\xa0-ɏ–-…€]*$/;
+let cellAdvPx = 0, cellCtx = null;
 function cellAdv() {
     if (cellAdvPx) return cellAdvPx;
-    const probe = document.createElement('td'); tbody.appendChild(probe);
-    const st = getComputedStyle(probe), ctx = document.createElement('canvas').getContext('2d');
-    ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`; ctx.fontKerning = 'none';
+    const probe = document.createElement('div'); probe.className = 'cell'; tbody.appendChild(probe);
+    const st = getComputedStyle(probe); cellCtx = document.createElement('canvas').getContext('2d');
+    cellCtx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`; cellCtx.fontKerning = 'none';
     probe.remove();
-    return cellAdvPx = ctx.measureText('0'.repeat(50)).width / 50 || 8;
+    return cellAdvPx = cellCtx.measureText('0'.repeat(50)).width / 50 || 8;
 }
+/* A value's width as a cell shows it (nowrap: runs of spaces as one, none at the ends). */
+function textWidth(s) {
+    if (!s) return 0;
+    const adv = cellAdv();
+    if (!PLAIN_RE.test(s)) return cellCtx.measureText(s).width;
+    const n = s.length, len = s.indexOf('  ') < 0 && s[0] !== ' ' && s[n - 1] !== ' ' ? n : s.replace(/ {2,}/g, ' ').trim().length;
+    return len * adv;
+}
+/* Whether a cell keeps its clip (div.cell.ov: overflow hidden + ellipsis). A clip is
+   a property node and a paint chunk of its own, and the 600 of a drawn window made
+   Chromium's layerization the biggest cost of a scroll step; yet almost no cell
+   overflows, the widths being pinned from the values themselves. A plain Latin
+   value fits when its width (textWidth) stays within the column's width less
+   padding and border; highlight marks and line breaks keep the clip. A column
+   being resized clips every cell (#grid-layer.rz) until the rows are redrawn. */
 function cellOv(t, cIdx, c, html) {
     if (c == null || c === '') return false;
     const s = typeof c === 'string' ? c : String(c);
-    if (html.indexOf('<') >= 0 || !PLAIN_RE.test(s)) return true;
-    const w = t.colWidths[cIdx], n = s.length;
-    /* As nowrap renders it: runs of spaces as one, none at the ends. The width was pinned
-       at ceil(longest value + padding + border), so that value fits by construction. */
-    const len = s.indexOf('  ') < 0 && s[0] !== ' ' && s[n - 1] !== ' ' ? n : s.replace(/ {2,}/g, ' ').trim().length;
-    return len * cellAdv() > (w == null ? 480 : w) - 21 + 0.05;
+    if (html.indexOf('<') >= 0) return true;
+    return textWidth(s) > (t.colWidths[cIdx] == null ? 480 : t.colWidths[cIdx]) - 21 + 0.05;   // the width was pinned at ceil(widest value + 21): that value fits by construction
 }
-/* One cell of row i, as HTML. */
-function cellHtml(t, i, r, d, mk, cIdx, rg, fp) {
-    const c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = showBreaks(highlightCell(c, cIdx, t.hl));
-    return `<td data-c="${cIdx}"${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''}${barStyle(t, cIdx, c)}>${html}</td>`;
+/* One cell of row i, as HTML: column k of the layout L. */
+function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
+    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = showBreaks(highlightCell(c, cIdx, t.hl));
+    return `<div class="cell${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${barStyle(t, cIdx, c)}">${html}</div>`;
 }
-/* Rows i0…i1 of the view, as HTML, in the window's columns. */
+/* The spacer standing, in a row, for the columns before the window (none when it starts at the first). */
+const hsp = (L, c0) => c0 ? `<div class="hsp" style="width:${L.x[c0] - idxColW}px"></div>` : '';
+/* Rows i0…i1 of the view, as HTML, in the window's columns w.c0…w.c1 of w.L. */
 function rowsHtml(t, i0, i1, w) {
-    const data = t.filteredData, rg = selRange(t), fp = fillRect();
+    const data = t.filteredData, rg = selRange(t), fp = fillRect(), L = w.L, W = L.x[L.x.length - 1], sp = hsp(L, w.c0);
     let html = '';
     for (let i = i0; i <= i1; i++) {
         const r = data[i], mk = markedCells(t, r), d = r.data;
-        const cell = cIdx => cellHtml(t, i, r, d, mk, cIdx, rg, fp);
-        html += `<tr class="${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="height:${ROW_H}px" data-idx="${i}">
-            <td class="col-idx" draggable="true" title="Click: select the row · Drag: move it">
+        html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="top:${i * ROW_H}px;width:${W}px" data-idx="${i}">
+            <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Click: select the row · Drag: move it">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
-            </td>`
-            + (w.cols ? (w.left ? `<td class="hsp" colspan="${w.left}"></td>` : '') + w.cols.map(cell).join('') + (w.right ? `<td class="hsp" colspan="${w.right}"></td>` : '')
-                : d.map((_, cIdx) => cell(cIdx)).join(''))
-            + '</tr>';
+            </div>${sp}`;
+        for (let k = w.c0; k <= w.c1; k++) html += cellHtml(t, i, r, d, mk, k, L, rg, fp);
+        html += '</div>';
     }
     return html;
 }
@@ -434,62 +447,53 @@ function rowsHtml(t, i0, i1, w) {
 function redrawRows(t, i0, i1) {
     if (!drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
     const L = colLayout(t);
-    if (drawn.c0 != null && (!L || L.vis.join(',') !== drawn.vis)) return render();
-    const w = drawn.c0 == null ? { cols: null } : { cols: L.vis.slice(drawn.c0, drawn.c1 + 1), left: drawn.c0, right: L.vis.length - 1 - drawn.c1 };
+    if (!L || L.vis.join(',') !== drawn.vis) return render();
+    const w = { c0: drawn.c0, c1: drawn.c1, L };
     for (let i = Math.max(i0, drawn.r0); i <= Math.min(i1, drawn.r1); i++) {
-        const tr = tbody.querySelector(`tr[data-idx="${i}"]`);
-        if (tr) tr.outerHTML = rowsHtml(t, i, i, w);
+        const row = tbody.querySelector(`.row[data-idx="${i}"]`);
+        if (row) row.outerHTML = rowsHtml(t, i, i, w);
     }
 }
-/* A spacer stands for rows not drawn. Its cell is striped like rows (CSS), in phase
-   with them — `first` is the view index of the first row it stands for, and rows
-   alternate on their number — so that a scrollbar drag landing past the drawn window
-   shows grid lines for the frame before the rows are drawn (the compositor scrolls
-   the painted layer at once, the main thread draws the rows a frame later): rows
-   filling in, rather than a blank band flashing at every jump. */
-const spacerPhase = first => `background-position-y: ${first % 2 ? -ROW_H : 0}px;`;
-const spacer = (cls, rows, span, first) => `<tr class="${cls}" style="height: ${rows * ROW_H}px; background: transparent;"><td colspan="${span}" style="padding:0; border:none; ${spacerPhase(first)}"></td></tr>`;
-
-/* The drawn rows move from columns drawn.c0…c1 to w.c0…w.c1 (indices into
-   the visible columns): in each row, the cells leaving are removed, the
-   ones entering inserted, and the spacer cell on each side (colspan: the
-   visible columns it stands for) resized, created or dropped. */
-function shiftCols(t, w, vis) {
-    const o0 = drawn.c0, o1 = drawn.c1, n0 = w.c0, n1 = w.c1, data = t.filteredData, rg = selRange(t), fp = fillRect();
-    const nl = n0, nr = vis.length - 1 - n1;
-    for (const tr of tbody.querySelectorAll('tr[data-idx]')) {
-        const i = +tr.dataset.idx, r = data[i], mk = markedCells(t, r), d = r.data;
-        const html = (a, b) => { let h = ''; for (let k = a; k <= b; k++) h += cellHtml(t, i, r, d, mk, vis[k], rg, fp); return h; };
-        const idxTd = tr.firstElementChild;
-        let ls = idxTd.nextElementSibling; if (ls && !ls.classList.contains('hsp')) ls = null;
-        let rs = tr.lastElementChild; if (rs === ls || !rs.classList.contains('hsp')) rs = null;
-        /* Left edge */
-        for (let k = o0; k < Math.min(n0, o1 + 1); k++) (ls || idxTd).nextElementSibling.remove();
-        if (n0 < o0) (ls || idxTd).insertAdjacentHTML('afterend', html(n0, o0 - 1));
-        if (nl && !ls) { idxTd.insertAdjacentHTML('afterend', `<td class="hsp" colspan="${nl}"></td>`); }
-        else if (nl) ls.colSpan = nl;
-        else if (ls) ls.remove();
-        /* Right edge */
-        for (let k = o1; k > Math.max(n1, o0 - 1); k--) (rs ? rs.previousElementSibling : tr.lastElementChild).remove();
-        if (n1 > o1) (rs || tr).insertAdjacentHTML(rs ? 'beforebegin' : 'beforeend', html(o1 + 1, n1));
-        if (nr && !rs) tr.insertAdjacentHTML('beforeend', `<td class="hsp" colspan="${nr}"></td>`);
-        else if (nr) rs.colSpan = nr;
-        else if (rs) rs.remove();
+/* The drawn rows move from columns drawn.c0…c1 to w.c0…w.c1 (indices into the
+   visible columns): in each row the cells leaving are removed, the ones entering
+   inserted at the edge they enter by, and the spacer before the window resized,
+   created or dropped. */
+function shiftCols(t, w) {
+    const o0 = drawn.c0, o1 = drawn.c1, n0 = w.c0, n1 = w.c1, L = w.L, data = t.filteredData, rg = selRange(t), fp = fillRect();
+    const pos = new Map(L.vis.map((c, k) => [c, k])), spw = n0 ? (L.x[n0] - idxColW) + 'px' : '';
+    for (const row of tbody.querySelectorAll('.row[data-idx]')) {
+        const i = +row.dataset.idx, r = data[i], mk = markedCells(t, r), d = r.data;
+        const html = (a, b) => { let h = ''; for (let k = a; k <= b; k++) h += cellHtml(t, i, r, d, mk, k, L, rg, fp); return h; };
+        for (const el of [...row.children]) { const c = el.dataset.c; if (c == null) continue; const k = pos.get(+c); if (k == null || k < n0 || k > n1) el.remove(); }
+        let sp = row.children[1]; if (sp && !sp.classList.contains('hsp')) sp = null;
+        if (n0 < o0) (sp || row.firstElementChild).insertAdjacentHTML('afterend', html(n0, Math.min(o0 - 1, n1)));
+        if (n1 > o1) row.insertAdjacentHTML('beforeend', html(Math.max(o1 + 1, n0), n1));
+        if (!n0) { if (sp) sp.remove(); }
+        else if (sp) sp.style.width = spw;
+        else row.firstElementChild.insertAdjacentHTML('afterend', hsp(L, n0));
     }
-    drawn.c0 = n0; drawn.c1 = n1;
+}
+/* The drawn cells re-sized from the widths (a column being resized): the width of
+   every cell and spacer in place, no redraw. */
+function placeCells(t) {
+    const L = colLayout(t); if (!L || !drawn) return;
+    const W = L.x[L.x.length - 1] + 'px', pos = new Map(L.vis.map((c, k) => [c, k])), spw = drawn.c0 ? (L.x[drawn.c0] - idxColW) + 'px' : '';
+    tbody.style.width = W;
+    for (const row of tbody.children) {
+        if (row.dataset.idx == null) continue;
+        row.style.width = W;
+        for (const el of row.children) {
+            if (el.classList.contains('hsp')) { el.style.width = spw; continue; }
+            const c = el.dataset.c; if (c == null) continue; const k = pos.get(+c); if (k == null) continue; el.style.width = (L.x[k + 1] - L.x[k]) + 'px';
+        }
+    }
 }
 
-/* On scroll, the window follows the viewport a few rows (ROW_STEP) or
-   columns (COL_STEP) at a time: only the rows or cells entering and
-   leaving it are added and removed. Re-laying out the whole table cost
-   15 ms on 80 rows of an 85-column file, and a sideways move past the
-   columns drawn redrew it all (~50 ms); adding rows costs ~1.5 ms plus
-   ~0.4 ms a row, so small steps stay far under a frame. Traced under a wheel
-   scroll (1.4 M rows × 10 columns, then 85 columns): a step's frame is ~11 ms
-   of main thread whatever the step, mostly fixed costs of the table's relayout,
-   the paint walk and the compositor update; 8 rows a step instead of 4 halves
-   the number of those frames for 2 ms more each (12–14 ms, still within 60 Hz),
-   12 % less work in all. */
+/* A scroll moves the window by steps: rows or columns come in only once the
+   viewport is ROW_STEP rows / COL_STEP columns from the window's edge, then
+   the rows (cells) leaving are removed and the ones entering appended. Traced
+   under a wheel scroll: a step's frame is mostly the text shaping of what
+   enters, so 8 rows a step keeps the number of such frames low. */
 const ROW_STEP = 8, COL_STEP = 2;
 /* A jump redraw (script + layout) past JUMP_BUDGET ms gives the following frames
    back: the next jumps are skipped for as long as that redraw took, the layer still
@@ -501,16 +505,15 @@ function renderOnScroll() {
     const t = T();
     if (!t || !t.loaded || !drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
     const L = colLayout(t);
-    /* Widths just pinned (all columns were drawn), or columns shown or hidden since: draw anew. */
-    if (drawn.c0 == null ? !!L : (!L || L.vis.join(',') !== drawn.vis)) return render();
+    if (!L || L.vis.join(',') !== drawn.vis) return render();   // columns shown or hidden since: draw anew
     const w = drawWindow(t);
     const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP;
-    const colsMove = L && (Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP);
+    const colsMove = Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP;
     if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) {   // a jump: nothing to keep, a lean redraw
         const now = performance.now();
         if (lastJumpMs > JUMP_BUDGET && now - lastJumpAt < lastJumpMs) {
             /* Skipped: the layer is NOT moved either — moved without its rows redrawn, it
-               would show the striped spacer where the rows should be, a frame of flicker. */
+               would show the striped background where the rows should be, a frame of flicker. */
             clearTimeout(jumpTimer); jumpTimer = setTimeout(() => { jumpTimer = 0; renderOnScroll(); }, lastJumpMs);
             return;
         }
@@ -521,18 +524,14 @@ function renderOnScroll() {
     }
     syncLayer();                              // the layer follows the scroll only with rows drawn at the new position
     if (!rowsMove && !colsMove) return;
-    if (colsMove) shiftCols(t, w, L.vis);
-    else if (L) Object.assign(w, { c0: drawn.c0, c1: drawn.c1, cols: L.vis.slice(drawn.c0, drawn.c1 + 1), left: drawn.c0, right: L.vis.length - 1 - drawn.c1 });   // rows entering take the columns drawn
+    if (colsMove) { shiftCols(t, w); drawn.c0 = w.c0; drawn.c1 = w.c1; }
+    else { w.c0 = drawn.c0; w.c1 = drawn.c1; }   // rows entering take the columns drawn
     if (!rowsMove) return;
-    const top = tbody.firstElementChild, btm = tbody.lastElementChild;
-    /* Rows leaving at either end, then rows entering. */
-    for (let i = drawn.r0; i < w.r0; i++) top.nextElementSibling.remove();
-    for (let i = drawn.r1; i > w.r1; i--) btm.previousElementSibling.remove();
-    if (w.r0 < drawn.r0) top.insertAdjacentHTML('afterend', rowsHtml(t, w.r0, drawn.r0 - 1, w));
-    if (w.r1 > drawn.r1) btm.insertAdjacentHTML('beforebegin', rowsHtml(t, drawn.r1 + 1, w.r1, w));
-    top.style.height = w.r0 * ROW_H + 'px';
-    btm.style.height = (drawn.n - 1 - w.r1) * ROW_H + 'px';
-    btm.firstElementChild.style.backgroundPositionY = ((w.r1 + 1) % 2 ? -ROW_H : 0) + 'px';   // its stripes stay in phase with the rows above
+    for (const row of tbody.querySelectorAll('.row[data-idx]')) { const i = +row.dataset.idx; if (i < w.r0 || i > w.r1) row.remove(); }
+    let h = '';
+    if (w.r0 < drawn.r0) h += rowsHtml(t, w.r0, Math.min(drawn.r0 - 1, w.r1), w);
+    if (w.r1 > drawn.r1) h += rowsHtml(t, Math.max(drawn.r1 + 1, w.r0), w.r1, w);
+    if (h) tbody.insertAdjacentHTML('beforeend', h);
     drawn.r0 = w.r0; drawn.r1 = w.r1;
 }
 
@@ -541,44 +540,41 @@ function render(lean) {
     drawn = null;
     clearTimeout(jumpTimer); jumpTimer = 0;   // a redraw for any reason: nothing left to catch up
     syncLayer();
-    if (!t || !t.loaded) { tbody.innerHTML = ''; return; }
+    if (!t || !t.loaded) { tbody.innerHTML = ''; tbody.style.height = '0px'; tbody.classList.remove('no-rows'); return; }
     const data = t.filteredData;
-    if (data.length === 0) { tbody.innerHTML = '<tr><td colspan="100" style="padding: 20px; text-align: center;">No results found</td></tr>'; return; }
-    const w = drawWindow(t, lean), span = t.headers.length + 1;
-    /* Both spacers are always there (height 0 at an end): the scroll updates resize them. */
-    tbody.innerHTML = spacer('sp-top', w.r0, span, 0) + rowsHtml(t, w.r0, w.r1, w) + spacer('sp-btm', data.length - 1 - w.r1, span, w.r1 + 1);
-    const L = colLayout(t);
-    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L ? L.vis.join(',') : null };
-    pinColWidths(t);
+    if (data.length === 0) { tbody.innerHTML = '<div class="empty-msg">No results found</div>'; tbody.style.height = ''; tbody.classList.add('no-rows'); syncSpace(t); return; }
+    tbody.classList.remove('no-rows');
+    pinColWidths(t);                          // every cell is placed by the widths: they come first
+    const w = drawWindow(t, lean), L = w.L;
+    tbody.style.height = data.length * ROW_H + 'px'; tbody.style.width = L.x[L.x.length - 1] + 'px';
+    tbody.innerHTML = rowsHtml(t, w.r0, w.r1, w);
+    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') };
     syncSpace(t);
 }
 
-/* Column widths follow content, and only the visible slice is in the DOM, so
-   each scroll re-sized the columns against different rows and they jumped.
-   The first slice rendered decides, then the widths are pinned exactly like
-   a manual resize (hence border-box: getBoundingClientRect and the resizer
-   both measure the outer width). A hidden column measures 0, so it waits
-   until it is shown; an added column is picked up on the next render. */
+/* Column widths: a visible column without one gets the larger of its header
+   cell's natural width (the header is a table laid out on its own, so that is
+   its own need) and the widest value of the first rows in view — in the cells'
+   monospace font, length × advance, a canvas measure for other scripts — plus
+   padding and border, capped at 480 px like a manual resize, then pinned
+   (applyColStyles, which sizes the header cells the same). No row is laid out
+   to measure it. A hidden column measures 0 and is pinned once shown; an added
+   column on the next render. */
 function pinColWidths(t) {
-    if (!t.loaded || !t.filteredData.length) return;   // header alone would size to the labels
+    if (!t.loaded) return;
     const missing = [];
     for (let i = 0; i < t.headers.length; i++) if (t.colWidths[i] == null && !t.hiddenCols.has(i)) missing.push(i);
     const cells = thead.rows[0] && thead.rows[0].cells;
-    if (!missing.length || !cells) return;   // the usual case, checked first: reading a size below forces a layout of the fresh rows
-    /* A window opened from the file manager is born tiny, then tiled to full size:
-       measuring in between would freeze every column at that tiny size. */
-    if (container.clientWidth < 400) return;
-    let changed = false;
-    if (!idxColW) idxColW = Math.ceil(cells[0].getBoundingClientRect().width);
+    if (!idxColW) idxColW = (cells && Math.ceil(cells[0].getBoundingClientRect().width)) || 90;
+    if (!missing.length) return;
+    const [v0] = viewRows(t), rows = t.filteredData.slice(v0, v0 + 80);
     missing.forEach(i => {
-        const w = cells[i + 1] ? cells[i + 1].getBoundingClientRect().width : 0;
-        /* A fixed cap, as on td: one relative to the window would depend on the
-           window's size at the moment of measuring, which can be tiny. */
-        if (w) { t.colWidths[i] = Math.min(Math.ceil(w), 480); changed = true; }
+        let w = cells && cells[i + 1] ? cells[i + 1].getBoundingClientRect().width : 0;
+        for (const r of rows) w = Math.max(w, textWidth(cellStr(r.data[i])) + 21);   // padding 10 + 10, border 1
+        t.colWidths[i] = Math.min(Math.max(Math.ceil(w), 60), 480);
     });
-    if (changed) applyColStyles();
+    applyColStyles();
 }
-
 
 /* ---------------------------------------------------------------
    SCROLLING
@@ -612,8 +608,8 @@ function syncSpace(t) {
     gridLayer.style.width = (sbw >= 16 ? cw : cw - (24 - sbw)) + 'px'; gridLayer.style.height = ch + 'px';   // overlay scrollbars: room left for the strip (24 = STRIP_W, a const of 28-… not yet declared when this runs at boot)
     if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; stripLayout(null); return; }
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
-    const tbl = document.getElementById('mainTable'), nohs = !!L && w <= cw;   // no sideways scroll: the row numbers need not stick (app.css)
-    if (tbl.classList.contains('nohs') !== nohs) tbl.classList.toggle('nohs', nohs);
+    const nohs = !!L && w <= cw;              // no sideways scroll: the row numbers need not stick (app.css)
+    if (gridLayer.classList.contains('nohs') !== nohs) gridLayer.classList.toggle('nohs', nohs);
     const h = thead.offsetHeight + t.filteredData.length * ROW_H;
     scrollSpace.style.height = Math.max(0, h - ch) + 'px';
     scrollSpace.style.width = Math.max(1, w) + 'px';

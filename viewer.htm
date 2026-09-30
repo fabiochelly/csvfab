@@ -518,12 +518,14 @@
 <div id="view-container">
     <div id="empty-state"></div>
     <!-- The grid lives in a sticky, clipped layer that the script scrolls (12-…, SCROLLING);
-         the native scrollbars come from #scroll-space, sized like the table. -->
+         the native scrollbars come from #scroll-space, sized like the grid. The header is a
+         table, sticky at the layer's top; the rows are divs placed absolutely in #tbody
+         (12-…, VIRTUAL RENDERING). -->
     <div id="grid-layer">
         <table id="mainTable" class="grid">
             <thead id="thead"></thead>
-            <tbody id="tbody"></tbody>
         </table>
+        <div id="tbody"></div>
     </div>
     <div id="scroll-space"></div>
 </div>

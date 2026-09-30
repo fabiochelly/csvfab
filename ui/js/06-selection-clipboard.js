@@ -26,7 +26,7 @@ function barStyle(t, c, v) {
     if (isNaN(x)) return '';
     const z = (0 - b.min) / span * 100, p = (x - b.min) / span * 100, a = Math.min(z, p), w = Math.abs(p - z);
     const rgb = x < 0 ? 'var(--danger-rgb)' : 'var(--accent-rgb)';
-    return ` style="background-image: linear-gradient(90deg, transparent ${a.toFixed(1)}%, rgba(${rgb}, .28) ${a.toFixed(1)}%, rgba(${rgb}, .28) ${(a + w).toFixed(1)}%, transparent ${(a + w).toFixed(1)}%)"`;
+    return `;background-image: linear-gradient(90deg, transparent ${a.toFixed(1)}%, rgba(${rgb}, .28) ${a.toFixed(1)}%, rgba(${rgb}, .28) ${(a + w).toFixed(1)}%, transparent ${(a + w).toFixed(1)}%)"`;
 }
 function cellCls(i, c, rg, fp, row, marked, ov) {
     const k = marked ? ['mkc'] : [];
@@ -38,7 +38,7 @@ function cellCls(i, c, rg, fp, row, marked, ov) {
         if (!fillDrag && i === rg.r1 && c === rg.c1) k.push('fh');
     }
     if (fp && i >= fp.r0 && i <= fp.r1 && c >= fp.c0 && c <= fp.c1) k.push('fillp');
-    return k.length ? ` class="${k.join(' ')}"` : '';
+    return k.length ? ' ' + k.join(' ') : '';
 }
 function selRange(t) {
     if (!sel || !t || sel.tab !== t.id) return null;
@@ -53,12 +53,12 @@ function setSel(t, ar, ac, fr, fc) {
    an arrow key or a drag step used to re-render the whole grid (~15 ms on
    an 85-column file). The rows drawn later get them from cellCls(). */
 function paintSel(t) {
-    for (const td of tbody.querySelectorAll('td.sel, td.cur, td.fh')) td.classList.remove('sel', 'cur', 'fh');
+    for (const td of tbody.querySelectorAll('.cell.sel, .cell.cur, .cell.fh')) td.classList.remove('sel', 'cur', 'fh');
     stripSel(t);                              // the selection's band on the scroll strip
     const rg = selRange(t); if (!rg) return;
-    for (const tr of tbody.querySelectorAll('tr[data-idx]')) {
+    for (const tr of tbody.querySelectorAll('.row[data-idx]')) {
         const i = +tr.dataset.idx; if (i < rg.r0 || i > rg.r1) continue;
-        for (const td of tr.querySelectorAll('td[data-c]')) {
+        for (const td of tr.querySelectorAll('.cell[data-c]')) {
             const c = +td.dataset.c; if (c < rg.c0 || c > rg.c1) continue;
             td.classList.add('sel');
             if (i === sel.fr && c === sel.fc) td.classList.add('cur');
@@ -113,7 +113,7 @@ function revealCell(r, c) {
 tbody.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     const t = T(); if (!t || !t.loaded) return;
-    const td = e.target.closest('td'), tr = td && td.parentElement;
+    const td = e.target.closest('.cell'), tr = td && td.parentElement;
     if (!td || !tr.dataset.idx || td.classList.contains('editing') || e.target.closest('.row-btn')) return;
     if (td.classList.contains('fh')) {                    // the fill handle: its 9 × 9 px corner
         const b = td.getBoundingClientRect();
@@ -136,7 +136,7 @@ tbody.addEventListener('mousedown', e => {
            browser's own dblclick often finds no element left to fire on. */
         e.preventDefault();
         setSel(t, r, c, r, c);
-        const cell = tbody.querySelector(`tr[data-idx="${r}"] td[data-c="${c}"]`);
+        const cell = tbody.querySelector(`.row[data-idx="${r}"] .cell[data-c="${c}"]`);
         if (cell) startEdit(cell, null, true);
         return;
     }
@@ -150,7 +150,7 @@ document.addEventListener('mousemove', e => {
         const box = container.getBoundingClientRect();
         if (e.clientY > box.bottom - 24) container.scrollTop += 20;
         else if (e.clientY < box.top + thead.offsetHeight + 12) container.scrollTop -= 20;
-        const cell = document.elementFromPoint(e.clientX, e.clientY), td = cell && cell.closest && cell.closest('#tbody td[data-c]');
+        const cell = document.elementFromPoint(e.clientX, e.clientY), td = cell && cell.closest && cell.closest('#tbody .cell[data-c]');
         if (td) { const r = +td.parentElement.dataset.idx, c = +td.dataset.c; if (r !== fillDrag.r || c !== fillDrag.c) { fillDrag.r = r; fillDrag.c = c; render(); } }
         return;
     }
@@ -159,7 +159,7 @@ document.addEventListener('mousemove', e => {
     if (e.clientY > box.bottom - 24) container.scrollTop += 20;
     else if (e.clientY < box.top + thead.offsetHeight + 12) container.scrollTop -= 20;
     const td = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = td && td.closest && td.closest('#tbody td[data-c]');
+    const cell = td && td.closest && td.closest('#tbody .cell[data-c]');
     if (!cell) return;
     const r = +cell.parentElement.dataset.idx, c = +cell.dataset.c;
     if (r !== sel.fr || c !== sel.fc) setSel(t, sel.ar, sel.ac, r, c);
@@ -210,7 +210,7 @@ document.addEventListener('keydown', e => {
     }
     if ((e.key === 'Enter' || e.key === 'F2') && !ctrl) {     // Enter: the text selected; F2: the caret at its end
         e.preventDefault(); revealCell(sel.fr, sel.fc);
-        const td = tbody.querySelector(`tr[data-idx="${sel.fr}"] td[data-c="${sel.fc}"]`);
+        const td = tbody.querySelector(`.row[data-idx="${sel.fr}"] .cell[data-c="${sel.fc}"]`);
         if (td) startEdit(td, null, e.key === 'F2');
         return;
     }
@@ -219,7 +219,7 @@ document.addEventListener('keydown', e => {
     /* A printable key starts editing the active cell with that key, as in a spreadsheet. */
     if (e.key.length === 1 && !ctrl && !e.altKey) {
         e.preventDefault(); revealCell(sel.fr, sel.fc);
-        const td = tbody.querySelector(`tr[data-idx="${sel.fr}"] td[data-c="${sel.fc}"]`);
+        const td = tbody.querySelector(`.row[data-idx="${sel.fr}"] .cell[data-c="${sel.fc}"]`);
         if (td) startEdit(td, e.key);
     }
 });

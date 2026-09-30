@@ -307,7 +307,7 @@ function applyMerge() {
    it breaks any sort order, which is cleared. */
 let dragRow = null;
 tbody.addEventListener('dragstart', e => {
-    const td = e.target.closest && e.target.closest('td.col-idx'); if (!td) return;
+    const td = e.target.closest && e.target.closest('.cell.col-idx'); if (!td) return;
     const t = T(), tr = td.parentElement, r = t && t.filteredData[+tr.dataset.idx];
     if (!r) return;
     dragRow = r;
@@ -323,7 +323,7 @@ tbody.addEventListener('dragover', e => {
     const box = container.getBoundingClientRect(), edge = 48;
     if (e.clientY < box.top + thead.offsetHeight + edge) container.scrollTop -= 24;   // below the sticky header
     else if (e.clientY > box.bottom - edge) container.scrollTop += 24;
-    const tr = e.target.closest && e.target.closest('tr[data-idx]');
+    const tr = e.target.closest && e.target.closest('.row[data-idx]');
     tbody.querySelectorAll('.drop-above, .drop-below').forEach(x => x.classList.remove('drop-above', 'drop-below'));
     if (!tr) return;
     const r = tr.getBoundingClientRect();
@@ -332,7 +332,7 @@ tbody.addEventListener('dragover', e => {
 tbody.addEventListener('drop', e => {
     if (!dragRow) return;
     e.preventDefault(); e.stopPropagation();
-    const t = T(), tr = e.target.closest && e.target.closest('tr[data-idx]'), src = dragRow;
+    const t = T(), tr = e.target.closest && e.target.closest('.row[data-idx]'), src = dragRow;
     const target = tr && t.filteredData[+tr.dataset.idx];
     const below = tr && e.clientY >= tr.getBoundingClientRect().top + tr.getBoundingClientRect().height / 2;
     dragRow = null; clearRowMarks();
@@ -478,7 +478,7 @@ function handleColCheck(e, idx) {
     } else {
         if (isChecked) t.hiddenCols.delete(idx); else t.hiddenCols.add(idx);
     }
-    lastCheckedCol = idx; applyColStyles(); render(); updateCount(t);   // render: the spacers' colspans count the visible columns
+    lastCheckedCol = idx; applyColStyles(); render(); updateCount(t);   // render: the cells are placed by the visible columns' layout
 }
 
 /* Single style tag holding hidden columns + column widths of the ACTIVE tab (.grid: the table and the scroll preview's) */
@@ -494,12 +494,12 @@ function applyColStyles() {
         let sum = idxColW, all = idxColW > 0;
         t.headers.forEach((_, c) => { if (t.hiddenCols.has(c)) return; if (t.colWidths[c] == null) all = false; else sum += t.colWidths[c]; });
         if (all) css += `.grid { width: ${sum}px; }\n`;
-        /* Header cells by position (the header always has every column), body
-           cells by data-c: a row drawn with only the columns in view has fewer. */
-        t.hiddenCols.forEach(c => { css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
+        /* Header cells by position (the header always has every column); the rows'
+           cells are placed by the same widths inline (cellHtml, placeCells). */
+        t.hiddenCols.forEach(c => { css += `#mainTable thead th:nth-child(${c + 2}) { display: none !important; }\n`; });
         Object.keys(t.colWidths).forEach(k => {
             const c = parseInt(k, 10), w = t.colWidths[k];
-            css += `.grid td[data-c="${c}"], #mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }\n`;
+            css += `#mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }\n`;
         });
     }
     let styleTag = document.getElementById('tab-cols-style');
