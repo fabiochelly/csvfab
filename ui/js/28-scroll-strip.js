@@ -55,7 +55,7 @@ const rowY = (g, i) => (g.th + i * ROW_H) / g.sh * g.H;
 /* Position and size: from syncSpace(), at every render, resize and width change. */
 function stripLayout(t) {
     const el = stripEl();
-    if (!t || !t.loaded || !t.filteredData.length || !tabs.length) { el.style.display = 'none'; el._s.key = null; return; }
+    if (!t || !t.loaded || !t.filteredData.length || !tabs.length) { el.style.display = 'none'; el._s.key = null; hstripLayout(null); return; }
     /* Over the native vertical scrollbar, whatever its width (24 px from app.css, but a
        platform may draw overlay scrollbars of no width: then the band takes STRIP_W
        at the right edge and syncSpace() narrows the grid layer to leave it room). */
@@ -70,10 +70,12 @@ function stripLayout(t) {
     el.style.display = '';
     stripUpdate(t);
     stripFollow();
+    hstripLayout(t, rc);
 }
 /* The thumb: from syncLayer(), at every scroll. */
 function stripFollow() {
     const el = document.getElementById('scroll-strip'), t = T();
+    hstripFollow(t);
     if (!el || el.style.display === 'none' || !t || !t.loaded) return;
     const g = stripGeom(t), thumb = el.children[3];
     const h = Math.max(THUMB_MIN, g.ch / g.sh * g.H), top = g.sh > g.ch ? container.scrollTop / (g.sh - g.ch) * (g.H - h) : 0;
@@ -199,9 +201,143 @@ function stripLabels(t, g) {
 }
 /* The selection's rows as a band: from paintSel(), at every selection change. */
 function stripSel(t) {
+    hstripSel(t);
     const el = document.getElementById('scroll-strip'); if (!el || el.style.display === 'none' || !t) return;
     const band = el.children[2], rg = selRange(t);
     if (!rg) { band.style.display = 'none'; return; }
     const g = stripGeom(t), y0 = rowY(g, rg.r0), y1 = rowY(g, rg.r1 + 1);
     band.style.display = ''; band.style.top = y0 + 'px'; band.style.height = Math.max(2, y1 - y0) + 'px';
+}
+
+/* ---------------------------------------------------------------
+   HORIZONTAL STRIP
+   The same band over the grid's horizontal scrollbar (#hscroll-strip,
+   24 px tall, shown only when the grid is wider than the viewport):
+   a thumb for the viewport, dragged or the track clicked to jump, a
+   tip naming the column under the pointer (its number when the file
+   has no title line), the columns laid along the band as labels — each
+   at the span its width takes, named when the span is wide enough, the
+   sort column in the accent colour — and the selected columns as a band.
+   W pixels stand for the grid's whole width, row numbers included, so
+   the thumb agrees with the native scrollbar underneath.
+----------------------------------------------------------------*/
+const HLABEL_MIN = 44, HNO_MIN = 14;      // a span at least this wide takes the column's name; a narrower one its number
+
+function hstripEl() {
+    let el = document.getElementById('hscroll-strip');
+    if (el) return el;
+    el = document.createElement('div'); el.id = 'hscroll-strip';
+    el.innerHTML = '<div class="ss-labels"></div><div class="ss-sel"></div><div class="ss-thumb"></div><div class="ss-tip"></div>';
+    el._s = { key: null, drag: false };
+    document.body.appendChild(el);
+    el.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); el.setPointerCapture(e.pointerId); el._s.drag = true; el.classList.add('drag');
+        const th = el.children[2], x = e.clientX - el._s.left, left = parseFloat(th.style.left) || 0, w = parseFloat(th.style.width) || 0;
+        el._s.grab = x >= left && x <= left + w ? x - left : null;
+        hstripJump(e);
+    });
+    el.addEventListener('pointermove', e => { if (el._s.drag) hstripJump(e); else hstripTip(e); });
+    const end = e => { if (!el._s.drag) return; el._s.drag = false; el.classList.remove('drag'); try { el.releasePointerCapture(e.pointerId); } catch (x) { } hstripTip(e); };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+    el.addEventListener('pointerleave', () => { if (!el._s.drag) el.classList.remove('tip'); });
+    /* A wheel over the band scrolls sideways, a plain wheel too (as with Shift held over the grid). */
+    el.addEventListener('wheel', e => { e.preventDefault(); const d = e.deltaX || e.deltaY; container.scrollLeft += e.deltaMode === 1 ? d * 40 : e.deltaMode === 2 ? d * container.clientWidth : d; }, { passive: false });
+    return el;
+}
+/* W pixels stand for the grid's width sw (the pinned widths' sum, or the scroll extent while widths are unknown). */
+function hstripGeom(t) {
+    const W = container.clientWidth, cw = W, L = colLayout(t);
+    return { W, cw, L, sw: Math.max(cw, L ? L.x[L.x.length - 1] : container.scrollWidth) };
+}
+const colX = (g, x) => x / g.sw * g.W;
+
+/* Position and size: from stripLayout(), with the container's rect it measured. */
+function hstripLayout(t, rc) {
+    const el = hstripEl();
+    if (!t) { el.style.display = 'none'; el._s.key = null; return; }
+    const g = hstripGeom(t);
+    if (g.sw <= g.cw) { el.style.display = 'none'; el._s.key = null; return; }   // no sideways scroll: no bar, no band
+    const sbh = Math.round(rc.height - container.clientHeight), h = sbh >= 16 ? sbh : STRIP_W;
+    const left = Math.round(rc.left), top = Math.round(rc.bottom - h), W = g.W;
+    if (el._s.left !== left || el._s.top !== top || el._s.W !== W || el._s.h !== h) {
+        Object.assign(el._s, { left, top, W, h });
+        Object.assign(el.style, { left: left + 'px', top: top + 'px', width: W + 'px', height: h + 'px' });
+    }
+    el.style.display = '';
+    el._s.sw = g.sw;                          // for the thumb, which then needs no column layout at each scroll
+    hstripUpdate(t, g);
+    hstripFollow(t);
+}
+/* The thumb: from stripFollow(), at every scroll. */
+function hstripFollow(t) {
+    const el = document.getElementById('hscroll-strip');
+    if (!el || el.style.display === 'none' || !t || !t.loaded) return;
+    const g = { W: el._s.W, cw: el._s.W, sw: el._s.sw }, thumb = el.children[2];
+    const w = Math.max(THUMB_MIN, g.cw / g.sw * g.W), left = g.sw > g.cw ? container.scrollLeft / (g.sw - g.cw) * (g.W - w) : 0;
+    thumb.style.left = left + 'px'; thumb.style.width = w + 'px';
+}
+/* Pointer x → the column there (k, into the visible columns), and the scroll that centres the viewport on it. */
+function hstripColAt(t, e) {
+    const el = hstripEl(), g = hstripGeom(t), x = Math.min(g.W, Math.max(0, e.clientX - el._s.left)), cx = x / g.W * g.sw;
+    let k = -1;
+    if (g.L) { k = 0; while (k < g.L.vis.length - 1 && g.L.x[k + 1] <= cx) k++; }
+    return { k, x, g, scroll: Math.min(g.sw - g.cw, Math.max(0, cx - g.cw / 2)) };
+}
+function hstripJump(e) {
+    const t = T(), el = hstripEl(); if (!t || !t.loaded) return;
+    const at = hstripColAt(t, e), g = at.g;
+    if (el._s.grab != null) {
+        const w = Math.max(THUMB_MIN, g.cw / g.sw * g.W), left = Math.min(g.W - w, Math.max(0, at.x - el._s.grab));
+        container.scrollLeft = g.W > w ? left / (g.W - w) * (g.sw - g.cw) : 0;
+    } else container.scrollLeft = at.scroll;
+    renderOnScroll();
+    hstripTip(e);
+}
+/* The column's name, or its number when the file has no title line (the headers are then 0, 1, 2…). */
+function hstripName(t, c) { return t.syntheticHeader ? `Column ${t.headers[c]}` : cellStr(t.headers[c]) || `Column ${c + 1}`; }
+function hstripTip(e) {
+    const t = T(), el = hstripEl(); if (!t || !t.loaded) return;
+    const at = hstripColAt(t, e), s = el._s, tip = el.children[3];
+    if (at.k < 0) return;
+    const c = at.g.L.vis[at.k], name = hstripName(t, c);
+    tip.textContent = name.length > 60 ? name.slice(0, 59) + '…' : name;
+    el.classList.add('tip');
+    const tw = tip.offsetWidth;               // centred on the pointer, held inside the band
+    tip.style.left = Math.min(s.W - tw, Math.max(0, at.x - tw / 2)) + 'px';
+}
+/* Labels and the sort column, once per state (the widths, the visible columns, the headers, the sort). */
+function hstripUpdate(t, g) {
+    const el = hstripEl(), s = el._s;
+    const key = [t.id, t.headers, g.L && g.L.x.join(','), g.W, g.sw, t.syntheticHeader, (t.sort || []).map(k => k.col).join(','), currentTheme()];
+    if (s.key && key.every((x, i) => x === s.key[i])) { hstripSel(t); return; }
+    s.key = key;
+    hstripLabels(t, g);
+    hstripSel(t);
+}
+function hstripLabels(t, g) {
+    const box = hstripEl().children[0], L = g.L, out = [];
+    if (L) {
+        const srt = new Set((t.sort || []).map(k => k.col));
+        for (let k = 0; k < L.vis.length; k++) {
+            const x0 = colX(g, L.x[k]), x1 = colX(g, L.x[k + 1]), w = x1 - x0;
+            if (w < 3) continue;              // too narrow for even a separator
+            /* The name when it has room, else the column's number as the header shows it
+               (.col-no, from 0) — on a file of 85 columns the band is a row of numbers. */
+            const c = L.vis[k], no = t.syntheticHeader || w < HLABEL_MIN;
+            const label = w < HNO_MIN ? '' : no ? String(t.syntheticHeader ? t.headers[c] : c) : hstripName(t, c);
+            out.push(`<span class="${srt.has(c) ? 'srt' : ''}${no ? ' no' : ''}" style="left: ${x0.toFixed(1)}px; width: ${w.toFixed(1)}px" title="${esc(hstripName(t, c))}">${esc(label)}</span>`);
+        }
+    }
+    box.innerHTML = out.join('');
+}
+/* The selected columns as a band at the top: from stripSel(), at every selection change. */
+function hstripSel(t) {
+    const el = document.getElementById('hscroll-strip'); if (!el || el.style.display === 'none' || !t) return;
+    const band = el.children[1], rg = selRange(t), g = hstripGeom(t);
+    if (!rg || !g.L) { band.style.display = 'none'; return; }
+    let x0 = Infinity, x1 = -Infinity;        // the visible columns of the range (hidden ones take no room)
+    for (let k = 0; k < g.L.vis.length; k++) { const c = g.L.vis[k]; if (c >= rg.c0 && c <= rg.c1) { x0 = Math.min(x0, g.L.x[k]); x1 = Math.max(x1, g.L.x[k + 1]); } }
+    if (x0 === Infinity) { band.style.display = 'none'; return; }
+    band.style.display = ''; band.style.left = colX(g, x0) + 'px'; band.style.width = Math.max(2, colX(g, x1) - colX(g, x0)) + 'px';
 }

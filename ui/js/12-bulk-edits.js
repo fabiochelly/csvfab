@@ -610,6 +610,8 @@ function syncSpace(t) {
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
     const nohs = !!L && w <= cw;              // no sideways scroll: the row numbers need not stick (app.css)
     if (gridLayer.classList.contains('nohs') !== nohs) gridLayer.classList.toggle('nohs', nohs);
+    const sbh = container.offsetHeight - ch;
+    if (!nohs && sbh < 16) gridLayer.style.height = (ch - (24 - sbh)) + 'px';   // overlay scrollbars: room for the horizontal band too
     const h = thead.offsetHeight + t.filteredData.length * ROW_H;
     scrollSpace.style.height = Math.max(0, h - ch) + 'px';
     scrollSpace.style.width = Math.max(1, w) + 'px';

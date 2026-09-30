@@ -84,8 +84,9 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
    rows last drawn until the next ones replace them, never a blank. */
 #grid-layer { position: sticky; top: 0; left: 0; overflow: hidden; z-index: 1; }
 #scroll-space { width: 1px; height: 0; }
-/* The vertical scrollbar of the grid is 24 px wide: the scroll strip (28-…) sits over it. */
-#view-container::-webkit-scrollbar { width: 24px; }
+/* The grid's scrollbars are 24 px: the scroll strips (28-…) sit over them, the corner between them in their colour. */
+#view-container::-webkit-scrollbar { width: 24px; height: 24px; }
+#view-container::-webkit-scrollbar-corner { background: var(--surf-2); }
 #scroll-strip { position: fixed; z-index: 1100; box-sizing: border-box; background: var(--surf-2); border-left: 1px solid var(--brd); cursor: pointer; user-select: none; touch-action: none; overflow: visible; }
 #scroll-strip .ss-marks { position: absolute; left: 0; top: 0; pointer-events: none; }
 #scroll-strip .ss-labels { position: absolute; inset: 0; pointer-events: none; font: 600 9px 'Inter', sans-serif; letter-spacing: -.02em; color: var(--txt-dim); }
@@ -97,6 +98,18 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #scroll-strip .ss-tip { display: none; position: absolute; right: calc(100% + 8px); padding: 4px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
     background: var(--surf); border: 1px solid var(--brd-2); box-shadow: 0 6px 20px rgba(0,0,0,.4); font: 12px 'Inter', sans-serif; color: var(--txt-hi); }
 #scroll-strip.tip .ss-tip { display: block; }
+/* The horizontal one (28-…, HORIZONTAL STRIP): the columns as labels along the band, the tip above it. */
+#hscroll-strip { position: fixed; z-index: 1100; box-sizing: border-box; background: var(--surf-2); border-top: 1px solid var(--brd); cursor: pointer; user-select: none; touch-action: none; overflow: visible; }
+#hscroll-strip .ss-labels { position: absolute; inset: 0; pointer-events: none; font: 600 9px 'Inter', sans-serif; letter-spacing: -.02em; color: var(--txt-dim); }
+#hscroll-strip .ss-labels span { position: absolute; top: 0; height: 100%; box-sizing: border-box; padding: 0 3px; border-left: 1px solid var(--brd); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 23px; }
+#hscroll-strip .ss-labels span.no { padding: 0 1px; color: var(--txt-faint); font-weight: 400; font-variant-numeric: tabular-nums; text-overflow: clip; }
+#hscroll-strip .ss-labels span.srt { color: var(--prim); }
+#hscroll-strip .ss-sel { position: absolute; top: 0; height: 3px; background: var(--prim); pointer-events: none; display: none; }
+#hscroll-strip .ss-thumb { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; background: rgba(var(--gray-rgb), .28); border: 1px solid rgba(var(--hi-rgb), .18); box-sizing: border-box; pointer-events: none; }
+#hscroll-strip:hover .ss-thumb, #hscroll-strip.drag .ss-thumb { background: rgba(var(--accent-rgb), .35); border-color: rgba(var(--accent-rgb), .7); }
+#hscroll-strip .ss-tip { display: none; position: absolute; bottom: calc(100% + 8px); padding: 4px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+    background: var(--surf); border: 1px solid var(--brd-2); box-shadow: 0 6px 20px rgba(0,0,0,.4); font: 12px 'Inter', sans-serif; color: var(--txt-hi); }
+#hscroll-strip.tip .ss-tip { display: block; }
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
 #tbody .cell.flash { animation: cellflash 1.2s ease-out; }
 @keyframes cellflash { 0%, 25% { background-color: rgba(var(--warn-rgb), .38); } }
