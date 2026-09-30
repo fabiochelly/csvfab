@@ -12,7 +12,8 @@ cask "csvfab" do
   homepage "https://github.com/fabiochelly/csvfab"
 
   depends_on formula: "python@3.13"
-  conflicts_with formula: "csvfab"
+  # A cask can only conflict with a cask; the formula of the same name installs the
+  # same command line, so the cask leaves the "csvfab" command to it (see caveats).
 
   installer script: {
     executable: "csvfab-#{version}/macos/build-app.sh",
@@ -20,13 +21,15 @@ cask "csvfab" do
     must_succeed: true,
   }
   app "csvfab.app"
-  binary "#{appdir}/csvfab.app/Contents/Resources/csvfab/csvfab.py", target: "csvfab"
 
   zap trash: "~/Library/Application Support/csvfab"
 
   caveats <<~EOS
     csvfab opens its window in a Chromium-based browser (Chrome, Chromium, Brave or Edge).
     If none is installed:  brew install --cask google-chrome
+
+    A "csvfab" command for the terminal comes with the formula (brew install fabiochelly/csvfab/csvfab),
+    or:  ln -s /Applications/csvfab.app/Contents/Resources/csvfab/csvfab.py "$(brew --prefix)/bin/csvfab"
 
     csvfab is now offered in the Finder's "Open with" for CSV files. To make it the
     default: select a .csv, File › Get Info › Open with › csvfab › Change All…
