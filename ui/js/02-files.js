@@ -132,7 +132,7 @@ async function ensureWritable(handle) {
 }
 
 /* --- Loading --- */
-function addTabs(entries, o = {}) {   // entries: [{name, size, file?, handle?, dirHandle?, path?, scrollTop?, hidden?, widths?}]; o: {quiet, active} for a restored session (30-…)
+function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandle?, path?}]
     if (!entries.length) return;
     /* A new file starts from the defaults (Auto unless set with no file open) — never from
        the active tab's choices: another tab read as Mac Roman must not make this one Mac Roman. */
@@ -145,16 +145,12 @@ function addTabs(entries, o = {}) {   // entries: [{name, size, file?, handle?, 
         t.dirHandle = e.dirHandle || null;
         t.path = e.path || null;
         t.delimiter = delim; t.headerMode = hmode; t.encoding = encoding;
-        if (e.scrollTop) t.scrollTop = e.scrollTop;                    // a restored tab: its view, applied once parsed
-        if (e.hidden) t.hiddenCols = new Set(e.hidden.filter(c => Number.isInteger(c)));
-        if (e.widths) Object.keys(e.widths).forEach(k => { if (e.widths[k] > 0) t.colWidths[k] = e.widths[k]; });
         tabs.push(t);
         if (!first) first = t;
     });
     renderTabBar();
-    if (o.active === -1) return;                                       // restored behind a file already open: parsed when clicked
-    activateTab((o.active >= 0 ? tabs[tabs.length - entries.length + o.active] : first).id);   // only this one gets parsed now
-    if (!o.quiet) recordRecent(entries);
+    activateTab(first.id);                // only this one gets parsed now
+    recordRecent(entries);
     document.getElementById('loader').value = '';
 }
 

@@ -79,7 +79,6 @@ function renderTabBar() {
     emptyState.style.display = tabs.length ? 'none' : 'block';
     document.getElementById('grid-layer').style.display = tabs.length ? '' : 'none';
     resizeContainer();
-    saveSessionSoon();                    // the open files, for the next start (30-…)
 }
 
 function activateTab(id) {

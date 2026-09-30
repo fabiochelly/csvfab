@@ -504,7 +504,7 @@ function applyColStyles() {
     }
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
-    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); saveSessionSoon(); }   // unchanged (most calls): no restyle of the whole table
+    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
 }
 
 function openColManager() {

@@ -31,7 +31,7 @@ csvfab data.csv more.tsv
 csvfab export.xlsx      # converted to export.csv beside it, which is what opens
 ```
 
-Files opened while the window is already there land in it as new tabs. The files open when you quit are back at the next start, where you left them (off from the command palette). A double-click on a column's resize handle fits it to its content.
+Files opened while the window is already there land in it as new tabs. A double-click on a column's resize handle fits it to its content.
 
 | Shortcut | |
 |---|---|
