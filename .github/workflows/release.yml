@@ -1,5 +1,5 @@
 # On a v* tag: the source archives (for install.sh / install.ps1), the Windows
-# installer (Inno Setup), SHA256SUMS, a GitHub release holding them all — then
+# installer (Inno Setup), a build check of the macOS bundle, SHA256SUMS, a GitHub release holding them all — then
 # the package channels (AUR, Homebrew tap, winget: packages.yml).
 name: release
 on:
@@ -42,8 +42,22 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: dist/ }
 
+  # The macOS bundle is built on the user's Mac (install.sh, the cask); this only
+  # proves that macos/build-app.sh still builds and that the result answers.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the app bundle
+        run: |
+          sh macos/build-app.sh . dist
+          plutil -lint dist/csvfab.app/Contents/Info.plist
+          codesign --verify --deep --strict dist/csvfab.app
+          python3 dist/csvfab.app/Contents/Resources/csvfab/csvfab.py --version
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes' dist/csvfab.app/Contents/Info.plist
+
   release:
-    needs: [archives, windows]
+    needs: [archives, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

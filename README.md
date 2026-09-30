@@ -16,12 +16,12 @@ A desktop CSV editor that **edits the file in place** — fast on files of sever
 | | |
 |---|---|
 | **Arch Linux** | the script below — the AUR package `csvfab` will follow once the AUR reopens registrations |
-| **macOS** (Homebrew) | `brew install fabiochelly/csvfab/csvfab` |
+| **macOS** (Homebrew) | `brew install --cask fabiochelly/csvfab/csvfab` — csvfab.app in /Applications, offered in the Finder's "Open with" for CSV files (`brew install fabiochelly/csvfab/csvfab` for the command line alone) |
 | **Windows** (winget) | `winget install FabioChelly.csvfab` |
 | **Linux / macOS** (script) | `curl -fsSL https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.sh \| sh` |
 | **Windows** (script) | `irm https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.ps1 \| iex` |
 
-Requirements: **Python 3.8+** and a **Chromium-based browser** (Chrome, Chromium, Brave or Edge) — csvfab opens in its own app window with a dedicated profile, so your usual browser is untouched. The scripts install per user, without admin rights; `install.sh --uninstall` / `install.ps1 -Uninstall` remove it.
+Requirements: **Python 3.8+** and a **Chromium-based browser** (Chrome, Chromium, Brave or Edge) — csvfab opens in its own app window with a dedicated profile, so your usual browser is untouched. The scripts install per user, without admin rights; `install.sh --uninstall` / `install.ps1 -Uninstall` remove it. On macOS, `install.sh` also builds `csvfab.app` in `~/Applications` and offers to make it the default app for CSV files (with [duti](https://github.com/moretension/duti); otherwise: select a `.csv`, File › Get Info › Open with › csvfab › Change All…).
 
 ## Use
 

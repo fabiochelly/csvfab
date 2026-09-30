@@ -1,6 +1,6 @@
 # Publishes a released version to the package channels: the AUR (PKGBUILD +
-# .SRCINFO pushed with a deploy key), the Homebrew tap (formula pushed with a
-# token) and winget (a pull request on microsoft/winget-pkgs, through komac).
+# .SRCINFO pushed with a deploy key), the Homebrew tap (formula and cask pushed
+# with a token) and winget (a pull request on microsoft/winget-pkgs, through komac).
 # Called by release.yml once the GitHub release exists, or by hand for a tag
 # already released:  gh workflow run packages.yml -f tag=v1.2.0
 # Each channel runs only when its secret is set: AUR_SSH_PRIVATE_KEY (the
@@ -41,7 +41,9 @@ jobs:
         if: env.WINGET_TOKEN != '' && !cancelled()   # a channel's failure does not skip the others
         run: |
           git clone -q "https://x-access-token:${WINGET_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-csvfab" tap
-          mkdir -p tap/Formula && cp packaging/homebrew/csvfab.rb tap/Formula/csvfab.rb
+          mkdir -p tap/Formula tap/Casks
+          cp packaging/homebrew/csvfab.rb tap/Formula/csvfab.rb
+          cp packaging/homebrew/Casks/csvfab.rb tap/Casks/csvfab.rb
           cd tap
           git config user.name "Fabio Chelly"
           git config user.email "4060753+fabiochelly@users.noreply.github.com"

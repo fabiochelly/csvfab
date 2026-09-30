@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the applet's Info.plist by macos/build-app.sh: the identity of the
+     bundle and the documents it opens. LSHandlerRank Alternate: listed in "Open with",
+     never grabbing the default on its own (install.sh offers that step). -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>io.github.fabiochelly.csvfab</string>
+  <key>CFBundleName</key><string>csvfab</string>
+  <key>CFBundleDisplayName</key><string>csvfab</string>
+  <key>CFBundleIconFile</key><string>csvfab</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>NSHumanReadableCopyright</key><string>MIT license — https://github.com/fabiochelly/csvfab</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>CSV file</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.comma-separated-values-text</string>
+        <string>public.tab-separated-values-text</string>
+        <string>public.delimited-values-text</string>
+      </array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>csv</string><string>tsv</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Spreadsheet or JSON (converted to CSV)</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>org.openxmlformats.spreadsheetml.sheet</string>
+        <string>org.openxmlformats.spreadsheetml.sheet.macroenabled</string>
+        <string>public.json</string>
+      </array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

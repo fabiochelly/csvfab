@@ -1,0 +1,30 @@
+# Builds the macOS bundle on a macOS runner whenever its inputs change (and on
+# demand): the bundle is built on users' Macs by install.sh and the cask, so this
+# is the only place where macos/build-app.sh is exercised before them.
+name: macos
+on:
+  push:
+    branches: [main]
+    paths: ['macos/**', 'install.sh', 'csvfab.py', 'icons/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the app bundle
+        run: |
+          sh macos/build-app.sh . dist
+          plutil -lint dist/csvfab.app/Contents/Info.plist
+          codesign --verify --deep --strict dist/csvfab.app
+          python3 dist/csvfab.app/Contents/Resources/csvfab/csvfab.py --version
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes' dist/csvfab.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/csvfab.app/Contents/Info.plist
+          ls -la dist/csvfab.app/Contents dist/csvfab.app/Contents/Resources
+      - name: Install script, macOS branch
+        run: |
+          mkdir -p "$HOME/Applications"
+          sh install.sh < /dev/null
+          ls "$HOME/Applications/csvfab.app/Contents/Resources/csvfab"
+          "$HOME/.local/bin/csvfab" --version

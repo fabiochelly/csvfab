@@ -1,4 +1,6 @@
 # Formula for the tap fabiochelly/homebrew-csvfab:  brew install fabiochelly/csvfab/csvfab
+# The command line alone; the cask of the same name (brew install --cask …) is the
+# application bundle for the Finder. Both cannot be installed at once.
 class Csvfab < Formula
   include Language::Python::Shebang
 
@@ -20,6 +22,9 @@ class Csvfab < Formula
     <<~EOS
       csvfab opens its window in a Chromium-based browser (Chrome, Chromium, Brave or Edge).
       If none is installed:  brew install --cask google-chrome
+
+      This is the command line only. For an application in /Applications that the Finder
+      can open CSV files with (and make the default):  brew install --cask fabiochelly/csvfab/csvfab
     EOS
   end
 

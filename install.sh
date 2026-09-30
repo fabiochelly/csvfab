@@ -72,30 +72,26 @@ chmod 755 "$DEST/csvfab.py"
 ln -sf "$DEST/csvfab.py" "$BIN/csvfab"          # the command is "csvfab"; the file keeps its .py
 
 if [ "$OS" = Darwin ]; then
-    # A minimal app bundle, so csvfab shows in Launchpad and Spotlight.
-    APP="$HOME/Applications/csvfab.app"
-    rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-    printf '#!/bin/sh\nexec /usr/bin/env python3 "%s/csvfab.py" "$@"\n' "$DEST" > "$APP/Contents/MacOS/csvfab"
-    chmod 755 "$APP/Contents/MacOS/csvfab"
-    if command -v iconutil >/dev/null 2>&1; then
-        set_=$(mktemp -d)/csvfab.iconset; mkdir -p "$set_"
-        for s in 16 32 128 256 512; do
-            cp "$SRC/icons/csvfab-$s.png" "$set_/icon_${s}x${s}.png"
-            d2=$((s * 2)); [ -f "$SRC/icons/csvfab-$d2.png" ] && cp "$SRC/icons/csvfab-$d2.png" "$set_/icon_${s}x${s}@2x.png"
-        done
-        iconutil -c icns "$set_" -o "$APP/Contents/Resources/csvfab.icns" 2>/dev/null || true
+    # csvfab.app in ~/Applications: a real bundle (an AppleScript applet, since the
+    # Finder hands files to an app as Apple Events), self-contained, listed in
+    # "Open with" for CSV files; macos/build-app.sh registers it with Launch Services.
+    mkdir -p "$HOME/Applications"
+    sh "$SRC/macos/build-app.sh" "$SRC" "$HOME/Applications" >/dev/null && say "csvfab.app in ~/Applications" \
+        || warn "the app bundle could not be built (osacompile): 'csvfab' works from the terminal all the same"
+    # The default app for CSV files is the user's choice: asked here (on the terminal,
+    # even under curl | sh), done with duti when it is there, shown otherwise.
+    if [ -d "$HOME/Applications/csvfab.app" ] && [ -r /dev/tty ]; then
+        printf 'Make csvfab the default app for CSV files? [y/N] '; read -r ans < /dev/tty || ans=
+        case "$ans" in
+            [yY]*)
+                if command -v duti >/dev/null 2>&1; then
+                    for u in public.comma-separated-values-text public.tab-separated-values-text; do duti -s io.github.fabiochelly.csvfab "$u" all; done
+                    say "Done: CSV and TSV files open with csvfab."
+                else
+                    warn "duti is not installed (brew install duti). By hand: select a .csv, File > Get Info > Open with > csvfab > Change All."
+                fi ;;
+        esac
     fi
-    cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleName</key><string>csvfab</string>
-  <key>CFBundleIdentifier</key><string>io.github.csvfab</string>
-  <key>CFBundleExecutable</key><string>csvfab</string>
-  <key>CFBundleIconFile</key><string>csvfab</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-</dict></plist>
-PLIST
 else
     mkdir -p "$DATA/applications"
     # Absolute Exec: a session started outside a login shell may not have ~/.local/bin on its PATH.
