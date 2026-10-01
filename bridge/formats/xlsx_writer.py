@@ -106,6 +106,44 @@ def _styles_xml(formats):
               '</styleSheet>')
 
 
+MEMO_TOTAL = 500000      # valeurs gardees en tout, toutes colonnes confondues
+MEMO_PROBE = 20000       # valeurs nouvelles vues dans une colonne avant de la juger
+
+
+def value_cache(convert, ncols, rows):
+    """num(i, val) = convert(i, val), memorise par colonne et par texte de cellule : les
+    scores, departements, dates et montants se repetent d'une ligne a l'autre, et la
+    conversion d'une valeur deja vue ne coute plus qu'une recherche.
+
+    Borne, pour qu'une optimisation ne devienne pas une fuite : une colonne dont plus
+    d'une valeur sur deux est nouvelle au bout de MEMO_PROBE valeurs (identifiants,
+    montants tous differents) cesse d'etre memorisee — la garder coutait de la memoire
+    sans rien faire gagner ; et l'ensemble ne depasse pas MEMO_TOTAL valeurs (l'ancien
+    plafond, 200 000 par colonne, laissait 100 colonnes atteindre 20 millions d'entrees).
+    rows() : le nombre de lignes lues jusque-la. Renvoie num et les memos (pour les tests)."""
+    memo = [{} for _ in range(ncols)]
+    misses = [0] * ncols
+    room = [MEMO_TOTAL]
+
+    def num(i, val):
+        m = memo[i]
+        if m is not None:
+            x = m.get(val, m)
+            if x is not m:
+                return x
+        x = convert(i, val)
+        if m is not None:
+            k = misses[i] = misses[i] + 1
+            if k == MEMO_PROBE and k * 2 > rows():
+                room[0] += len(m)
+                memo[i] = None
+            elif room[0] > 0:
+                m[val] = x
+                room[0] -= 1
+        return x
+    return num, memo
+
+
 def write(open_rows, out_path, sheet="Sheet1", header=True):
     """Ecrit un .xlsx a partir de open_rows(), qui renvoie a chaque appel un
     nouvel iterateur de lignes (deux passes : analyse, puis ecriture).
@@ -175,19 +213,11 @@ def write(open_rows, out_path, sheet="Sheet1", header=True):
             kinds = [st.kind for st in stats]
             s_attrs = [' s="%d"' % s if s else "" for s in style_of]
             esc, fmt_num = _xml_escape, number_xml
-            # Valeur Excel deja formatee, par colonne et par texte de cellule : les
-            # scores, departements, dates et montants se repetent d'une ligne a l'autre.
-            memo = [{} for _ in stats]
 
-            def num(i, val):
-                m = memo[i]
-                x = m.get(val, m)
-                if x is m:
-                    y = excel_value(kinds[i], val)
-                    x = fmt_num(y) if y is not None else None
-                    if len(m) < 200000:
-                        m[val] = x
-                return x
+            def convert(i, val):
+                y = excel_value(kinds[i], val)
+                return fmt_num(y) if y is not None else None
+            num, _ = value_cache(convert, len(stats), lambda: written)
             for row in open_rows():
                 if written >= XLSX_MAX_ROWS:
                     truncated_rows = True

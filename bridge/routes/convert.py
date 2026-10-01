@@ -143,7 +143,7 @@ def _to_csv(req, kind):
                     if sum(1 for s in sheets if s["filled"] and not s["hidden"]) > 1:
                         return {"choose": sheets}
                 if dest:
-                    with fsio.replacing(dest) as tmp_out:
+                    with fsio.replacing(dest, durable=True) as tmp_out:
                         with open(tmp_out, "w", encoding="utf-8", newline="") as out:
                             info = convert(source, out, delim, sheet)
                             fsio.fsync(out)

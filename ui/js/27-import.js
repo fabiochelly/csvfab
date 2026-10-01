@@ -47,7 +47,7 @@ function pickSheet(file, sheets, noun = 'sheet') {
         box.innerHTML = `<div class="dlg-main">"${esc(file)}" has ${list.length} ${noun}s with data</div>`
             + `<div class="dlg-sub">Pick the one to open: it becomes a CSV of its own, named after the ${noun}.${left ? ` Not listed: ${left}.` : ''}</div>`
             + `<div class="sheet-list">${list.map((s, i) => `<div class="sheet-opt${i ? '' : ' act'}" data-i="${i}"><span class="sn">${esc(s.name)}</span>`
-                + (s.view ? '<span class="sv">view</span>' : '') + `<span class="sd">${s.dim ? `${fmt(s.dim[0])} row${s.dim[0] === 1 ? '' : 's'} × ${fmt(s.dim[1])} col${s.dim[1] === 1 ? '' : 's'}` : ''}</span></div>`).join('')}</div>`
+                + (s.view ? '<span class="sv">view</span>' : '') + `<span class="sd">${s.dim ? `${s.approx ? '≈ ' : ''}${fmt(s.dim[0])} row${s.dim[0] === 1 ? '' : 's'} × ${fmt(s.dim[1])} col${s.dim[1] === 1 ? '' : 's'}` : ''}</span></div>`).join('')}</div>`
             + '<div class="modal-actions"><button class="btn btn-outline" data-r="0">Cancel</button><button class="btn" data-r="1">Open</button></div>';
         document.body.append(bg, box);
         let act = 0;

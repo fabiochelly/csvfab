@@ -29,20 +29,34 @@ def _sql_ident(name):
 
 
 def table_list(path):
-    """Tables et vues d'une base : {name, view, hidden, filled, dim: [lignes, colonnes]},
-    au format des feuilles d'un classeur, pour que la page propose le meme choix."""
+    """Tables et vues d'une base : {name, view, hidden, filled, dim: [lignes, colonnes] ou None,
+    approx}, au format des feuilles d'un classeur, pour que la page propose le meme choix.
+
+    Lister ne doit jamais couter une lecture de la base : un COUNT(*) par table parcourait
+    chacune en entier (des minutes sur une grosse base, pour afficher une liste). « Remplie »
+    se lit sur une ligne (LIMIT 1) ; le nombre de lignes d'une table ordinaire sur max(rowid),
+    une page d'index — exact sans suppression, une borne au-dessus sinon : approx. Une vue
+    n'a pas de rowid, ni de compte bon marche : dim None."""
     con = _sqlite_ro(path)
     try:
         out = []
         for name, typ in con.execute("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') "
-                                     "AND name NOT LIKE 'sqlite_%' ORDER BY type = 'view', name"):
+                                     "AND name NOT LIKE 'sqlite_%' ORDER BY type = 'view', name").fetchall():
             q = _sql_ident(name)
+            n = None
             try:
                 cols = len(con.execute(f"SELECT * FROM {q} LIMIT 0").description or [])
-                n = con.execute(f"SELECT COUNT(*) FROM {q}").fetchone()[0]
+                filled = con.execute(f"SELECT 1 FROM {q} LIMIT 1").fetchone() is not None
+                if typ == "table":
+                    try:
+                        n = con.execute(f"SELECT max(rowid) FROM {q}").fetchone()[0] or 0
+                    except Exception:            # WITHOUT ROWID : pas de compte bon marche
+                        n = None
             except Exception:                    # une vue cassee (table disparue) : listee, vide
-                cols, n = 0, 0
-            out.append({"name": name, "view": typ == "view", "hidden": False, "filled": n > 0, "dim": [n, cols]})
+                cols, filled, n = 0, False, 0
+            out.append({"name": name, "view": typ == "view", "hidden": False, "filled": filled,
+                        "dim": [n if filled else 0, cols] if n is not None or not filled else None,
+                        "approx": bool(filled and n is not None)})
         return out
     finally:
         con.close()

@@ -11,6 +11,7 @@ le CSV est en « ; » (la convention des tableurs francais, comme a l'export).
 
 import csv
 import re
+from array import array
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta
@@ -65,9 +66,28 @@ def _probe(zf, path):
     return False, dim
 
 
+# Une archive dont la taille decompressee annoncee depasse ceci, ou dont un gros membre se
+# compresse plus que du XML ne le fait jamais (5 a 30 fois ; deflate plafonne vers 1 000),
+# est une bombe, pas un classeur. Les tailles annoncees bornent ce que zipfile lit vraiment.
+XLSX_MAX_TOTAL = 16 << 30
+XLSX_MAX_RATIO = 500
+XLSX_RATIO_FROM = 256 << 20
+
+
+def _guard(zf):
+    total = 0
+    for i in zf.infolist():
+        total += i.file_size
+        if i.file_size > XLSX_RATIO_FROM and i.file_size > XLSX_MAX_RATIO * max(i.compress_size, 1):
+            raise ValueError(f"{i.filename} se decompresse {i.file_size // max(i.compress_size, 1)} fois : archive piegee")
+    if total > XLSX_MAX_TOTAL:
+        raise ValueError(f"{total >> 30} Gio une fois decompresse : archive refusee")
+
+
 def sheet_list(src):
     """Toutes les feuilles avec leur etat, pour que la page propose un choix."""
     with zipfile.ZipFile(src) as zf:
+        _guard(zf)
         sheets, _ = _sheets(zf)
         for sh in sheets:
             sh["filled"], sh["dim"] = _probe(zf, sh["path"])
@@ -88,15 +108,42 @@ def _pick(zf, sheets, wanted):
     return sheets[0]
 
 
+SHARED_COMPACT = 32 << 20     # chaines partagees (XML decompresse) au-dela desquelles on les tasse
+
+
+class _Packed:
+    """Les chaines partagees d'un gros classeur : un seul bloc d'octets UTF-8 et la fin de
+    chacune, au lieu d'un objet str Python par chaine (~50 octets de surcout chacune : dix
+    millions de chaines courtes pesaient pres d'un Go). Lu comme une liste."""
+
+    def __init__(self):
+        self.buf, self.ends = bytearray(), array("Q")
+
+    def append(self, s):
+        self.buf += s.encode("utf-8")
+        self.ends.append(len(self.buf))
+
+    def __getitem__(self, i):
+        if i < 0:
+            raise IndexError(i)
+        return self.buf[self.ends[i - 1] if i else 0:self.ends[i]].decode("utf-8")
+
+    def __len__(self):
+        return len(self.ends)
+
+
 def _shared_strings(zf):
     if "xl/sharedStrings.xml" not in zf.namelist():
         return []
-    out = []
+    out = _Packed() if zf.getinfo("xl/sharedStrings.xml").file_size > SHARED_COMPACT else []
+    root = None
     with zf.open("xl/sharedStrings.xml") as f:
-        for _, el in ET.iterparse(f):
-            if el.tag == f"{_NS}si":
+        for ev, el in ET.iterparse(f, events=("start", "end")):
+            if root is None:
+                root = el
+            if ev == "end" and el.tag == f"{_NS}si":
                 out.append("".join(t.text or "" for t in el.iter(f"{_NS}t")))
-                el.clear()
+                root.clear()                  # sinon la racine garde la coquille de chaque <si> lu
     return out
 
 
@@ -146,6 +193,7 @@ def to_csv(src, out, delim, sheet=None):
     """Une feuille de src (chemin ou fichier ouvert) -> lignes CSV dans out (texte). Renvoie un bilan.
     sheet : son nom ; sans, la premiere feuille visible qui porte une valeur."""
     with zipfile.ZipFile(src) as zf:
+        _guard(zf)
         sheets, d1904 = _sheets(zf)
         sh = _pick(zf, sheets, sheet)
         name, sheet_path = sh["name"], sh["path"]
@@ -156,10 +204,13 @@ def to_csv(src, out, delim, sheet=None):
         comma = delim == ";"
         w = csv.writer(out, delimiter=delim, lineterminator="\n")
         width = rows = maxw = 0
+        sd = None                             # <sheetData> : vide de ses lignes au fur et a mesure
         with zf.open(sheet_path) as f:
             for ev, el in ET.iterparse(f, events=("start", "end")):
                 if ev == "start":
-                    if el.tag == f"{_NS}dimension":
+                    if el.tag == f"{_NS}sheetData":
+                        sd = el
+                    elif el.tag == f"{_NS}dimension":
                         m = re.match(r"[A-Z]+\d*(?::([A-Z]+)\d*)?$", el.get("ref", ""))
                         if m and m.group(1):
                             width = col_index(m.group(1)) + 1
@@ -201,4 +252,6 @@ def to_csv(src, out, delim, sheet=None):
                     rows += 1
                     maxw = max(maxw, len(cells))
                 el.clear()
+                if sd is not None:
+                    sd.clear()                # sinon <sheetData> garde la coquille de chaque ligne lue (mesure : 24 Mo de pic pour 300 000 lignes, 1 Mo ainsi)
     return {"sheet": name, "others": others, "rows": rows, "cols": max(width, maxw)}

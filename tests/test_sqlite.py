@@ -35,10 +35,11 @@ class SqliteReadTest(unittest.TestCase):
 
     def test_table_list(self):
         d = self.b.get("/api/sqlite-tables" + q(path=self.db)).json()
+        # Sans COUNT(*) : le compte d'une table vient de max(rowid) (approx), une vue n'en a pas.
         self.assertEqual(d["sheets"], [
-            {"name": "clients", "view": False, "hidden": False, "filled": True, "dim": [2, 5]},
-            {"name": "vide", "view": False, "hidden": False, "filled": False, "dim": [0, 1]},
-            {"name": "v", "view": True, "hidden": False, "filled": True, "dim": [2, 2]}])
+            {"name": "clients", "view": False, "hidden": False, "filled": True, "dim": [2, 5], "approx": True},
+            {"name": "vide", "view": False, "hidden": False, "filled": False, "dim": [0, 1], "approx": False},
+            {"name": "v", "view": True, "hidden": False, "filled": True, "dim": None, "approx": False}])
 
     def test_pick_asks_when_several_tables_have_rows(self):
         r = self.b.post("/api/sqlite2csv" + q(src=self.db, delim=";", pick=1))

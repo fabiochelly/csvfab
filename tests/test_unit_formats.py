@@ -64,10 +64,53 @@ class ColumnStatTest(unittest.TestCase):
         self.assertEqual(excel_value("ymd", "2023-06-15T12:00:00"), 45092.5)
         self.assertIsNone(excel_value("dmy", "31/02/2023"))             # date impossible : laissée en texte
 
+    def test_two_digit_years_pivot_like_the_page(self):
+        # 20xx jusqu'à l'année en cours + 10, 19xx au-delà (31/12/99 donnait 2099).
+        from datetime import datetime
+        pivot = datetime.now().year % 100 + 10
+        self.assertEqual(excel_value("dmy", "31/12/99"), 36525)                  # 1999-12-31
+        self.assertEqual(excel_value("dmy", f"01/01/{pivot:02d}"), excel_value("ymd", f"20{pivot:02d}-01-01"))
+        if pivot < 99:
+            self.assertEqual(excel_value("dmy", f"01/01/{pivot + 1:02d}"), excel_value("ymd", f"19{pivot + 1:02d}-01-01"))
+
     def test_number_xml(self):
         self.assertEqual(number_xml(3.0), "3")
         self.assertEqual(number_xml(-0.5), "-0.5")
         self.assertEqual(number_xml(1e16), "1e+16")
+
+
+class ValueCacheTest(unittest.TestCase):
+    def setUp(self):
+        from bridge.formats import xlsx_writer
+        self.w = xlsx_writer
+
+    def test_repeated_values_stay_cached(self):
+        calls = []
+        num, memo = self.w.value_cache(lambda i, v: calls.append(v) or v.upper(), 1, lambda: 10 ** 6)
+        for k in range(100000):
+            self.assertEqual(num(0, "ab"[k % 2]), "AB"[k % 2])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(memo[0]), 2)
+
+    def test_unique_values_stop_being_cached(self):
+        rows = [0]
+        num, memo = self.w.value_cache(lambda i, v: v, 2, lambda: rows[0])
+        for k in range(self.w.MEMO_PROBE * 2):
+            rows[0] = k + 1
+            num(0, str(k))                    # un identifiant : jamais deux fois
+            num(1, str(k % 7))                # sept valeurs
+        self.assertIsNone(memo[0])            # abandonné : il ne faisait rien gagner
+        self.assertEqual(len(memo[1]), 7)
+        self.assertEqual(num(0, "x"), "x")    # la conversion continue, sans cache
+
+    def test_total_budget(self):
+        from unittest import mock
+        with mock.patch.object(self.w, "MEMO_TOTAL", 1000), mock.patch.object(self.w, "MEMO_PROBE", 10 ** 9):
+            num, memo = self.w.value_cache(lambda i, v: v, 3, lambda: 1)
+            for k in range(5000):
+                for c in range(3):
+                    num(c, f"{c}-{k % 2000}")
+            self.assertLessEqual(sum(len(m) for m in memo), 1000)
 
 
 class NumberTextTest(unittest.TestCase):
@@ -120,6 +163,34 @@ class XlsxTest(unittest.TestCase):
         info, back, got, _ = self.roundtrip([])
         self.assertEqual((info["rows"], back["rows"], got), (0, 0, []))
 
+    def test_packed_shared_strings_read_the_same(self):
+        from unittest import mock
+        from tests.support import make_workbook
+        shared = ["Nom", "été", "😀 émoji", "", "x" * 300]
+        data = "".join(f'<row r="{r}"><c r="A{r}" t="s"><v>{(r - 1) % len(shared)}</v></c><c r="B{r}"><v>{r}</v></c></row>' for r in range(1, 21))
+        path = os.path.join(self.dir, "s.xlsx")
+        make_workbook(path, [("S", "", data)], shared=shared)
+        plain = io.StringIO()
+        xlsx_reader.to_csv(path, plain, ";")
+        packed = io.StringIO()
+        with mock.patch.object(xlsx_reader, "SHARED_COMPACT", 0):
+            self.assertIsInstance(xlsx_reader._shared_strings(zipfile.ZipFile(path)), xlsx_reader._Packed)
+            xlsx_reader.to_csv(path, packed, ";")
+        self.assertEqual(packed.getvalue(), plain.getvalue())
+        self.assertIn("😀 émoji", plain.getvalue())
+
+    def test_zip_bomb_is_refused(self):
+        from unittest import mock
+        path = os.path.join(self.dir, "bomb.xlsx")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("xl/worksheets/sheet1.xml", b"\0" * (4 << 20))     # 4 Mo de zéros : ~4 Ko compressés
+        with mock.patch.object(xlsx_reader, "XLSX_RATIO_FROM", 1 << 20):
+            with self.assertRaisesRegex(ValueError, "piegee"):
+                xlsx_reader.sheet_list(path)
+        with mock.patch.object(xlsx_reader, "XLSX_MAX_TOTAL", 1 << 20):
+            with self.assertRaisesRegex(ValueError, "refusee"):
+                xlsx_reader.to_csv(path, io.StringIO(), ";")
+
     def test_col_index_and_dates(self):
         self.assertEqual([xlsx_reader.col_index(r) for r in ("A1", "Z9", "AA1", "BC12", "XFD1")], [0, 25, 26, 54, 16383])
         self.assertEqual(xlsx_reader.date_text(45092, False), "2023-06-15")
@@ -162,6 +233,30 @@ class SqliteTest(unittest.TestCase):
         sqlite_io.write(lambda: iter([["a"], ["1"]]), path, "t", True)
         sqlite_io.write(lambda: iter([["b"], ["x"]]), path, "u", True)
         self.assertEqual([t["name"] for t in sqlite_io.table_list(path)], ["u"])
+
+    def test_listing_never_scans_a_table(self):
+        # Lister les tables d'une grosse base ne doit pas la lire : aucun COUNT, des LIMIT 1.
+        path = os.path.join(self.dir, "big.db")
+        con = sqlite3.connect(path)
+        con.executescript("create table t(a, b); create table w(k primary key, v) without rowid; create view v as select a from t;")
+        con.executemany("insert into t values (?, ?)", [(i, i) for i in range(5000)])
+        con.execute("delete from t where a < 10")
+        con.execute("insert into w values (1, 'x')")
+        con.commit()
+        con.close()
+        seen, real = [], sqlite_io._sqlite_ro
+
+        def traced(p):
+            c = real(p)
+            c.set_trace_callback(seen.append)
+            return c
+        from unittest import mock
+        with mock.patch.object(sqlite_io, "_sqlite_ro", traced):
+            listing = {x["name"]: x for x in sqlite_io.table_list(path)}
+        self.assertFalse([q for q in seen if "count(" in q.lower()], seen)
+        self.assertEqual((listing["t"]["dim"], listing["t"]["approx"]), ([5000, 2], True))   # 4 990 lignes : une borne
+        self.assertEqual((listing["w"]["filled"], listing["w"]["dim"]), (True, None))     # WITHOUT ROWID
+        self.assertEqual((listing["v"]["filled"], listing["v"]["dim"]), (True, None))
 
     def test_identifiers_are_quoted(self):
         path = os.path.join(self.dir, "t.db")

@@ -123,6 +123,20 @@ class FsioTest(unittest.TestCase):
             self.assertEqual(f.read(), b"new")
         self.assertEqual(os.listdir(self.dir), ["a.csv"])
 
+    @unittest.skipUnless(os.path.isdir("/proc/self/fd"), "fsync de dossier : POSIX ; le test lit /proc (Linux)")
+    def test_durable_replace_syncs_the_directory(self):
+        p = self.path("d.csv", b"old")
+        synced = []
+        real = os.fsync
+        with mock.patch("os.fsync", side_effect=lambda fd: synced.append(os.path.realpath(f"/proc/self/fd/{fd}")) or real(fd)):
+            with fsio.replacing(p, durable=True) as tmp:
+                with open(tmp, "wb") as f:
+                    f.write(b"new")
+            with fsio.replacing(p) as tmp:
+                with open(tmp, "wb") as f:
+                    f.write(b"newer")
+        self.assertEqual(synced, [os.path.realpath(self.dir)])            # une fois, le dossier, et pas sans durable
+
     @unittest.skipIf(os.name == "nt", "permissions POSIX")
     def test_replacing_keeps_permissions(self):
         p = self.path("secret.csv", b"x")
@@ -141,6 +155,18 @@ class FsioTest(unittest.TestCase):
         names.add(fsio.temp_name("/d/f.csv"))
         self.assertGreaterEqual(len(names), 2)
         self.assertTrue(all(os.path.basename(n).startswith(".f.csv.") for n in names))
+
+    def test_backups_never_overwrite_each_other(self):
+        p = self.path("c.csv", b"v1")
+        a = fsio.backup(p)
+        with open(p, "wb") as f:
+            f.write(b"v2")
+        b = fsio.backup(p)                                   # même seconde, très probablement
+        self.assertNotEqual(a, b)
+        with open(a, "rb") as f1, open(b, "rb") as f2:
+            self.assertEqual((f1.read(), f2.read()), (b"v1", b"v2"))
+        if os.path.basename(a)[:-4] == os.path.basename(b)[:-6]:
+            self.assertTrue(b.endswith("-2.bak"))
 
     def test_backup_and_scratch(self):
         self.assertIsNone(fsio.backup(self.path("none.csv")))

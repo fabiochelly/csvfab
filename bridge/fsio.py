@@ -49,11 +49,27 @@ def fsync(f):
     os.fsync(f.fileno())
 
 
+def fsync_dir(path):
+    """Rend durable un renommage dans ce dossier (POSIX) : fsync du fichier protège son
+    contenu, mais l'entrée du dossier qui le désigne n'est écrite qu'au fsync du dossier —
+    une coupure juste après os.replace() pourrait sinon rendre l'ancienne version."""
+    if os.name == "nt":
+        return                                    # NTFS journalise le renommage ; pas de fsync de dossier
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass                                      # certains systèmes de fichiers (réseau, FUSE) refusent
+    finally:
+        os.close(fd)
+
+
 @contextmanager
-def replacing(dest):
+def replacing(dest, durable=False):
     """Donne un chemin temporaire voisin de dest ; à la sortie sans erreur, il
     remplace dest (en gardant ses permissions : un CSV en 600 le reste), sinon
-    il est effacé et dest reste tel quel."""
+    il est effacé et dest reste tel quel. durable : le dossier est synchronisé
+    après le remplacement (l'appelant a synchronisé le fichier lui-même)."""
     tmp = temp_name(dest)
     try:
         yield tmp
@@ -65,6 +81,8 @@ def replacing(dest):
     except BaseException:
         remove(tmp)
         raise
+    if durable:
+        fsync_dir(os.path.dirname(dest) or ".")
 
 
 @contextmanager
@@ -78,9 +96,19 @@ def scratch(directory, suffix):
 
 
 def backup(path):
-    """Copie datée <path>.<stamp>.bak à côté de path ; son chemin, ou None sans fichier à copier."""
+    """Copie datée <path>.<stamp>.bak à côté de path ; son chemin, ou None sans fichier à copier.
+    Jamais par-dessus une copie existante : deux sauvegardes dans la même seconde (l'horodatage
+    est à la seconde, lisible) donnent <stamp>-2, <stamp>-3… — la seconde écrasait la première."""
     if not os.path.isfile(path):
         return None
-    made = f"{path}.{stamp()}.bak"
-    shutil.copy2(path, made)
+    base, k = f"{path}.{stamp()}", 1
+    while True:
+        made = f"{base}.bak" if k == 1 else f"{base}-{k}.bak"
+        try:
+            fd = os.open(made, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # réservé, sans course possible
+            break
+        except FileExistsError:
+            k += 1
+    os.close(fd)
+    shutil.copy2(path, made)                     # contenu, dates et permissions de l'original
     return made

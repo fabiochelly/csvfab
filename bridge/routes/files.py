@@ -63,7 +63,7 @@ def write(req):
     try:
         if req.arg("backup") == "1":
             made = fsio.backup(p)
-        with fsio.replacing(p) as tmp:
+        with fsio.replacing(p, durable=True) as tmp:
             with open(tmp, "wb") as f:
                 fsio.receive(req.rfile, n, f)
                 fsio.fsync(f)

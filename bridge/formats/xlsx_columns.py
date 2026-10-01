@@ -18,6 +18,10 @@ _PCT = re.compile(r"^(-?\d+(?:[.,]\d+)?)\s?%$")
 _YMD = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$")
 _DMY = re.compile(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$")
 _EPOCH = datetime(1899, 12, 30)
+# Annee a deux chiffres : 20xx jusqu'a dix ans apres l'annee en cours, 19xx au-dela —
+# la regle de la page (parseDateCell, 16-lookup-convert.js), pour que 31/12/99 soit 1999
+# a l'export comme a l'ecran (c'etait 2099).
+_PIVOT = datetime.now().year % 100 + 10
 _THRESHOLD = 0.9
 
 
@@ -151,7 +155,7 @@ def excel_value(kind, v):
             y, mo, d = (int(a), int(b), int(c)) if kind == "ymd" else \
                 (int(c), int(b), int(a)) if kind == "dmy" else (int(c), int(a), int(b))
             if y < 100:
-                y += 2000
+                y += 2000 if y <= _PIVOT else 1900
             t = datetime(y, mo, d, int(m.group(4) or 0), int(m.group(5) or 0), int(m.group(6) or 0))
             delta = t - _EPOCH
             return delta.days + delta.seconds / 86400

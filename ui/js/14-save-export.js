@@ -315,6 +315,15 @@ async function saveExcel(name, kind) {
 }
 
 // --- SAVING ---
+/* A name no copy holds yet in the backup folder: it is shared by every file, and the
+   stamp is to the second — two "clients.csv" from two folders saved in the same second
+   wrote one copy over the other. <name>.<stamp>.bak, else -2, -3… */
+async function freeBackupName(dir, base) {
+    for (let k = 1; ; k++) {
+        const name = k === 1 ? `${base}.bak` : `${base}-${k}.bak`;
+        try { await dir.getFileHandle(name); } catch (e) { if (e.name === 'NotFoundError') return name; throw e; }
+    }
+}
 function stamp() {
     const d = new Date(), z = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
@@ -347,7 +356,7 @@ async function backupBeforeWrite(t) {
 
     setStats(`Backing up ${t.name}…`);
     const src = await tabFile(t);                       // bytes currently on disk
-    const bh = await dir.getFileHandle(`${t.name}.${stamp()}.bak`, { create: true });
+    const bh = await dir.getFileHandle(await freeBackupName(dir, `${t.name}.${stamp()}`), { create: true });
     const w = await bh.createWritable();
     await w.write(src);                                 // streamed by the browser, not buffered here
     await w.close();
