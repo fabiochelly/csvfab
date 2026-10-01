@@ -39,7 +39,7 @@ function csvScanWorker() {
         const { buf, enc, validate, delim, nl, bom, lines } = e.data;   // lines: a text file — one record per line, no delimiter, no quote, empty lines kept
         const post = (m, tr) => self.postMessage(m, tr || []);
         try {
-            let u8 = new Uint8Array(buf), outEnc = enc, lastPost = 0;
+            let u8 = new Uint8Array(buf), outEnc = enc, lastPost = 0, orig = null;
             const progress = (p, phase) => { const now = Date.now(); if (now - lastPost > 100) { lastPost = now; post({ progress: p, phase }); } };
             const S = 32 << 20;
             if (outEnc === 'utf-16le' || outEnc === 'utf-16be') {
@@ -53,6 +53,7 @@ function csvScanWorker() {
                     progress(p / u8.length, 'transcode');
                 }
                 u8 = out.subarray(0, w);
+                orig = buf;                    // the file's own bytes, sent back: a save copies untouched records from them
             } else if (bom) u8 = u8.subarray(bom);
             const len = u8.length, Q = 34, D = delim, NL = nl;
             const Big = len > 0xFFFFFFF0 ? Float64Array : Uint32Array;
@@ -141,8 +142,8 @@ function csvScanWorker() {
             starts = starts.slice(0, n + 1); odd = odd.slice(0, no);
             if (validate && bad) { outEnc = 'windows-1252'; chars = null; }       // not UTF-8: one byte, one character
             if (chars) { chars[n] = len + adj; chars = adj ? chars.slice(0, n + 1) : null; }   // adj 0: ASCII throughout, characters = bytes
-            post({ done: true, buf: u8.buffer, off: u8.byteOffset, len, enc: outEnc, starts, chars, n, width: Math.max(width, 0), odd, qerr },
-                [u8.buffer, starts.buffer, odd.buffer].concat(chars ? [chars.buffer] : []));
+            post({ done: true, buf: u8.buffer, off: u8.byteOffset, len, enc: outEnc, starts, chars, n, width: Math.max(width, 0), odd, qerr, orig },
+                [u8.buffer, starts.buffer, odd.buffer].concat(chars ? [chars.buffer] : [], orig ? [orig] : []));
         } catch (err) { post({ error: String(err && err.message || err) }); }
     };
 }
@@ -210,6 +211,7 @@ async function loadBase(ab, o, onProgress) {
     const base = {
         u8: new Uint8Array(m.buf, m.off, m.len), starts: m.starts, chars: m.chars, n: m.n, width: m.width, qerr: m.qerr,
         enc: m.enc, bom: bom > 0, delim, eol, transcoded: m.enc.startsWith('utf-16'), lines: !!o.lines,
+        orig: m.orig ? new Uint8Array(m.orig) : null, origAt: m.orig ? bom : 0,   // a UTF-16 file's own bytes (14-…, streamCSV)
         cmap: null, odd: new Map(), irr: null,
         keys: new Int32Array(1024).fill(-1), vals: new Array(1024), blk: null, lastB: -2
     };

@@ -72,11 +72,13 @@ function encoderFor(enc) {
 function bomFor(enc) {
     return enc === 'utf-8' ? '﻿' : enc === 'utf-16le' ? new Uint8Array([0xFF, 0xFE]) : enc === 'utf-16be' ? new Uint8Array([0xFE, 0xFF]) : null;
 }
-/* What a write uses: the tab's encoding unless overridden. UTF-16 always
-   carries its BOM; UTF-8 keeps one only if the source file had it. */
+/* What a write uses: the tab's encoding unless overridden, and whether a BOM leads. */
 function writeEnc(t, override) {
     const enc = override || currentEnc(t);
-    return { enc, bom: enc.startsWith('utf-16') || (enc === 'utf-8' && t.bom && currentEnc(t) === 'utf-8') };
+    /* Written as read: the BOM if the file had one, none if it had none (a UTF-16
+       file without a BOM stays without). Converted to UTF-16: with one, the only
+       way most readers tell UTF-16 from a single-byte encoding. */
+    return { enc, bom: enc === currentEnc(t) ? !!t.bom : enc.startsWith('utf-16') };
 }
 
 /* A single-byte encoding holds ~250 characters: say what would be lost before writing '?'. */

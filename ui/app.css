@@ -1004,3 +1004,28 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .sb-pill.d-live.paused { color: var(--warn); background: rgba(var(--warn-rgb), .12); border-color: rgba(var(--warn-rgb), .4); }
 .sb-pill.d-live.paused::before { animation: none; }
 @keyframes livepulse { 50% { opacity: .35; } }
+/* "Why?": a row's diagnosis (37-diagnose.js) — findings over the line's own bytes. */
+#rc-diag { display: none; margin: 8px 12px 0; max-height: 50%; overflow: auto; font: 12px var(--ui); }
+#row-card.diag #rc-diag { display: block; }
+.rc-why { cursor: pointer; text-decoration: underline dotted; }
+.dg-shape { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0; color: var(--txt); }
+.dg-shape b { color: var(--txt-strong); }
+.dg-shape b.dg-bad { color: var(--danger-txt); }
+.dg-dim { color: var(--txt-dim); }
+.dg-cause { padding: 6px 10px; margin: 4px 0 6px; border-radius: 6px; background: var(--surf-2); color: var(--txt); }
+.dg-cause b { color: var(--txt-strong); }
+.dg-ok, .dg-none { padding: 6px 0; color: var(--txt-dim); }
+.dg-f, .dg-rep { padding: 6px 10px; margin: 0 0 6px; border-left: 3px solid var(--brd); border-radius: 0 6px 6px 0; background: var(--bg-deep); }
+.dg-f.error { border-left-color: var(--danger); }
+.dg-f.warn { border-left-color: var(--warn); }
+.dg-f.info { border-left-color: var(--prim); }
+.dg-t { font-weight: 600; color: var(--txt-strong); }
+.dg-d { color: var(--txt-mut); margin-top: 2px; line-height: 1.45; }
+.dg-near { margin-top: 5px; font: 11.5px var(--mono); color: var(--txt-mut); display: flex; flex-wrap: wrap; gap: 0 4px; align-items: baseline; }
+.dg-near .hit { color: var(--danger-txt); background: rgba(var(--danger-rgb), .16); border-radius: 2px; font-weight: 700; }
+.dg-near .dg-off { color: var(--txt-dim); margin-right: 4px; }
+.dg-near .dg-txt { flex-basis: 100%; color: var(--txt); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.dg-rep { border-left-color: var(--ok); }
+.dg-prev { margin: 5px 0 7px; font: 11.5px var(--mono); color: var(--txt); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dg-prev i { color: var(--txt-faint); font-style: normal; margin: 0 3px; }
+.dg-rep .btn { font-size: 12px; padding: 2px 10px; }

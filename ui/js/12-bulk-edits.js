@@ -310,8 +310,21 @@ function cellOv(t, cIdx, c, html) {
     return textWidth(s) > (t.colWidths[cIdx] == null ? 480 : t.colWidths[cIdx]) - 21 + 0.05;   // the width was pinned at ceil(widest value + 21): that value fits by construction
 }
 /* One cell of row i, as HTML: column k of the layout L. */
+/* What a cell puts in the DOM: its value's beginning only. A column is 900 px at
+   most (30 000 for a text line), far less than these, and the browser lays a
+   cell's text out in more than linear time — a 400 KB field took 17 s to show,
+   a 5 MB one froze the page. The value itself is untouched (editor, row card,
+   find, save all read it whole). */
+const CELL_SHOWN = 2000, TEXT_SHOWN = 5000;
+function cellShown(c, max) {
+    if (c == null || c.length <= max) return c;
+    const s = String(c);
+    let n = max;
+    if (s.charCodeAt(n - 1) >= 0xD800 && s.charCodeAt(n - 1) < 0xDC00) n--;   // never half a surrogate pair
+    return s.slice(0, n) + '…';
+}
 function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
-    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, c, cIdx) : showBreaks(highlightCell(c, cIdx, t.hl));
+    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, cellShown(c, TEXT_SHOWN), cIdx) : showBreaks(highlightCell(cellShown(c, CELL_SHOWN), cIdx, t.hl));
     const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
     return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${html}</div>`;
 }
@@ -537,17 +550,26 @@ function syncLayer() {
    widths are still unknown). */
 function syncSpace(t) {
     const gridLayer = document.getElementById('grid-layer'), scrollSpace = document.getElementById('scroll-space');
+    /* No native scrollbar of the strip's width there (none shown: every row fits;
+       or overlay scrollbars of no width, as on macOS): the strip takes 24 px at
+       the edge (24 = STRIP_W, a const of 28-… not yet declared when this runs at
+       boot) and the grid layer is that much narrower — so the scroll extent is
+       that much longer, or the last 24 px of the grid could never be scrolled
+       into view (it hid the end of the last column). Same below for the
+       horizontal band. container._vw / _vh: the grid's visible size (revealCell). */
     const cw = container.clientWidth, ch = container.clientHeight, sbw = container.offsetWidth - cw;
-    gridLayer.style.width = (sbw >= 16 ? cw : cw - (24 - sbw)) + 'px'; gridLayer.style.height = ch + 'px';   // overlay scrollbars: room left for the strip (24 = STRIP_W, a const of 28-… not yet declared when this runs at boot)
+    const padR = sbw >= 16 ? 0 : 24 - sbw, vw = cw - padR;
+    gridLayer.style.width = vw + 'px'; gridLayer.style.height = ch + 'px';
+    container._vw = vw; container._vh = ch;
     if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; stripLayout(null); return; }
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
-    const nohs = !!L && w <= cw;              // no sideways scroll: the row numbers need not stick (app.css)
+    const nohs = !!L && w <= vw;              // no sideways scroll: the row numbers need not stick (app.css)
     if (gridLayer.classList.contains('nohs') !== nohs) gridLayer.classList.toggle('nohs', nohs);
-    const sbh = container.offsetHeight - ch;
-    if (!nohs && sbh < 16) gridLayer.style.height = (ch - (24 - sbh)) + 'px';   // overlay scrollbars: room for the horizontal band too
+    const sbh = container.offsetHeight - ch, padB = !nohs && sbh < 16 ? 24 - sbh : 0;
+    if (padB) { gridLayer.style.height = (ch - padB) + 'px'; container._vh = ch - padB; }
     const h = thead.offsetHeight + t.filteredData.length * ROW_H;
-    scrollSpace.style.height = Math.max(0, h - ch) + 'px';
-    scrollSpace.style.width = Math.max(1, w) + 'px';
+    scrollSpace.style.height = Math.max(0, h + padB - ch) + 'px';
+    scrollSpace.style.width = Math.max(1, nohs ? w : w + padR) + 'px';
     syncLayer();
     stripLayout(t);
 }

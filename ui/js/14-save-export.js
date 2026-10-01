@@ -14,8 +14,6 @@ async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverrid
     const sink = c => rawSink(encode(c));
     if (we.bom) await rawSink(bomFor(we.enc));
     const eol = t.detectedEol || '\n';
-    /* a generated 0,1,2… header never existed in the source file: don't write it back */
-    if (!t.syntheticHeader) await sink(columnsToExport.map(i => t.headers[i]).join(delim) + eol);
 
     const chunkSize = 10000;
     const total = dataToExport.length;
@@ -23,38 +21,69 @@ async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverrid
        fields rather than losing them (a short one is padded). */
     const width = t.headers.length;
     const whole = columnsToExport.length === width && columnsToExport.every((c, k) => c === k);
-    /* Raw text (33-…): a line is written as it is, and a file that ended without a line break still does. */
+    /* Raw text (33-…): a line is written as it is. */
     const text = !!(t.base && t.base.lines) && delim === '\n';
-    const noEnd = text && t.base.u8.length > 0 && t.base.u8[t.base.u8.length - 1] !== 10 && t.base.u8[t.base.u8.length - 1] !== 13;
     const quote = text ? v => String(v ?? '') : v => {
         const sv = String(v ?? '');
         return (sv.includes(delim) || sv.includes('"') || sv.includes('\n') || sv.includes('\r')) ? `"${sv.replace(/"/g, '""')}"` : sv;
     };
-    const B = t.base, raw = !!B && whole && !B.cmap && !B.transcoded && B.delim === delim && B.enc === we.enc;
+    const B = t.base, raw = !!B && whole && !B.cmap && B.delim === delim && B.enc === we.enc;
+    /* Untouched records' bytes, as they are in the file: records b0…b1−1, less
+       `cut` trailing line-break bytes. A UTF-16 file is read through a UTF-8
+       copy (B.transcoded) but keeps its own bytes (B.orig): a record starts
+       there at 2 × its offset in UTF-16 units (B.chars, or B.starts when the
+       text is ASCII) — the decoder turns each invalid unit into one U+FFFD,
+       so the offsets hold even across broken surrogates, copied as they are. */
+    const units = B && (B.chars || B.starts);
+    const span = B && B.orig
+        ? (b0, b1, cut = 0) => B.orig.subarray(B.origAt + 2 * units[b0], Math.min(B.orig.length, B.origAt + 2 * (units[b1] - cut)))
+        : (b0, b1, cut = 0) => B.u8.subarray(B.starts[b0], B.starts[b1] - cut);
+    /* How many line-break bytes end record b (its own break and blank lines after it). */
+    const breaks = b => { const s = B.starts[b], e = B.starts[b + 1]; let k = 0; while (e - k > s && (B.u8[e - k - 1] === 10 || B.u8[e - k - 1] === 13)) k++; return k; };
+    /* A file that ended without a line break still does: none after the last line written. */
+    const noEnd = !!B && B.u8.length > 0 && B.u8[B.u8.length - 1] !== 10 && B.u8[B.u8.length - 1] !== 13;
     /* Same line break as the file: a record's span, blank lines after it
        included, is written as is; otherwise the record and our break. */
     const sameEol = raw && B.eol === eol, eolBytes = encode(eol);
-    const endsNl = raw && B.u8.length > 0 && (B.u8[B.u8.length - 1] === 10 || B.u8[B.u8.length - 1] === 13);
+    const endsNl = raw && B.u8.length > 0 && !noEnd;
+
+    /* Empty lines before the first record belong to no record (the scan hangs an
+       empty line on the record before it): copied first, or a file opening with
+       blank lines — or made of nothing else — would lose them. */
+    if (sameEol && B.starts[0] > 0) await rawSink(B.orig ? B.orig.subarray(B.origAt, B.origAt + 2 * units[0]) : B.u8.subarray(0, B.starts[0]));
+
+    /* The header line: a generated 0,1,2… header never existed in the file and
+       is not written. One that is still the file's line 1, unchanged, is copied
+       as its bytes like any untouched row — its quotes, spacing and all; a
+       changed one is written quoted where it needs to be. */
+    if (!t.syntheticHeader && width) {
+        const lastLine = !total && noEnd;
+        if (raw && t.headerSrc === 0 && B.n > 0 && sameFields(t.headers, recordFields(B, 0))) {
+            if (sameEol) {
+                await rawSink(span(0, 1));
+                if (B.n === 1 && !endsNl && total) await rawSink(eolBytes);   // the file was its header alone, without a break
+            } else {
+                await rawSink(span(0, 1, breaks(0)));
+                if (!lastLine) await rawSink(eolBytes);
+            }
+        } else await sink(columnsToExport.map(i => t.headers[i]).map(quote).join(delim) + (lastLine ? '' : eol));
+    }
     let lastYield = performance.now();
     for (let i = 0; i < total; i += chunkSize) {
         const parts = [];
-        let str = '', runS = -1, runE = -1;
+        let str = '', runS = -1, runE = -1;                       // a run of consecutive untouched records, runS…runE−1
         const flushStr = () => { if (str) { parts.push(encode(str)); str = ''; } };
-        const flushRun = () => { if (runS >= 0) { parts.push(B.u8.subarray(runS, runE)); runS = -1; } };
+        const flushRun = () => { if (runS >= 0) { parts.push(span(runS, runE)); runS = -1; } };
         for (let j = i; j < Math.min(i + chunkSize, total); j++) {
             const r = dataToExport[j];
             if (raw && !r.d && r.b >= 0) {
                 flushStr();
-                const s = B.starts[r.b];
                 if (sameEol) {
-                    const e = B.starts[r.b + 1];
-                    if (runS >= 0 && s === runE) runE = e; else { flushRun(); runS = s; runE = e; }
+                    if (runS >= 0 && r.b === runE) runE = r.b + 1; else { flushRun(); runS = r.b; runE = r.b + 1; }
                     if (r.b === B.n - 1 && !endsNl && !(noEnd && j === total - 1)) { flushRun(); parts.push(eolBytes); }   // the file's last line had no break
                 } else {
                     flushRun();
-                    let e = B.starts[r.b + 1];
-                    while (e > s && (B.u8[e - 1] === 10 || B.u8[e - 1] === 13)) e--;
-                    parts.push(B.u8.subarray(s, e)); if (!(noEnd && j === total - 1)) parts.push(eolBytes);
+                    parts.push(span(r.b, r.b + 1, breaks(r.b))); if (!(noEnd && j === total - 1)) parts.push(eolBytes);
                 }
                 continue;
             }
@@ -584,4 +613,11 @@ function applySearchReplace() {
         : 'No match in the filtered rows.';
     render();
     updateStats();
+}
+
+/* Two lists of fields with the same values, in the same order. */
+function sameFields(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
 }

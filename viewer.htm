@@ -335,9 +335,11 @@
         <button class="btn btn-outline" id="rc-prev" onclick="rowCardMove(-1)" title="Previous row" aria-label="Previous row">▲</button>
         <button class="btn btn-outline" id="rc-next" onclick="rowCardMove(1)" title="Next row" aria-label="Next row">▼</button>
         <button class="btn btn-outline" id="rc-rawbtn" onclick="rowCardRaw()" title="The line as in the file, invisible characters shown">Raw</button>
+        <button class="btn btn-outline" id="rc-diagbtn" onclick="rowCardDiag()" title="Why does this row look wrong? Its bytes, examined">Why?</button>
         <span class="rc-x" onclick="toggleRowCard(false)" title="Close (Ctrl+I)">×</span>
     </div>
     <div class="rc-sub" id="rc-sub"></div>
+    <div id="rc-diag"></div>
     <div id="rc-raw"></div>
     <input type="text" class="bs-input rc-search" placeholder="Find a field…" spellcheck="false" oninput="rowCard.q = this.value; rowCardFields()" onkeydown="event.stopPropagation()" autocomplete="off">
     <div id="rc-fields"></div>

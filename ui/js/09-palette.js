@@ -47,6 +47,7 @@ function paletteCommands() {
     add('Edit', 'Find & replace', toggleSRBar, '', loaded);
     add('View', (rowCardIsOpen() ? 'Close the row card' : 'Row card — the selected row as a form'), () => toggleRowCard(), 'Ctrl+I', loaded);
     add('View', 'Raw line — the selected row as it sits in the file', () => { if (!rowCard.raw) rowCardRaw(true); toggleRowCard(true); }, '', loaded && !!sel);
+    add('View', 'Why does this row look wrong? — its bytes examined', () => { if (!rowCard.diag) rowCardDiag(true); toggleRowCard(true); }, '', loaded && !!sel);
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);

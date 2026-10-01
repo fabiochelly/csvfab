@@ -9,7 +9,7 @@
    error really looks like in the file.
    Ctrl+G jumps to a row by its number in the file.
 ----------------------------------------------------------------*/
-let rowCard = { t: null, row: null, vi: -1, key: '', raw: false, q: '' };
+let rowCard = { t: null, row: null, vi: -1, key: '', raw: false, diag: false, q: '' };
 
 function rowCardIsOpen() { return document.getElementById('row-card').classList.contains('open'); }
 function toggleRowCard(force) {
@@ -23,6 +23,13 @@ function rowCardRaw(on) {
     rowCard.raw = on != null ? on : !rowCard.raw;
     document.getElementById('row-card').classList.toggle('raw', rowCard.raw);
     document.getElementById('rc-rawbtn').classList.toggle('on', rowCard.raw);
+    rowCardSync(true);
+}
+/* "Why?": the row's diagnosis (37-…) above its fields. */
+function rowCardDiag(on) {
+    rowCard.diag = on != null ? on : !rowCard.diag;
+    document.getElementById('row-card').classList.toggle('diag', rowCard.diag);
+    document.getElementById('rc-diagbtn').classList.toggle('on', rowCard.diag);
     rowCardSync(true);
 }
 /* From the row menu: select that row, open the card (on its raw view or not). */
@@ -60,7 +67,7 @@ function renderRowCard(t, row, vi) {
     if (!row) {
         title.textContent = t && t.loaded ? 'No row selected' : 'Row card';
         sub.textContent = t && t.loaded ? 'Click a cell or a row number in the grid.' : '';
-        fields.innerHTML = ''; raw.innerHTML = ''; return;
+        fields.innerHTML = ''; raw.innerHTML = ''; document.getElementById('rc-diag').innerHTML = ''; return;
     }
     const n = t.headers.length, irr = row.len !== n;
     title.textContent = `Row ${fmt(row.id)}`;
@@ -68,6 +75,10 @@ function renderRowCard(t, row, vi) {
         + (row.src != null ? ` · line ${fmt(row.src + 1)} in the file` : ' · <span class="warn">new row, not in the file yet</span>')
         + (irr ? ` · <span class="warn">${fmt(row.len)} fields for ${fmt(n)} columns</span>` : '')
         + (row.d ? ' · edited' : '');
+    /* Problems found in the line's bytes: counted here, explained by "Why?". */
+    const probs = t.base && row.b >= 0 ? diagnoseRow(t, row).findings.filter(f => f.severity !== 'info').length : 0;
+    if (probs && !rowCard.diag) sub.insertAdjacentHTML('beforeend', ` · <a class="warn rc-why" onclick="rowCardDiag(true)">${fmt(probs)} problem${probs > 1 ? 's' : ''} — why?</a>`);
+    document.getElementById('rc-diag').innerHTML = rowCard.diag ? diagnosisHtml(t, row) : '';
     raw.innerHTML = rowCard.raw ? rawLineHtml(t, row) : '';
     rowCardFields();
 }

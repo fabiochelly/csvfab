@@ -135,6 +135,7 @@ function openRowMenu(e, id) {
         + '<div class="dd-sep"></div>'
         + item(`rowCardFor(${id}, false)`, 'card', 'Row card — every field as a form')
         + item(`rowCardFor(${id}, true)`, 'raw', 'Raw line — as it sits in the file')
+        + item(`rowCardFor(${id}); rowCardDiag(true)`, 'raw', 'Why does this row look wrong?')
         + '<div class="dd-sep"></div>'
         + (many ? item('deleteSelectedRows()', 'del', `Delete the ${fmt(many)} selected rows`, 'danger') : item(`deleteRow(${id})`, 'del', 'Delete the row', 'danger'));
     m.classList.add('open'); btn.classList.add('open');

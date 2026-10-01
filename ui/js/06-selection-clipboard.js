@@ -100,8 +100,9 @@ function selSums(t, rg, cols, msg) {
 /* Keep the active cell in view, below the chrome and the sticky header. */
 function revealCell(r, c) {
     const top = thead.offsetHeight, y = top + r * ROW_H;   // row r's top in content coordinates, below the sticky header
+    const vw = container._vw || container.clientWidth, vh = container._vh || container.clientHeight;   // the grid's visible size (syncSpace: the strips may take some)
     if (y < container.scrollTop + top) container.scrollTop = y - top;
-    else if (y + ROW_H > container.scrollTop + container.clientHeight) container.scrollTop = y + ROW_H - container.clientHeight;
+    else if (y + ROW_H > container.scrollTop + vh) container.scrollTop = y + ROW_H - vh;
     /* Sideways from the pinned widths: the cell may be outside the columns
        drawn. Left of it, the sticky row numbers cover what scrolls under them;
        the first column goes all the way left, nothing cut off. */
@@ -111,7 +112,7 @@ function revealCell(r, c) {
     else if (k > 0) {
         const x0 = L.x[k], x1 = L.x[k + 1], cover = L.x[L.F];   // the row numbers and the frozen columns cover what scrolls under them
         if (x0 < container.scrollLeft + cover) container.scrollLeft = x0 - cover;
-        else if (x1 > container.scrollLeft + container.clientWidth - 16) container.scrollLeft = x1 - container.clientWidth + 16;
+        else if (x1 > container.scrollLeft + vw - 16) container.scrollLeft = x1 - vw + 16;
     }
     renderOnScroll();                     // the window follows, as for any scroll (a far jump redraws)
     paintSel(t);
