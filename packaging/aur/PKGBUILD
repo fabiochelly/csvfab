@@ -1,6 +1,6 @@
 # Maintainer: Fabio Chelly
 pkgname=csvfab
-pkgver=1.11.1
+pkgver=1.12.0
 pkgrel=1
 pkgdesc="Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
 arch=('any')
@@ -12,7 +12,7 @@ optdepends=('chromium: the app window (any Chromium-based browser works)'
             'brave-bin: the app window'
             'microsoft-edge-stable-bin: the app window')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('9b3a8ba9077d06044ccebef1d2f88e1b72f90a2353210817a38f350bfe188fb5')
+sha256sums=('eaad20183940167a5b6099f4abfd82faae899dfdb21a80a272c1a637b34cfaff')
 
 package() {
     cd "$pkgname-$pkgver"
