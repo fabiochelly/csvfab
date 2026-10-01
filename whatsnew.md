@@ -2,6 +2,11 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.11.0 · 1 October 2026
+
+- **IDs and hashes in formulas:** `uuid()` (random), `uuid7()` (sorts in creation order), and `md5`, `sha1`, `sha256`, `sha3_256`, `sha3_512`, `blake2b`, `blake3` of a value, in hex as the usual command-line tools print them: `{Email}.lower().trim().sha256()`. An empty cell stays empty. A new *IDs & hashes* family in the ƒx picker.
+- **The computed column relies on the ƒx picker alone:** its *Examples and functions* list is gone, the picker already shows every function with examples run on your data.
+
 ## 1.10.0 · 1 October 2026
 
 - **Text files, line by line.** Logs, code, configuration, any file that is not a table opens in *Raw text* mode: one line per row, every space and empty line kept, saved back byte for byte (no quotes added, no line break added at the end). It is the last choice of the delimiter menu in the status bar, so a `.txt` that really is a table switches back in one click, and a CSV can be read as plain lines.

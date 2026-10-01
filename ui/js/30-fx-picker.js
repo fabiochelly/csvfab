@@ -13,7 +13,7 @@
    while it is open: Escape must not close the computed column below.
    State hangs off the function (openFxPicker.s), as elsewhere.
 ----------------------------------------------------------------*/
-const FX_FAMS = ['Numbers', 'Dates', 'Text', 'Tests', 'Values', 'Methods', 'Operators'];
+const FX_FAMS = ['Numbers', 'Dates', 'Text', 'Tests', 'Values', 'IDs & hashes', 'Methods', 'Operators'];
 const FXP_TABS = ['All', ...FX_FAMS, 'Columns'];
 
 function fxpTarget(s) { return document.getElementById(s.target === 'formula' ? 'fx-expr' : 'global-search'); }
@@ -82,7 +82,7 @@ function fxpRender() {
     const s = openFxPicker.s;
     s.items = fxpItems(s);
     if (s.act >= s.items.length) s.act = Math.max(0, s.items.length - 1);
-    document.getElementById('fxp-tabs').innerHTML = FXP_TABS.map(f => `<span class="fxp-tab${f === s.fam ? ' on' : ''}" onclick="fxpFam('${f}')">${f}</span>`).join('');
+    document.getElementById('fxp-tabs').innerHTML = FXP_TABS.map(f => `<span class="fxp-tab${f === s.fam ? ' on' : ''}" onclick="fxpFam('${esc(f)}')">${esc(f)}</span>`).join('');
     const mark = (label, hits) => { const H = new Set(hits); return [...label].map((ch, i) => H.has(i) ? `<b>${esc(ch)}</b>` : esc(ch)).join(''); };
     const list = document.getElementById('fxp-list');
     list.innerHTML = s.items.length ? s.items.map((x, i) => `<div class="cmdk-item fxp-it${i === s.act ? ' act' : ''}" onclick="fxpClick(event, ${i})">`

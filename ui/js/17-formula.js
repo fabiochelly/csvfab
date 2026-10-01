@@ -90,7 +90,17 @@ const FX = {
     isDate: s => fxDate(s) !== null,
     isPhone: s => { const x = cellStr(s).replace(/\p{Cf}/gu, '').trim(); return !!x && parsePhoneCell(x, '33') !== null; },   // national numbers read as French, like Convert
     ifs: (...a) => { for (let i = 0; i + 1 < a.length; i += 2) if (a[i]) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; },
-    cases: (v, ...a) => { const x = cellStr(v); for (let i = 0; i + 1 < a.length; i += 2) if (x === cellStr(a[i])) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; }
+    cases: (v, ...a) => { const x = cellStr(v); for (let i = 0; i + 1 < a.length; i += 2) if (x === cellStr(a[i])) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; },
+    /* IDs and hashes (35-hash.js): hex of the UTF-8 text, an empty cell stays empty. */
+    uuid: () => uuid4(),
+    uuid7: () => uuid7(),
+    md5: fxHashOf(md5Hex),
+    sha1: fxHashOf(sha1Hex),
+    sha256: fxHashOf(sha256Hex),
+    sha3_256: fxHashOf(b => sha3Hex(b, 32)),
+    sha3_512: fxHashOf(b => sha3Hex(b, 64)),
+    blake2b: fxHashOf(blake2bHex),
+    blake3: fxHashOf(blake3Hex)
 };
 /* Method form: {City}.upper(), {Date}.year() === 2024, {Amount}.num().round(2) — each helper whose
    first argument is the value is also a method of texts (every cell is one), numbers and dates, so a
@@ -100,7 +110,7 @@ const FX = {
    non-enumerable; the app's own code never reads these names on a text, a number or a date. */
 const FX_ON_TEXT = ['num', 'date', 'days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate', 'round', 'fixed', 'abs',
     'upper', 'lower', 'capitalize', 'slug', 'len', 'left', 'right', 'mid', 'pad', 'extract', 'contains', 'matches', 'empty', 'isEmail', 'isPhone', 'isNumber', 'isDate',
-    'firstNumber', 'digits', 'cases'];
+    'firstNumber', 'digits', 'cases', 'md5', 'sha1', 'sha256', 'sha3_256', 'sha3_512', 'blake2b', 'blake3'];
 const FX_ON_NUMBER = ['round', 'fixed', 'abs', 'cases'];   // cases: {Date}.month().cases(1, "January", …)
 const FX_ON_DATE = ['days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate'];
 const FX_METHOD = new Set(FX_ON_TEXT);
@@ -188,6 +198,15 @@ const FX_DOC = [
     { f: 'Values', n: 'first', s: 'first(a, b, …)', d: 'The first value that is not empty.', ex: [['first({T}, {T2}, "none")', 'first filled']] },
     { f: 'Values', n: 'join', s: 'join(sep, a, b, …)', d: 'The values joined with sep, empty ones skipped.', ex: [['join(" ", {T}, {T2})', 'join two columns']] },
     { f: 'Values', n: 'row', s: 'row', d: 'The row\'s number in the file.', ex: [['row % 2 === 0', 'even rows']] },
+    { f: 'IDs & hashes', n: 'uuid', s: 'uuid()', d: 'A random UUID (version 4), a new one per row.', ex: [['uuid()', 'random id']] },
+    { f: 'IDs & hashes', n: 'uuid7', s: 'uuid7()', d: 'A UUID that sorts in creation order (version 7, time first): row after row, they come out in order.', ex: [['uuid7()', 'sortable id']] },
+    { f: 'IDs & hashes', n: 'md5', pick: 'email', s: 'md5(s)', d: 'MD5 of the text, in hex. Fine for spotting identical values, not for security.', ex: [['{T}.md5()', 'MD5']] },
+    { f: 'IDs & hashes', n: 'sha1', pick: 'email', s: 'sha1(s)', d: 'SHA-1 of the text, in hex.', ex: [['{T}.sha1()', 'SHA-1']] },
+    { f: 'IDs & hashes', n: 'sha256', pick: 'email', s: 'sha256(s)', d: 'SHA-256 of the text, in hex, as sha256sum prints it.', ex: [['{T}.sha256()', 'SHA-256'], ['{T}.lower().trim().sha256()', 'normalised e-mail']] },
+    { f: 'IDs & hashes', n: 'sha3_256', pick: 'email', s: 'sha3_256(s)', d: 'SHA3-256 of the text, in hex.', ex: [['{T}.sha3_256()', 'SHA3-256']] },
+    { f: 'IDs & hashes', n: 'sha3_512', pick: 'email', s: 'sha3_512(s)', d: 'SHA3-512 of the text, in hex.', ex: [['{T}.sha3_512()', 'SHA3-512']] },
+    { f: 'IDs & hashes', n: 'blake2b', pick: 'email', s: 'blake2b(s)', d: 'BLAKE2b-512 of the text, in hex, as b2sum prints it.', ex: [['{T}.blake2b()', 'BLAKE2b']] },
+    { f: 'IDs & hashes', n: 'blake3', pick: 'email', s: 'blake3(s)', d: 'BLAKE3 (256 bits) of the text, in hex, as b3sum prints it.', ex: [['{T}.blake3()', 'BLAKE3']] },
     { f: 'Methods', n: '.startsWith', s: '.startsWith(text)', d: 'A column is a string: its own methods work too. True when it starts with the text, case sensitive.', ex: [['{T}.startsWith("A")', 'starts with A']] },
     { f: 'Methods', n: '.endsWith', s: '.endsWith(text)', d: 'True when the string ends with the text, case sensitive.', ex: [['{T}.endsWith("e")', 'ends with e']] },
     { f: 'Methods', n: '.includes', s: '.includes(text)', d: 'True when the string contains the text, case sensitive.', ex: [['{T}.includes("-")', 'contains a dash']] },
@@ -246,32 +265,11 @@ function evalRow(fn, t, r, used) {
     return fxOut(fn(rowArgs(t, r, used), r.id, ...Object.values(FX)));
 }
 
-const FX_EXAMPLES = [   // {N} {D} {T} {T2}: a number, date, text and second text column of the file (fxExample(), 30-…)
-    ['{T} + " " + {T2}', 'join two columns'],
-    ['join(" ", {T}, {T2})', 'join, skipping empty values'],
-    ['{N}.num() * 1.2', 'arithmetic'],
-    ['fixed({N}.num() / 3, 2)', 'two decimals'],
-    ['{D}.days(today())', 'days since a date'],
-    ['{D}.year()', 'year of a date'],
-    ['{D}.fmtDate("yyyy-mm-dd")', 'reformat a date'],
-    ['{T}.extract("@(.+)$")', 'regex group (e-mail domain)'],
-    ['{N}.num() > 1000 ? "big" : "small"', 'condition'],
-    ['first({T}, {T2}, "none")', 'first non-empty value']
-];
-
 function openFormula(col) {
     const t = T(); if (!t || !t.loaded) return;
     fxComma = t.detectedDelim === ';';
     document.getElementById('fx-cols').innerHTML = t.headers.map(h =>
         `<span class="dk" title="Insert this column" onclick="fxInsert(${esc(JSON.stringify('{' + h + '}'))})">${esc(h)}</span>`).join('');
-    /* Examples use columns of the file of the right type, so they run as they are. */
-    document.getElementById('fx-ex').innerHTML = FX_EXAMPLES.map(([x, l]) => {
-        const s = fxExample(t, x);
-        return `<div class="fx-ex" onclick="fxSet(${esc(JSON.stringify(s))})"><code>${esc(s)}</code><span>${esc(l)}</span></div>`;
-    }).join('');
-    document.getElementById('fx-fns').innerHTML = FX_FAMS.filter(f => f !== 'Operators' && f !== 'Methods').map(f => `<b>${f}</b> `
-        + FX_DOC.filter(x => x.f === f).map(x => `<span class="fx-fn" onclick="openFxPicker('formula', ${esc(JSON.stringify(x.n))})" title="${esc(x.s + ' — ' + x.d)}">${esc(x.n)}</span>`).join(' · ')).join('<br>')
-        + '<br><span class="fx-fn" onclick="openFxPicker(\'formula\', \'.startsWith\')">String methods</span> · <span class="fx-fn" onclick="openFxPicker(\'formula\', \'&&\')">operators</span>';
     const dest = document.getElementById('fx-dest'), prev = dest.value;
     dest.innerHTML = `<optgroup label="New column">` + t.headers.map((h, i) => `<option value="new:${i}">after ${esc(h)}</option>`).join('') + '</optgroup>'
         + `<optgroup label="Replace the values of (rows shown)">` + t.headers.map((h, i) => `<option value="set:${i}">${esc(h)}</option>`).join('') + '</optgroup>';
@@ -286,7 +284,6 @@ function fxInsert(text) {
     ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
     ta.focus(); fxRefresh();
 }
-function fxSet(text) { const ta = document.getElementById('fx-expr'); ta.value = text; ta.focus(); fxRefresh(); }
 
 /* Every row the formula would write, with the error count; the preview shows the first ones. */
 function fxRun(t, fn, rows, used) {

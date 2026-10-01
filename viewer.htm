@@ -267,15 +267,10 @@
 
 <div id="modal-formula" class="modal-box">
     <h4>Computed column</h4>
-    <div class="fx-lbl"><span class="fld-label">Formula — <code>{Column}</code> is the row's cell, the rest is JavaScript</span><button class="fx-btn" onclick="openFxPicker('formula')" title="Find a function and insert it">ƒx</button></div>
+    <div class="fx-lbl"><span class="fld-label">Formula — <code>{Column}</code> is the row's cell, the rest is JavaScript</span><button class="fx-btn fx-big" onclick="openFxPicker('formula')" title="Every function, with examples run on your data"><span class="fx-g">ƒx</span>Functions</button></div>
     <textarea id="fx-expr" class="bs-input" rows="3" spellcheck="false" placeholder='e.g.  {firstName} + " " + {lastName}' oninput="fxRefresh()"></textarea>
     <div class="chips" id="fx-cols"></div>
-    <details class="fx-help">
-        <summary>Examples and functions</summary>
-        <div id="fx-ex"></div>
-        <div class="fx-fns" id="fx-fns"></div>
-        <div class="fx-note">A number result is written with a decimal comma in a <code>;</code>-separated file, a point otherwise; a date as yyyy-mm-dd.</div>
-    </details>
+    <div class="fx-note">Numbers are written with a decimal comma in a <code>;</code> file, dates as yyyy-mm-dd.</div>
     <div class="row2" style="margin-top: 12px;">
         <div style="flex: 1;"><span class="fld-label">Name</span><input type="text" id="fx-name" class="bs-input" style="width: 100%;" value="Computed" spellcheck="false" oninput="fxRefresh()" autocomplete="off"></div>
         <div style="flex: 1;"><span class="fld-label">Write to</span><select id="fx-dest" class="bs-input bs-select" style="width: 100%;" onchange="fxRefresh()"></select></div>

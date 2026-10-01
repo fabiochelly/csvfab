@@ -908,19 +908,14 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .cv-note { font-size: 12px; color: var(--txt-mut); margin-top: -4px; }
 #fx-expr { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
 #fx-cols { max-height: 64px; overflow-y: auto; }
-.fx-help { margin-top: 10px; font-size: 12px; color: var(--txt-mut); }
-.fx-help summary { cursor: pointer; color: var(--accent-2); user-select: none; }
-#fx-ex { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0; }
-.fx-ex { display: flex; justify-content: space-between; gap: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
-.fx-ex:hover { background: rgba(var(--hi-rgb), .1); }
-.fx-ex code { color: var(--txt-hi); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-ex span { flex: none; color: var(--txt-dim); }
-.fx-fns { line-height: 1.7; }
-.fx-fn { cursor: pointer; color: var(--txt-hi); font-family: var(--mono); }
-.fx-fn:hover { color: var(--accent-2); text-decoration: underline; }
-.fx-note { margin-top: 6px; color: var(--txt-dim); }
+.fx-note { margin-top: 6px; font-size: 12px; color: var(--txt-dim); }
 .fx-lbl { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
 .fx-lbl .fx-btn { height: 26px; margin-bottom: 4px; }
+/* The computed column's way to every function (its help list is gone): a labelled button in the accent colour, not a bare glyph. */
+.fx-lbl .fx-btn.fx-big { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px 0 10px; margin-bottom: 5px;
+    font: 600 12.5px var(--ui); color: var(--accent-2); border-color: rgba(var(--accent-rgb), .55); background: rgba(var(--accent-rgb), .12); }
+.fx-lbl .fx-btn.fx-big:hover { color: var(--txt-strong); border-color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb), .22); }
+.fx-big .fx-g { font: italic 600 14px Georgia, 'Times New Roman', serif; }
 
 /* The ƒx button (filter box, computed column) and the function picker (30-…). */
 .fx-btn { flex: none; height: 32px; min-width: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--brd); background: var(--addon-bg);
@@ -976,8 +971,7 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
     .fxp-body { flex-direction: column; }
     .fxp-list { width: 100%; height: 40%; border-right: none; border-bottom: 1px solid var(--brd); }
 }
-.fx-fns b { color: var(--txt-hi); font-weight: 600; }
-#modal-formula code, .fx-fns code { font-family: var(--mono); }
+#modal-formula code { font-family: var(--mono); }
 
 /* ---- Raw text (33-text-mode.js): lines as they are, coloured by each palette's VS Code theme ---- */
 #tbody .cell.tx { white-space: pre; tab-size: 4; border-bottom-color: transparent; }
