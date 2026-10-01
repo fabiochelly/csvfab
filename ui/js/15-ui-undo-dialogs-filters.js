@@ -230,6 +230,16 @@ function closeAllModals() {
 /* Text filters (global search + per-column inputs, Invert applying to
    both) as one row test: null when none is set, false when a regex does
    not compile yet (the view is then left as it was). */
+/* A simple filter's words (not under Regex): split on spaces, and every word must be found —
+   in any order, anywhere in the row for the search box, in the cell for a column filter — so
+   "dupont lyon" finds Lyon's Dupont whatever the columns' order. "Quoted words" stay one exact
+   phrase; an unclosed quote runs to the end, as while it is being typed. A query that only grew
+   still narrows (narrowsLast()): each old word stays inside a new one. */
+function queryTerms(q) {
+    const out = [], re = /"([^"]*)"?|(\S+)/g; let m;
+    while ((m = re.exec(q))) { const s = m[1] != null ? m[1] : m[2]; if (s) out.push(s); }
+    return out;
+}
 function textFilterTest(t, sparse) {   // sparse: the rows to test are few among the file's (a narrowing search)
     let globalQuery = t.globalQuery;
     const isRegex = t.useRegex, isReverse = t.useReverse, useSlug = t.useSlug;
@@ -253,12 +263,13 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     let globalRegex = null;
     if (isRegex && globalQuery) { try { globalRegex = new RegExp(globalQuery, 'i'); } catch (e) { return false; } }
 
+    const globalTerms = !isRegex && globalQuery ? queryTerms(globalQuery) : [];
     const compiledColFilters = colInputs.map(i => {
         let re = null, val = i.rawVal;
         if (useSlug && !isRegex) val = removeAccents(val.toLowerCase()); else if (!isRegex) val = val.toLowerCase();
         if (isRegex) { try { re = new RegExp(i.rawVal, 'i'); } catch (e) { } }
-        return { idx: i.idx, val: val, re: re };
-    });
+        return { idx: i.idx, val: val, re: re, terms: isRegex ? null : queryTerms(val) };
+    }).filter(f => isRegex || f.terms.length);   // spaces only: no filter
 
     /* The record's own text first: a query without quote or delimiter (and,
        for the search across columns, without space, which joins the cells)
@@ -266,8 +277,9 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
        rejected without being split into cells. */
     const D = t.base && t.base.delim, lower = useSlug ? v => removeAccents(v.toLowerCase()) : v => v.toLowerCase();
     const plain = q => q && !q.includes('"') && !q.includes(D);
-    let pre = !isRegex && D && (!globalQuery || (plain(globalQuery) && !globalQuery.includes(' '))) && compiledColFilters.every(f => plain(f.val))
-        ? [globalQuery, ...compiledColFilters.map(f => f.val)].filter(Boolean) : null;
+    const colTerms = compiledColFilters.flatMap(f => f.terms || []);
+    let pre = !isRegex && D && globalTerms.every(q => plain(q) && !q.includes(' ')) && colTerms.every(plain)
+        ? [...globalTerms, ...colTerms] : null;   // every word must be in the record (blockMatches ANDs them)
     if (pre && !pre.length) pre = null;   // an expression alone: no text to look for, so no block to lower (that lowered the whole file for nothing)
 
     /* The other way round too, for the search across columns alone: such a
@@ -291,13 +303,13 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
             let cellVal = String(cellOf(row, f.idx) || '');
             if (useSlug) cellVal = removeAccents(cellVal.toLowerCase()); else cellVal = cellVal.toLowerCase();
             if (isRegex) { if (f.re && !f.re.test(cellVal)) { match = false; break; } }
-            else { if (!cellVal.includes(f.val)) { match = false; break; } }
+            else if (!f.terms.every(q => cellVal.includes(q))) { match = false; break; }
         }
         if (match && globalQuery) {          // the local one: in expression mode t.globalQuery is the formula, already consumed
             let rowText = row.data.join(' ');
             if (useSlug) rowText = removeAccents(rowText.toLowerCase()); else rowText = rowText.toLowerCase();
             if (isRegex) { if (globalRegex && !globalRegex.test(rowText)) match = false; }
-            else { if (!rowText.includes(globalQuery)) match = false; }
+            else if (!globalTerms.every(q => rowText.includes(q))) match = false;
         }
         if (match && exprRun && !exprRun.test(row)) match = false;
         return isReverse ? !match : match;

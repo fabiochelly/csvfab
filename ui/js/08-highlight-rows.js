@@ -13,6 +13,21 @@ function buildSafePattern(str, useSlug) {
     return esc;
 }
 
+/* Every word of a simple filter (queryTerms(), 15-…) as one alternation, the longest first so
+   that "dup" does not stop "dupont" from being marked whole. Kept per query: highlightCell()
+   runs for every cell drawn. */
+const hlPatCache = new Map();
+function termsPattern(q, useSlug) {
+    const k = (useSlug ? '1' : '0') + q;
+    let p = hlPatCache.get(k);
+    if (p == null) {
+        p = queryTerms(q).sort((a, b) => b.length - a.length).map(s => buildSafePattern(s, useSlug)).join('|');
+        if (hlPatCache.size > 200) hlPatCache.clear();
+        hlPatCache.set(k, p);
+    }
+    return p;
+}
+
 /* A cell is one line high: a line break shows as a discreet ↵. */
 function showBreaks(html) { return html.indexOf('\n') < 0 ? html : html.replace(/\r?\n/g, '<span class="nl">↵</span>'); }
 function highlightCell(text, cIdx, hl) {
@@ -22,8 +37,9 @@ function highlightCell(text, cIdx, hl) {
 
     let patterns = [];
     const colVal = hl.reverse ? '' : hl.colFilters[cIdx];   // inverted filters: nothing of theirs to highlight
-    if (colVal) patterns.push(hl.isRegex ? colVal : buildSafePattern(colVal, hl.useSlug));
-    if (hl.globalQuery && !hl.reverse) patterns.push(hl.isRegex ? hl.globalQuery : buildSafePattern(hl.globalQuery, hl.useSlug));
+    if (colVal) patterns.push(hl.isRegex ? colVal : termsPattern(colVal, hl.useSlug));
+    if (hl.globalQuery && !hl.reverse) patterns.push(hl.isRegex ? hl.globalQuery : termsPattern(hl.globalQuery, hl.useSlug));
+    patterns = patterns.filter(Boolean);
 
     if (patterns.length > 0) {
         try {
