@@ -15,7 +15,7 @@ SRC="${1:?usage: build-app.sh <source folder> <destination folder>}"
 OUT="${2:?usage: build-app.sh <source folder> <destination folder>}"
 [ -f "$SRC/csvfab.py" ] || { echo "build-app.sh: $SRC is not a csvfab folder" >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || { echo "build-app.sh: macOS only (osacompile, iconutil, PlistBuddy)" >&2; exit 1; }
-V=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$SRC/csvfab.py")
+V=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$SRC/bridge/config.py")
 HERE=$(cd "$(dirname "$0")" && pwd)
 APP="$OUT/csvfab.app"
 mkdir -p "$OUT"; rm -rf "$APP"
@@ -26,6 +26,7 @@ osacompile -o "$APP" "$HERE/csvfab.applescript"
 RES="$APP/Contents/Resources"; mkdir -p "$RES/csvfab/icons"
 for f in csvfab.py server.py viewer.htm papaparse.min.js LICENSE; do cp "$SRC/$f" "$RES/csvfab/"; done
 cp -R "$SRC/ui" "$RES/csvfab/ui"
+cp -R "$SRC/bridge" "$RES/csvfab/bridge"; rm -rf "$RES/csvfab/bridge"/__pycache__ "$RES/csvfab/bridge"/*/__pycache__
 cp "$SRC"/icons/csvfab.svg "$SRC"/icons/csvfab-*.png "$RES/csvfab/icons/"
 chmod 755 "$RES/csvfab/csvfab.py"
 
@@ -43,6 +44,11 @@ PL="$APP/Contents/Info.plist"; PB=/usr/libexec/PlistBuddy
 for k in CFBundleIdentifier CFBundleName CFBundleDisplayName CFBundleIconFile CFBundleDocumentTypes; do "$PB" -c "Delete :$k" "$PL" 2>/dev/null || true; done
 "$PB" -c "Merge $HERE/Info-extra.plist" "$PL"
 for k in CFBundleShortVersionString CFBundleVersion; do "$PB" -c "Set :$k $V" "$PL" 2>/dev/null || "$PB" -c "Add :$k string $V" "$PL"; done
+
+# The Python modules compiled now, inside the bundle, before it is signed: the
+# launcher and the server never write __pycache__ there (it would break the
+# signature), so without this every launch would compile them anew.
+python3 -m compileall -q "$RES/csvfab/bridge" >/dev/null 2>&1 || true
 
 # Ad hoc signature (no developer certificate needed), and no quarantine flag on
 # what was just built here. Then Launch Services learns the bundle at once.

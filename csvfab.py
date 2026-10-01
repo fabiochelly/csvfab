@@ -21,35 +21,27 @@ csvfab.py est exposé sous le nom de commande « csvfab » (lien ou raccourci).
     csvfab --version
 """
 
+# Rien de plus que os, socket, sys et time avant le lancement de Chromium :
+# shutil et subprocess coûtaient à eux deux ~13 ms sur ce chemin (mesuré,
+# processus réels). which() et spawn() les remplacent, subprocess n'est
+# importé que hors de ce chemin (notification, focus d'une fenêtre, Windows).
 import os
-import shutil
 import socket
-import subprocess
 import sys
 import time
 
-VERSION = "1.12.0"
 HERE = os.path.dirname(os.path.realpath(__file__))   # suit le lien ~/.local/bin ou /usr/bin
-# CSVFAB_* ; les anciens noms CSV_EDITOR_* restent lus.
-PORT = int(os.environ.get("CSVFAB_PORT") or os.environ.get("CSV_EDITOR_PORT") or "8787")
+if ".app/Contents/" in HERE:
+    # Dans le paquet macOS (signé) : ne jamais y écrire de __pycache__, ce qui
+    # en invaliderait la signature ; build-app.sh l'a précompilé.
+    sys.dont_write_bytecode = True
+if sys.path[:1] != [HERE]:
+    sys.path.insert(0, HERE)
+
+# Version, port et dossier d'état : les mêmes que ceux du serveur, par construction.
+from bridge.config import MACOS, PORT, VERSION, WINDOWS, state_base, state_dir  # noqa: E402
+
 URL = f"http://127.0.0.1:{PORT}/"
-WINDOWS = os.name == "nt"
-MACOS = sys.platform == "darwin"
-
-
-def state_base():
-    if WINDOWS:
-        return os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
-    if MACOS:
-        return os.path.expanduser("~/Library/Application Support")
-    return os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
-
-
-def state_dir():
-    """Même choix que state_dir() de server.py : c'est là qu'il dépose le jeton.
-    « csvfab », ou l'ancien « csv-editor » tant qu'il n'a pas été migré."""
-    new, old = os.path.join(state_base(), "csvfab"), os.path.join(state_base(), "csv-editor")
-    return old if not os.path.exists(new) and os.path.isdir(old) else new
 
 
 def migrate_state():
@@ -87,7 +79,51 @@ def http():
     return _http
 
 
+def which(name):
+    """shutil.which sans importer shutil (~10 ms, sur le chemin qui mène à Chromium)."""
+    exts = os.environ.get("PATHEXT", ".EXE;.CMD;.BAT").lower().split(";") if WINDOWS else [""]
+    for d in os.environ.get("PATH", os.defpath).split(os.pathsep):
+        if d:
+            for e in exts:
+                p = os.path.join(d, name + e)
+                if os.path.isfile(p) and os.access(p, os.X_OK):
+                    return p
+    return None
+
+
+def spawn(args, out=None):
+    """Lance args détaché (sa propre session : il survit à la fermeture de yazi,
+    du terminal ou du Finder), l'entrée sur /dev/null, les sorties sur le
+    descripteur out ou /dev/null.
+
+    posix_spawn plutôt que subprocess : ~6 ms d'import en moins avant Chromium.
+    Il reproduit ce que Popen fait ici : SIGPIPE et SIGXFSZ, que Python ignore,
+    rendus à leur défaut dans l'enfant (restore_signals) ; les autres
+    descripteurs ne passent pas, Python les ouvrant non héritables."""
+    if not WINDOWS and hasattr(os, "posix_spawnp"):
+        import _signal                           # déjà chargé par Python : gratuit
+        null = os.open(os.devnull, os.O_RDWR)
+        try:
+            if null > 2:                         # 0, 1 et 2 ouverts : dup2 ne peut pas être un no-op
+                fd = null if out is None else out
+                acts = [(os.POSIX_SPAWN_DUP2, null, 0), (os.POSIX_SPAWN_DUP2, fd, 1), (os.POSIX_SPAWN_DUP2, fd, 2)]
+                try:
+                    os.posix_spawnp(args[0], args, os.environ, file_actions=acts, setsid=True,
+                                    setsigdef=(_signal.SIGPIPE, _signal.SIGXFSZ))
+                    return
+                except NotImplementedError:      # setsid inconnu de cette libc : Popen
+                    pass
+        finally:
+            os.close(null)
+    import subprocess
+    kw = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP} if WINDOWS
+          else {"start_new_session": True})      # l'équivalent de setsid
+    sink = subprocess.DEVNULL if out is None else out
+    subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=sink, stderr=sink, **kw)
+
+
 def notify(msg):
+    import subprocess
     try:
         if WINDOWS:
             import ctypes
@@ -97,7 +133,7 @@ def notify(msg):
             text = json.dumps(msg, ensure_ascii=False)   # guillemets et \\ échappés
             subprocess.run(["osascript", "-e", f'display notification {text} with title "csvfab"'],
                            timeout=5, capture_output=True)
-        elif shutil.which("notify-send"):
+        elif which("notify-send"):
             subprocess.run(["notify-send", "-u", "critical", "csvfab", msg],
                            timeout=5, capture_output=True)
     except Exception:
@@ -108,13 +144,6 @@ def die(msg):
     notify(msg)
     print(f"csvfab: {msg}", file=sys.stderr)
     sys.exit(1)
-
-
-def detached():
-    """Le processus lancé survit à la fermeture de yazi, du terminal ou du Finder."""
-    if WINDOWS:
-        return {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
-    return {"start_new_session": True}   # l'équivalent de setsid
 
 
 def ping():
@@ -142,12 +171,13 @@ def start_server():
     (il l'ouvre avant ses imports) : Chromium peut démarrer en parallèle de la
     fin de son initialisation, ses requêtes attendront dans la file d'écoute."""
     os.makedirs(STATE, exist_ok=True)
-    log = open(os.path.join(STATE, "server.log"), "ab")
+    os.environ["CSVFAB_PORT"] = str(PORT)
     # sys.executable : le même Python que celui du lanceur (pythonw sous
-    # Windows, donc pas de console non plus pour le serveur).
-    subprocess.Popen([sys.executable or "python3", os.path.join(HERE, "server.py")],
-                     env={**os.environ, "CSVFAB_PORT": str(PORT)},
-                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, **detached())
+    # Windows, donc pas de console non plus pour le serveur). -S : sans le
+    # module site (~3 ms), inutile à un serveur qui n'utilise que la
+    # bibliothèque standard.
+    with open(os.path.join(STATE, "server.log"), "ab") as log:
+        spawn([sys.executable or "python3", "-S", os.path.join(HERE, "server.py")], out=log.fileno())
 
 
 def wait_server():
@@ -200,7 +230,8 @@ def focus_existing():
     # rejette l'ancienne forme « focuswindow class:… » : sans ce passage, le
     # fichier arrivait en onglet dans une fenêtre restée sur un autre bureau,
     # et rien ne semblait se passer. L'ancienne forme reste en repli.
-    if shutil.which("hyprctl"):
+    if which("hyprctl"):
+        import subprocess
         sel = r"class:^(chrome-127\.0\.0\.1.*|csvfab)$"
         lua = 'hl.dsp.focus({ window = "%s" })' % sel.replace("\\", "\\\\")
         r = subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, text=True)
@@ -225,7 +256,7 @@ def find_browser():
                 p = os.path.join(base, *rel)
                 if os.path.isfile(p):
                     return p
-        return shutil.which("chrome") or shutil.which("msedge")
+        return which("chrome") or which("msedge")
     if MACOS:
         # Le binaire lui-même, pas « open -a » : c'est lui qui accepte nos options.
         for app in ("Google Chrome", "Chromium", "Brave Browser", "Microsoft Edge"):
@@ -235,7 +266,7 @@ def find_browser():
                     return p
         return None
     for b in ("chromium", "brave", "google-chrome-stable", "chrome", "microsoft-edge"):
-        if shutil.which(b):
+        if which(b):
             return b
     return None
 
@@ -265,10 +296,9 @@ def open_window():
                  "--password-store=basic"]
         # uwsm-app place l'appli dans son propre scope systemd, comme toute
         # appli lancée sous Omarchy ; sans lui on se contente du détachement.
-        if shutil.which("uwsm-app"):
+        if which("uwsm-app"):
             args = ["uwsm-app", "--"] + args
-    subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, **detached())
+    spawn(args)
 
 
 def main(paths):

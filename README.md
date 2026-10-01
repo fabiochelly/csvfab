@@ -56,7 +56,7 @@ Files opened while the window is already there land in it as new tabs. A double-
 
 ## How it works
 
-`csvfab` starts a small local server (`server.py`, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` (with its `ui/` styles and scripts) in a Chromium app window. The page reads the CSV — its records found by a background worker, each row decoded on demand — and renders it; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
+`csvfab` starts a small local server (`server.py` and its `bridge/` package, Python standard library only, bound to `127.0.0.1` and protected by a per-session token) and opens `viewer.htm` (with its `ui/` styles and scripts) in a Chromium app window. The page reads the CSV — its records found by a background worker, each row decoded on demand — and renders it; the server reads and writes the files you open, atomically, and builds the Excel workbooks. The server stops by itself a few seconds after the last window closes.
 
 Settings and the browser profile live in `~/.local/state/csvfab` (Linux), `~/Library/Application Support/csvfab` (macOS) or `%LOCALAPPDATA%\csvfab` (Windows).
 

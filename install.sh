@@ -67,6 +67,8 @@ mkdir -p "$DEST/icons" "$BIN"
 for f in csvfab.py server.py viewer.htm papaparse.min.js LICENSE; do cp "$SRC/$f" "$DEST/"; done
 cp "$SRC"/icons/csvfab.svg "$SRC"/icons/csvfab-*.png "$DEST/icons/"
 cp -R "$SRC/ui" "$DEST/ui"                     # the interface: styles and scripts
+cp -R "$SRC/bridge" "$DEST/bridge"             # the local server's code (server.py is its entry point)
+rm -rf "$DEST/bridge"/__pycache__ "$DEST/bridge"/*/__pycache__   # a checkout's compiled files: rebuilt on first run
 chmod 755 "$DEST/csvfab.py"
 ln -sf "$DEST/csvfab.py" "$BIN/csvfab"          # the command is "csvfab"; the file keeps its .py
 

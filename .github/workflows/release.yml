@@ -16,8 +16,8 @@ jobs:
       - name: Check the version
         run: |
           V="${GITHUB_REF_NAME#v}"
-          grep -q "VERSION = \"$V\"" csvfab.py && grep -q "VERSION = \"$V\"" server.py \
-            || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION in csvfab.py / server.py"; exit 1; }
+          grep -q "VERSION = \"$V\"" bridge/config.py \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION in bridge/config.py"; exit 1; }
       - name: Build
         run: |
           V="${GITHUB_REF_NAME#v}"; mkdir dist

@@ -36,6 +36,7 @@ Source: "..\..\papaparse.min.js";  DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE";           DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\icons\csvfab.svg";  DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "..\..\ui\*";             DestDir: "{app}\ui";    Flags: ignoreversion recursesubdirs
+Source: "..\..\bridge\*";         DestDir: "{app}\bridge"; Flags: ignoreversion recursesubdirs; Excludes: "__pycache__"
 Source: "..\..\icons\csvfab.ico";  DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]

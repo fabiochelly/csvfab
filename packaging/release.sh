@@ -6,7 +6,7 @@ set -eu
 V="${1:?usage: packaging/release.sh X.Y.Z}"
 cd "$(dirname "$0")/.."
 [ -z "$(git status --porcelain)" ] || { echo "commit or stash your changes first" >&2; exit 1; }
-sed -i.orig "s/^VERSION = \".*\"/VERSION = \"$V\"/" csvfab.py server.py && rm -f csvfab.py.orig server.py.orig
+sed -i.orig "s/^VERSION = \".*\"/VERSION = \"$V\"/" bridge/config.py && rm -f bridge/config.py.orig
 git commit -qam "csvfab $V"
 git tag -a "v$V" -m "csvfab $V"
 git push && git push origin "v$V"
