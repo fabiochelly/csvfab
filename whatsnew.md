@@ -2,6 +2,10 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.11.1 · 1 October 2026
+
+- **A drawn ƒx sign:** a long italic f whose crossbar runs into a smaller x, one ligature, on the filter box's button, the computed column's *ƒx Functions* and the function picker; it takes each button's colour in every theme.
+
 ## 1.11.0 · 1 October 2026
 
 - **IDs and hashes in formulas:** `uuid()` (random), `uuid7()` (sorts in creation order), and `md5`, `sha1`, `sha256`, `sha3_256`, `sha3_512`, `blake2b`, `blake3` of a value, in hex as the usual command-line tools print them: `{Email}.lower().trim().sha256()`. An empty cell stays empty. A new *IDs & hashes* family in the ƒx picker.

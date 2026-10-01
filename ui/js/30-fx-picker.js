@@ -24,7 +24,7 @@ function openFxPicker(target, name) {
     if (!box) {
         box = document.createElement('div'); box.id = 'fxp';
         box.innerHTML = `<div class="fxp-box" role="dialog" aria-label="Functions">
-            <div class="cmdk-in-wrap"><span class="fxp-logo">ƒx</span>
+            <div class="cmdk-in-wrap"><span class="fxp-logo"><span class="fx-glyph" aria-hidden="true"></span></span>
                 <input id="fxp-in" type="text" spellcheck="false" autocomplete="off" placeholder="Search a function, a column, an operator…"></div>
             <div class="fxp-tabs" id="fxp-tabs"></div>
             <div class="fxp-body"><div class="fxp-list" id="fxp-list"></div><div class="fxp-det" id="fxp-det"></div></div>

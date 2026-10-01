@@ -915,7 +915,7 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .fx-lbl .fx-btn.fx-big { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px 0 10px; margin-bottom: 5px;
     font: 600 12.5px var(--ui); color: var(--accent-2); border-color: rgba(var(--accent-rgb), .55); background: rgba(var(--accent-rgb), .12); }
 .fx-lbl .fx-btn.fx-big:hover { color: var(--txt-strong); border-color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb), .22); }
-.fx-big .fx-g { font: italic 600 14px Georgia, 'Times New Roman', serif; }
+.fx-big .fx-glyph { width: 20px; height: 17px; }
 
 /* The ƒx button (filter box, computed column) and the function picker (30-…). */
 .fx-btn { flex: none; height: 32px; min-width: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--brd); background: var(--addon-bg);
@@ -936,7 +936,8 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .fxp-box { width: min(900px, calc(100vw - 32px)); height: min(580px, calc(100vh - 64px)); margin: 7vh auto 0; display: flex; flex-direction: column;
     background: var(--surf); border: 1px solid var(--brd-2); border-radius: 14px; box-shadow: 0 28px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(var(--accent-rgb), .08);
     overflow: hidden; font-family: var(--ui); animation: pop .16s ease-out; }
-.fxp-logo { flex: none; font: italic 600 17px Georgia, "Times New Roman", serif; color: var(--accent-2); }
+.fxp-logo { flex: none; display: inline-flex; color: var(--accent-2); }
+.fxp-logo .fx-glyph { width: 25px; height: 22px; }
 #fxp-in { flex: 1; height: 50px; background: transparent; border: none; outline: none; color: var(--txt-hi); font: 15px var(--ui); }
 #fxp-in::placeholder { color: var(--txt-dim); }
 .fxp-tabs { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--brd); overflow-x: auto; flex: none; }
@@ -990,3 +991,9 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 #tip { display: none; position: fixed; z-index: 3000; max-width: 420px; padding: 3px 7px; border-radius: 4px; pointer-events: none;
     background: var(--surf-2); border: 1px solid var(--brd); color: var(--txt); font: 11.5px/1.45 var(--ui); white-space: pre-line; overflow-wrap: anywhere; }
 #tip.open { display: block; }
+
+/* The ƒx sign (filter box, computed column, function picker): a long italic f whose crossbar runs
+   into the x, one ligature drawn as a mask so it takes the button's colour, hover included. */
+.fx-glyph { display: inline-block; flex: none; width: 22px; height: 19px; vertical-align: middle; background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 30' fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18.4 4.2C17.4 1.9 13.6 1.8 12.5 5.6C11.6 8.6 10.9 15.4 9.9 20.6C9 25.4 7.2 28.4 3.9 27.3' stroke-width='2.2'/%3E%3Cpath d='M7.6 13.30C10 13.00 13.5 13.00 16.5 13.10C18.4 13.15 20.39 13.31 21.12 15.60' stroke-width='2.2'/%3E%3Cpath d='M21.12 15.60L23.04 21.60C23.60 22.88 24.64 23.20 26.08 22.40' stroke-width='2.2'/%3E%3Cpath d='M26.64 14.00C25.60 13.12 24.56 13.52 23.60 15.12L20.80 20.24C20.16 21.44 19.12 22.56 17.60 21.92' stroke-width='2.2'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 30' fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18.4 4.2C17.4 1.9 13.6 1.8 12.5 5.6C11.6 8.6 10.9 15.4 9.9 20.6C9 25.4 7.2 28.4 3.9 27.3' stroke-width='2.2'/%3E%3Cpath d='M7.6 13.30C10 13.00 13.5 13.00 16.5 13.10C18.4 13.15 20.39 13.31 21.12 15.60' stroke-width='2.2'/%3E%3Cpath d='M21.12 15.60L23.04 21.60C23.60 22.88 24.64 23.20 26.08 22.40' stroke-width='2.2'/%3E%3Cpath d='M26.64 14.00C25.60 13.12 24.56 13.52 23.60 15.12L20.80 20.24C20.16 21.44 19.12 22.56 17.60 21.92' stroke-width='2.2'/%3E%3C/svg%3E") center / contain no-repeat; }
+.fx-btn { display: inline-flex; align-items: center; justify-content: center; }

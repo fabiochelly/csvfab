@@ -267,7 +267,7 @@
 
 <div id="modal-formula" class="modal-box">
     <h4>Computed column</h4>
-    <div class="fx-lbl"><span class="fld-label">Formula — <code>{Column}</code> is the row's cell, the rest is JavaScript</span><button class="fx-btn fx-big" onclick="openFxPicker('formula')" title="Every function, with examples run on your data"><span class="fx-g">ƒx</span>Functions</button></div>
+    <div class="fx-lbl"><span class="fld-label">Formula — <code>{Column}</code> is the row's cell, the rest is JavaScript</span><button class="fx-btn fx-big" onclick="openFxPicker('formula')" title="Every function, with examples run on your data"><span class="fx-glyph" aria-hidden="true"></span>Functions</button></div>
     <textarea id="fx-expr" class="bs-input" rows="3" spellcheck="false" placeholder='e.g.  {firstName} + " " + {lastName}' oninput="fxRefresh()"></textarea>
     <div class="chips" id="fx-cols"></div>
     <div class="fx-note">Numbers are written with a decimal comma in a <code>;</code> file, dates as yyyy-mm-dd.</div>
@@ -486,7 +486,7 @@
 
 
     <div class="input-group">
-        <button class="fx-btn" id="btn-fx" onclick="openFxPicker('search')" title="Insert a function">ƒx</button>
+        <button class="fx-btn" id="btn-fx" onclick="openFxPicker('search')" title="Insert a function" aria-label="Insert a function"><span class="fx-glyph" aria-hidden="true"></span></button>
         <input type="text" id="global-search" class="bs-input" placeholder="Filter..." autocomplete="off" title="All words, any order; &quot;quotes&quot; for a phrase">
     </div>
 
