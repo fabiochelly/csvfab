@@ -27,7 +27,7 @@
       <array><string>csv</string><string>tsv</string></array>
     </dict>
     <dict>
-      <key>CFBundleTypeName</key><string>Spreadsheet or JSON (converted to CSV)</string>
+      <key>CFBundleTypeName</key><string>Spreadsheet, JSON or SQLite database (converted to CSV)</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key>
@@ -35,9 +35,10 @@
         <string>org.openxmlformats.spreadsheetml.sheet</string>
         <string>org.openxmlformats.spreadsheetml.sheet.macroenabled</string>
         <string>public.json</string>
+        <string>public.database</string>
       </array>
       <key>CFBundleTypeExtensions</key>
-      <array><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string></array>
+      <array><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string><string>sqlite</string><string>sqlite3</string><string>db3</string></array>
     </dict>
   </array>
 </dict>

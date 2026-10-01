@@ -19,7 +19,7 @@
    a picked or dropped workbook is posted with pick=1, and the server answers
    with the list instead of a CSV only when there is a choice to make.
 ----------------------------------------------------------------*/
-const IMPORT_RE = /\.(xlsx|xlsm|json|jsonl|ndjson)$/i;
+const IMPORT_RE = /\.(xlsx|xlsm|json|jsonl|ndjson|sqlite|sqlite3|db|db3)$/i;   // a SQLite table is opened as its CSV too (server.py, sqlite_to_csv)
 /* A JSON file is asked about: its records flattened into a CSV beside it, or the file itself as
    raw text, line by line (33-…). true: as text; false: convert (or not an import at all); null: cancelled. */
 async function importAsText(name) {
@@ -28,7 +28,7 @@ async function importAsText(name) {
         { ok: 'Flatten to CSV', choices: ['Raw text'] });
     return r === 'Raw text' ? true : r === true ? false : null;
 }
-function importKind(name) { const m = String(name).match(IMPORT_RE); return m ? (/^json|^ndjson|^jsonl/i.test(m[1]) ? 'json' : 'xlsx') : null; }
+function importKind(name) { const m = String(name).match(IMPORT_RE); return m ? (/^json|^ndjson|^jsonl/i.test(m[1]) ? 'json' : /^(sqlite|db)/i.test(m[1]) ? 'sqlite' : 'xlsx') : null; }
 function importDelim() { return parseDefaults.delimiter || ';'; }
 const csvNameFor = (name, sheet) => name.replace(/\.[^.]+$/, '') + (sheet ? ' - ' + sheet.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim() : '') + '.csv';
 
@@ -36,18 +36,18 @@ const csvNameFor = (name, sheet) => name.replace(/\.[^.]+$/, '') + (sheet ? ' - 
 const sheetChoices = sheets => sheets.filter(s => s.filled && !s.hidden);
 /* Which sheet to convert: null when cancelled. A list of the sheets with data, their size
    from the workbook's own <dimension> when it gives one; ↑ ↓ and Enter, or a click. */
-function pickSheet(file, sheets) {
+function pickSheet(file, sheets, noun = 'sheet') {
     const list = sheetChoices(sheets), empty = sheets.filter(s => !s.filled).length, hidden = sheets.filter(s => s.filled && s.hidden).length;
     if (list.length <= 1) return Promise.resolve(list.length ? list[0].name : sheets[0].name);
     return new Promise(resolve => {
         const bg = document.createElement('div'); bg.id = 'dlg-bg';
         const box = document.createElement('div'); box.id = 'dlg'; box.className = 'sheet-dlg';
         box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
-        const left = [empty && `${empty} empty sheet${empty > 1 ? 's' : ''}`, hidden && `${hidden} hidden sheet${hidden > 1 ? 's' : ''}`].filter(Boolean).join(' and ');
-        box.innerHTML = `<div class="dlg-main">"${esc(file)}" has ${list.length} sheets with data</div>`
-            + `<div class="dlg-sub">Pick the one to open: it becomes a CSV of its own, named after the sheet.${left ? ` Not listed: ${left}.` : ''}</div>`
+        const left = [empty && `${empty} empty ${noun}${empty > 1 ? 's' : ''}`, hidden && `${hidden} hidden ${noun}${hidden > 1 ? 's' : ''}`].filter(Boolean).join(' and ');
+        box.innerHTML = `<div class="dlg-main">"${esc(file)}" has ${list.length} ${noun}s with data</div>`
+            + `<div class="dlg-sub">Pick the one to open: it becomes a CSV of its own, named after the ${noun}.${left ? ` Not listed: ${left}.` : ''}</div>`
             + `<div class="sheet-list">${list.map((s, i) => `<div class="sheet-opt${i ? '' : ' act'}" data-i="${i}"><span class="sn">${esc(s.name)}</span>`
-                + `<span class="sd">${s.dim ? `${fmt(s.dim[0])} row${s.dim[0] === 1 ? '' : 's'} × ${fmt(s.dim[1])} col${s.dim[1] === 1 ? '' : 's'}` : ''}</span></div>`).join('')}</div>`
+                + (s.view ? '<span class="sv">view</span>' : '') + `<span class="sd">${s.dim ? `${fmt(s.dim[0])} row${s.dim[0] === 1 ? '' : 's'} × ${fmt(s.dim[1])} col${s.dim[1] === 1 ? '' : 's'}` : ''}</span></div>`).join('')}</div>`
             + '<div class="modal-actions"><button class="btn btn-outline" data-r="0">Cancel</button><button class="btn" data-r="1">Open</button></div>';
         document.body.append(bg, box);
         let act = 0;
@@ -115,11 +115,13 @@ async function importPath(p) {
     const kind = importKind(baseName(p)), name = baseName(p), delim = importDelim();
     /* Several sheets with data: which one, before anything is written (its name is in the CSV's). */
     let sheet = null;
-    if (kind === 'xlsx') {
-        const r = await srvFetch(`/api/xlsx-sheets?path=${encodeURIComponent(p)}`);
+    if (kind === 'xlsx' || kind === 'sqlite') {
+        const r = await srvFetch(`/api/${kind === 'sqlite' ? 'sqlite-tables' : 'xlsx-sheets'}?path=${encodeURIComponent(p)}`);
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { uiAlert(`Could not read "${name}".\n\n${j.error || `HTTP ${r.status}`}`); return null; }
-        if (sheetChoices(j.sheets).length > 1) { sheet = await pickSheet(name, j.sheets); if (!sheet) return null; }
+        if (kind === 'sqlite' && !j.sheets.length) { uiAlert(`"${name}" has no table.`); return null; }
+        if (sheetChoices(j.sheets).length > 1) { sheet = await pickSheet(name, j.sheets, kind === 'sqlite' ? 'table' : 'sheet'); if (!sheet) return null; }
+        else if (kind === 'sqlite') sheet = (sheetChoices(j.sheets)[0] || j.sheets[0]).name;   // a database's CSV is always named after its table
     }
     const dest = pathDir(p) + csvNameFor(name, sheet);
     let exists = true;
@@ -133,8 +135,8 @@ async function importPath(p) {
     setStats(`Converting ${name}…`); startProgress();
     try {
         let j;
-        if (kind === 'xlsx') {
-            const r = await srvFetch(`/api/xlsx2csv?src=${encodeURIComponent(p)}&dest=${encodeURIComponent(dest)}&delim=${encodeURIComponent(delim)}${sheet ? '&sheet=' + encodeURIComponent(sheet) : ''}${exists ? '&backup=1' : ''}`, { method: 'POST' });
+        if (kind === 'xlsx' || kind === 'sqlite') {
+            const r = await srvFetch(`/api/${kind}2csv?src=${encodeURIComponent(p)}&dest=${encodeURIComponent(dest)}&delim=${encodeURIComponent(delim)}${sheet ? '&sheet=' + encodeURIComponent(sheet) : ''}${exists ? '&backup=1' : ''}`, { method: 'POST' });
             j = await r.json().catch(() => ({}));
             if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
         } else {
@@ -155,7 +157,8 @@ async function importPath(p) {
     }
 }
 function importNote(from, to, j) {
-    return `${from} → ${to}: ${fmt(j.rows || 0)} rows` + (j.sheet ? `, sheet "${j.sheet}"` : '') + (j.others ? ` (${j.others} other sheet${j.others > 1 ? 's' : ''} with data not converted)` : '')
+    const noun = j.table ? 'table' : 'sheet';
+    return `${from} → ${to}: ${fmt(j.rows || 0)} rows` + (j.sheet ? `, sheet "${j.sheet}"` : '') + (j.table ? `, table "${j.table}"` : '') + (j.others ? ` (${j.others} other ${noun}${j.others > 1 ? 's' : ''} with data not converted)` : '')
         + (j.cols ? `, ${fmt(j.cols)} columns` : '') + '.';
 }
 
@@ -164,19 +167,20 @@ function importNote(from, to, j) {
 async function convertFile(file) {
     const kind = importKind(file.name);
     if (kind === 'json') { const { text, rows, cols } = jsonToCsv(await file.text(), importDelim()); return { blob: new Blob([text], { type: 'text/csv' }), info: { rows, cols }, sheet: null }; }
-    if (!SRV) throw new Error('converting a workbook needs the local bridge — start the app with csvfab (or ./serve.sh)');
-    const url = `/api/xlsx2csv?delim=${encodeURIComponent(importDelim())}`;
+    if (!SRV) throw new Error(`converting a ${kind === 'sqlite' ? 'database' : 'workbook'} needs the local bridge — start the app with csvfab (or ./serve.sh)`);
+    const url = `/api/${kind}2csv?delim=${encodeURIComponent(importDelim())}`;
     let r = await srvFetch(url + '&pick=1', { method: 'POST', body: file }), sheet = null;
     if (r.ok && (r.headers.get('Content-Type') || '').startsWith('application/json')) {   // a choice to make: the list, nothing converted
         const j = await r.json();
         endProgress();
-        sheet = await pickSheet(file.name, j.choose);
+        sheet = await pickSheet(file.name, j.choose, kind === 'sqlite' ? 'table' : 'sheet');
         if (!sheet) return null;
         startProgress();
         r = await srvFetch(url + '&sheet=' + encodeURIComponent(sheet), { method: 'POST', body: file });
     }
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `HTTP ${r.status}`); }
-    return { blob: await r.blob(), info: JSON.parse(r.headers.get('X-Xlsx-Info') || '{}'), sheet };
+    const info = JSON.parse(r.headers.get('X-Xlsx-Info') || '{}');
+    return { blob: await r.blob(), info, sheet: sheet || (kind === 'sqlite' ? info.table : null) };   // a database's CSV is always named after its table
 }
 /* A handle (picker, drop): the CSV goes beside the source when its folder is
    known, else wherever a save picker says; a dismissed picker still opens the

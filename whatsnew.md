@@ -2,6 +2,13 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.12.0 · 1 October 2026
+
+- **Duplicates that sound alike.** A *Sounds like* cleaning in the duplicates dialog: a Metaphone adapted to French groups Dupont and Dupond, Lefebvre and Lefèvre, Philippe and Filippe, Schmitt and Schmidt, and a spelling tolerance (very close, close, loose) keeps apart what only sounds alike (Martin and Martine). Also as formula helpers: `{Nom}.phonetic()` and `similarity(a, b)`.
+- **SQLite databases.** Open a `.sqlite`, `.sqlite3`, `.db` or `.db3` file: pick a table (or a view), it opens as a CSV beside the database. Save any tab as a SQLite database of one table, its columns typed from their values (postal codes and phone numbers stay text).
+- **Instant reopening of big files.** From 50 MB, the file's line index is kept, and reopening the same file skips reading it through (a 147 MB file: 460 → 215 ms; much more on files of several GB). Entries unused for 30 days, or past 1 GB in all, are cleaned up; the palette can clear them.
+- **Follow a log as it grows (tail -f).** On a raw text file, *Follow* in the status bar adds new lines as they are written, keeps the view at the end and applies the filters to them; it pauses while you have edits pending.
+
 ## 1.11.1 · 1 October 2026
 
 - **A drawn ƒx sign:** a long italic f whose crossbar runs into a smaller x, one ligature, on the filter box's button, the computed column's *ƒx Functions* and the function picker; it takes each button's colour in every theme.

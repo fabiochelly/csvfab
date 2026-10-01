@@ -92,6 +92,9 @@ const FX = {
     ifs: (...a) => { for (let i = 0; i + 1 < a.length; i += 2) if (a[i]) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; },
     cases: (v, ...a) => { const x = cellStr(v); for (let i = 0; i + 1 < a.length; i += 2) if (x === cellStr(a[i])) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; },
     /* IDs and hashes (35-hash.js): hex of the UTF-8 text, an empty cell stays empty. */
+    /* French Metaphone and spelling similarity (31-…, the duplicates' "Sounds like"). */
+    phonetic: s => dupSound(cellStr(s)).code,
+    similarity: (a, b) => similarity(cellStr(a), cellStr(b)),
     uuid: () => uuid4(),
     uuid7: () => uuid7(),
     md5: fxHashOf(md5Hex),
@@ -110,7 +113,7 @@ const FX = {
    non-enumerable; the app's own code never reads these names on a text, a number or a date. */
 const FX_ON_TEXT = ['num', 'date', 'days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate', 'round', 'fixed', 'abs',
     'upper', 'lower', 'capitalize', 'slug', 'len', 'left', 'right', 'mid', 'pad', 'extract', 'contains', 'matches', 'empty', 'isEmail', 'isPhone', 'isNumber', 'isDate',
-    'firstNumber', 'digits', 'cases', 'md5', 'sha1', 'sha256', 'sha3_256', 'sha3_512', 'blake2b', 'blake3'];
+    'firstNumber', 'digits', 'cases', 'md5', 'sha1', 'sha256', 'sha3_256', 'sha3_512', 'blake2b', 'blake3', 'phonetic', 'similarity'];
 const FX_ON_NUMBER = ['round', 'fixed', 'abs', 'cases'];   // cases: {Date}.month().cases(1, "January", …)
 const FX_ON_DATE = ['days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate'];
 const FX_METHOD = new Set(FX_ON_TEXT);
@@ -182,6 +185,8 @@ const FX_DOC = [
     { f: 'Text', n: 'pad', s: 'pad(s, n, "0")', d: 'Filled on the left up to n characters.', ex: [['{N}.pad(8, "0")', 'eight digits']] },
     { f: 'Text', n: 'firstNumber', s: 'firstNumber(s)', d: 'The first number in the text, as written: "68 - Rhin" and "Rhin 68" give 68, "01 - Ain" keeps 01; a decimal part kept. Empty when there is none.', ex: [['{T}.firstNumber()', 'first number'], ['{T}.firstNumber().num() > 50', 'as a number']] },
     { f: 'Text', n: 'digits', s: 'digits(s)', d: 'Every digit of the text, the rest removed: "06 12-34" gives 061234.', ex: [['{T}.digits()', 'digits only']] },
+    { f: 'Text', n: 'phonetic', s: 'phonetic(s)', d: 'The sound of the text (Metaphone adapted to French): Dupont and Dupond give the same code, as Lefebvre and Lefèvre.', ex: [['{T}.phonetic()', 'phonetic code']] },
+    { f: 'Text', n: 'similarity', s: 'similarity(a, b)', d: 'How alike two texts are, from 0 to 1 (1 − edit distance / the longer length).', ex: [['{T}.similarity({T2})', 'similarity'], ['{T}.slug().similarity({T2}.slug()) > 0.8', 'nearly the same']] },
     { f: 'Text', n: 'extract', pick: 'email', s: 'extract(s, regex, group)', d: 'The part a regular expression captures (group 1 by default).', ex: [['{T}.extract("@(.+)$")', 'e-mail domain']] },
     { f: 'Text', n: 'replace', s: 'replace(s, regex, by)', d: 'Every match of a regular expression replaced; $1… reuse its groups.', ex: [['replace({T}, "\\s+", "-")', 'spaces to dashes']] },
     { f: 'Tests', n: 'contains', s: 'contains(s, part)', d: 'True when the text contains the part, ignoring case and accents.', ex: [['{T}.contains("a")', 'contains an a']] },

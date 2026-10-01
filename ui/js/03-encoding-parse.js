@@ -122,7 +122,11 @@ async function parseTab(t) {
         if (t.stamp) t.stamp.fp = await fingerprint(src.bytes);   // before the bytes go to the worker
         const phases = { transcode: 'Converting', scan: 'Reading' };
         let shown = '';
-        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter, lines: t.delimiter === '\n' }, (p, ph) => {
+        /* A big file gets its scan kept for the next opening (21-…, REOPEN CACHE), keyed by what
+           would make it wrong: the bytes (size, date, fingerprint) and how they are read. */
+        const cache = src.bytes.byteLength >= IDX_MIN && t.stamp && t.stamp.fp
+            ? { key: [src.bytes.byteLength, t.stamp.mtime, t.stamp.fp, t.encoding || '', t.delimiter || '', t.delimiter === '\n' ? 'lines' : ''].join('|'), name: t.name } : null;
+        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter, lines: t.delimiter === '\n', cache }, (p, ph) => {
             if (!active()) return;
             if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
             setProgress(p);

@@ -199,7 +199,14 @@ async function loadBase(ab, o, onProgress) {
     const enc = o.encoding || sn.enc;
     const bom = sn.bom && sn.enc === enc ? (enc === 'utf-8' ? 3 : 2) : 0;
     const { delim, eol } = o.lines ? textEol(u8, bom) : o.delim ? { delim: o.delim, eol: o.eol || '\n' } : sniffFormat(u8, enc, bom, o.delimiter);
-    const m = await runScan({ buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines }, onProgress);
+    /* A big file read before, unchanged (o.cache: its key, 03-…): the scan's result comes back from
+       the reopen cache instead of a pass over every byte (REOPEN CACHE below). */
+    const hit = o.cache && !enc.startsWith('utf-16') ? idxUse(await idxGet(o.cache.key), u8, bom) : null;
+    const m = hit || await runScan({ buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines }, onProgress);
+    if (o.cache && !hit && !m.enc.startsWith('utf-16')) {
+        const keep = { starts: m.starts, chars: m.chars, odd: m.odd, n: m.n, width: m.width, qerr: m.qerr, enc: m.enc };
+        setTimeout(() => idxPut(o.cache.key, o.cache.name, keep), 0);   // after the tab shows; the arrays are copied when stored
+    }
     const base = {
         u8: new Uint8Array(m.buf, m.off, m.len), starts: m.starts, chars: m.chars, n: m.n, width: m.width, qerr: m.qerr,
         enc: m.enc, bom: bom > 0, delim, eol, transcoded: m.enc.startsWith('utf-16'), lines: !!o.lines,
@@ -212,8 +219,92 @@ async function loadBase(ab, o, onProgress) {
         for (let k = 0; k < m.odd.length; k += 2) { base.odd.set(m.odd[k], m.odd[k + 1]); base.irr[m.odd[k]] = 1; }
     }
     base.Row = makeRowClass(base);
+    base.fromCache = !!hit;
     return base;
 }
+
+/* ---------------------------------------------------------------
+   REOPEN CACHE
+   Reading a file is mostly the scan: every byte visited to find the
+   records (and, for UTF-8, to validate and count characters) — ~5 s for
+   1 GB. Its result is small next to the file (8–16 bytes a record), so
+   for a file of IDX_MIN bytes or more it is kept in IndexedDB
+   (csvfab-index: 'data' the arrays, 'meta' {at, bytes, name} so the
+   sweep reads no array), keyed by size, mtime, fingerprint (03-…:
+   SHA-256 of the bytes, or of their first, middle and last MB past
+   64 MB) and the reading options — any change, and the key no longer
+   matches. Reopening the same file then skips the scan. Checked before
+   use (idxUse: same length, offsets in order at both ends); a cache that
+   does not fit is ignored. UTF-16 files are not cached: their scan works
+   on a transcoded copy. idxSweep(), soon after start: entries unused for
+   IDX_MAX_AGE go, then the least recently used until IDX_MAX_BYTES.
+----------------------------------------------------------------*/
+const IDX_MIN = 50 << 20, IDX_MAX_BYTES = 1 << 30, IDX_MAX_AGE = 30 * 86400e3;
+function idxDb() {
+    return idxDb.p || (idxDb.p = new Promise((res, rej) => {
+        const r = indexedDB.open('csvfab-index', 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore('data'); r.result.createObjectStore('meta'); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }).catch(() => null));
+}
+async function idxGet(key) {
+    const db = await idxDb(); if (!db) return null;
+    return new Promise(res => {
+        try {
+            const tx = db.transaction(['data', 'meta'], 'readwrite'), g = tx.objectStore('data').get(key);
+            g.onsuccess = () => {
+                const v = g.result || null;
+                if (v) tx.objectStore('meta').put({ at: Date.now(), bytes: v.bytes, name: v.name }, key);   // used: kept by the sweep
+                res(v);
+            };
+            g.onerror = () => res(null);
+        } catch (e) { res(null); }
+    });
+}
+async function idxPut(key, name, m) {
+    const db = await idxDb(); if (!db) return;
+    const bytes = m.starts.byteLength + (m.chars ? m.chars.byteLength : 0) + m.odd.byteLength;
+    try {
+        const tx = db.transaction(['data', 'meta'], 'readwrite');
+        tx.objectStore('data').put({ ...m, bytes, name }, key);
+        tx.objectStore('meta').put({ at: Date.now(), bytes, name }, key);
+        tx.oncomplete = () => idxSweep();
+    } catch (e) { /* quota, private mode: a cache, nothing lost */ }
+}
+/* A cached scan, shaped as the worker's answer for these bytes — or null when it cannot be theirs. */
+function idxUse(v, u8, bom) {
+    if (!v || !v.starts || v.n == null) return null;
+    const len = u8.length - bom, s = v.starts;
+    if (s.length !== v.n + 1 || s[v.n] !== len || (v.n && (s[0] !== 0 || s[v.n - 1] >= len))) return null;
+    if (v.chars && v.chars.length !== v.n + 1) return null;
+    return { buf: u8.buffer, off: u8.byteOffset + bom, len, enc: v.enc, starts: s, chars: v.chars || null, n: v.n, width: v.width, odd: v.odd || new Uint32Array(0), qerr: v.qerr || 0 };
+}
+async function idxSweep() {
+    const db = await idxDb(); if (!db) return;
+    try {
+        const tx = db.transaction(['data', 'meta'], 'readwrite'), meta = tx.objectStore('meta'), data = tx.objectStore('data');
+        const all = [];
+        const cur = meta.openCursor();
+        cur.onsuccess = () => {
+            const c = cur.result;
+            if (c) { all.push({ key: c.key, ...c.value }); c.continue(); return; }
+            const now = Date.now(); let total = 0;
+            all.sort((a, b) => b.at - a.at);                     // most recent first
+            for (const e of all) {
+                if (now - e.at > IDX_MAX_AGE || total + e.bytes > IDX_MAX_BYTES) { meta.delete(e.key); data.delete(e.key); }
+                else total += e.bytes;
+            }
+        };
+    } catch (e) { }
+}
+/* The palette's "Clear the reopen cache". */
+async function idxClear() {
+    const db = await idxDb(); if (!db) return;
+    const tx = db.transaction(['data', 'meta'], 'readwrite');
+    tx.objectStore('data').clear(); tx.objectStore('meta').clear();
+    tx.oncomplete = () => toast('Reopen cache cleared: big files will be scanned again at their next opening.', { kind: 'ok' });
+}
+setTimeout(idxSweep, 10000);   // old entries go soon after start, out of the way of the first file
 
 /* Record b as text, its line break left out.
    A TextDecoder call costs ~1 µs whatever its size: decoding a million

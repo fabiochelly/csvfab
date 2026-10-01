@@ -12,8 +12,8 @@
 const FSA = typeof window.showOpenFilePicker === 'function';
 const CSV_TYPES = [{ description: 'CSV / text tables', accept: { 'text/csv': ['.csv', '.tsv', '.txt'] } }];   // .txt opens as raw text unless switched to a table (33-…)
 /* Opening also takes workbooks and JSON, converted to a CSV beside them (27-import.js); saving never offers those. */
-const OPEN_TYPES = CSV_TYPES.concat([{ description: 'Excel workbook / JSON (converted to CSV)', accept: {
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx', '.xlsm'], 'application/json': ['.json', '.jsonl', '.ndjson'] } }]);
+const OPEN_TYPES = CSV_TYPES.concat([{ description: 'Excel workbook / JSON / SQLite database (converted to CSV)', accept: {
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx', '.xlsm'], 'application/json': ['.json', '.jsonl', '.ndjson'], 'application/vnd.sqlite3': ['.sqlite', '.sqlite3', '.db', '.db3'] } }]);
 let backupDir = null;        // FileSystemDirectoryHandle used for .bak copies
 let backupOptOut = false;    // user declined to pick one for this session
 

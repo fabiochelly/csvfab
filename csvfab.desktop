@@ -10,6 +10,6 @@ Icon=csvfab
 Terminal=false
 Categories=Office;Spreadsheet;
 Keywords=csv;tsv;xlsx;json;spreadsheet;table;
-MimeType=text/csv;text/tab-separated-values;text/comma-separated-values;application/csv;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/json;
+MimeType=text/csv;text/tab-separated-values;text/comma-separated-values;application/csv;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/json;application/vnd.sqlite3;application/x-sqlite3;
 StartupWMClass=chrome-127.0.0.1__-Default
 StartupNotify=true

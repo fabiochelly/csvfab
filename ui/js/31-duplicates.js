@@ -29,8 +29,13 @@ const DUP_FNS = [
     ['digits', 'Digits only', v => v.replace(/\D+/g, '')],
     ['phone', 'Phone number', v => { const x = v.replace(/\p{Cf}/gu, '').trim(); return x ? (parsePhoneCell(x, '33') || x.replace(/\D+/g, '')) : ''; }],
     ['email', 'E-mail', v => v.trim().toLowerCase().replace(/^mailto:/, '')],
+    ['sound', 'Sounds like', v => dupSound(v).code],   // Metaphone adapted to French + a spelling tolerance (FRENCH METAPHONE below)
     ['fx', 'Formula on v…', null]
 ];
+/* "Sounds like": rows share a key when their phonetic codes match AND their spellings are close
+   enough — the code alone groups too widely (Gauthier, Goethe), the spelling alone misses
+   Philippe / Filippe. The tolerance is the least similarity of the two transcriptions. */
+const DUP_TOL = [[.9, 'Very close'], [.8, 'Close'], [.7, 'Loose']];
 const DUP_FN = Object.fromEntries(DUP_FNS.map(([k, , f]) => [k, f]));
 const dupLoose = DUP_FN.loose;
 
@@ -61,7 +66,7 @@ function dupCompile(t, spec) {
                 if (!String(fd.expr || '').trim()) f = dupLoose;
                 else { const x = dupFormula(fd.expr); if (x.error) return { error: `${fd.col}: ${x.error}` }; f = x.fn; }
             }
-            fields.push({ c, f });
+            fields.push(fd.fn === 'sound' ? { c, f, sound: true, tol: +fd.tol || .8 } : { c, f });
         }
         if (fields.length) keys.push(fields);
     }
@@ -91,22 +96,99 @@ function dupUnion(t, spec) {
         }
         const d = few ? null : r.data;
         for (let k = 0; k < keys.length; k++) {
-            let key = '', ok = true;
-            for (const { c, f } of keys[k]) {
-                let p; try { p = f(cellStr(few ? cellOf(r, c) : d[c])); } catch (e) { p = ''; }
+            let key = '', ok = true, said = null;
+            for (const fd of keys[k]) {
+                const v = cellStr(few ? cellOf(r, fd.c) : d[fd.c]);
+                let p; try { p = fd.f(v); } catch (e) { p = ''; }
                 if (!p) { ok = false; break; }                     // a field empty once cleaned: this key does not count
                 key += '\u0001' + p;
+                if (fd.sound) (said || (said = [])).push(dupSound(v).trans);
             }
             if (!ok) continue;
-            const j = seen[k].get(key);
-            if (j === undefined) seen[k].set(key, i);
-            else { union(i, j); if (!tied[k][j]) { tied[k][j] = 1; hits[k]++; } if (!tied[k][i]) { tied[k][i] = 1; hits[k]++; } }
+            let j;
+            if (said) {
+                /* Same phonetic codes: a row joins the first representative of the bucket whose spellings
+                   are all close enough, else becomes one (at most DUP_REPS a bucket: a code shared by
+                   thousands of different names is not worth comparing them all). */
+                const reps = seen[k].get(key);
+                if (!reps) { seen[k].set(key, [[i, said]]); continue; }
+                const tols = keys[k].filter(fd => fd.sound).map(fd => fd.tol);
+                const hit = reps.find(([, t2]) => t2.every((x, q) => similarity(x, said[q]) >= tols[q]));
+                if (!hit) { if (reps.length < DUP_REPS) reps.push([i, said]); continue; }
+                j = hit[0];
+            } else {
+                j = seen[k].get(key);
+                if (j === undefined) { seen[k].set(key, i); continue; }
+            }
+            union(i, j); if (!tied[k][j]) { tied[k][j] = 1; hits[k]++; } if (!tied[k][i]) { tied[k][i] = 1; hits[k]++; }
         }
     });
     const root = new Int32Array(n), size = new Int32Array(n);
     for (let i = 0; i < n; i++) { root[i] = find(i); size[root[i]]++; }
     return { root, size, hits };
 }
+const DUP_REPS = 64;
+
+/* ---- FRENCH METAPHONE ------------------------------------------------
+   A value's sound, for "Sounds like" (and the phonetic() / similarity()
+   helpers of formulas): Metaphone's principle on French spelling — the
+   user's choice: it casts wider than the French phonex / soundex family,
+   and the spelling distance checked afterwards removes the false
+   positives. Per word of the slug (no case, no accents, no symbols):
+   1. a French transcription (trans, vowels kept — what the distance
+      compares): ph→f, th→t, ch→k before r or l, sch/sh/ch→one sound, ç→s,
+      qu/q/ck→k, c and g softened before e/i/y, w→v, z→s, y→i, nasals
+      (an/en, in/ain/un, on) one sound each, a silent l in ault (Thibault, Gaultier), eau/au→o, ou→u, ai/ei→e,
+      bv→v, doubled letters once, silent final d/t/s/x/z/p and mute e
+      dropped;
+   2. Metaphone's merges on it (code — the key): voiced and voiceless
+      pairs as one (d=t, v=f, g=k, z=s), every nasal as N, ch as X, an
+      initial vowel as A, the other vowels dropped.
+   Dupont / Dupond / Dupon, Lefebvre / Lefèvre / Lefeuvre, Philippe /
+   Filippe, Christophe / Kristof, Schmitt / Schmidt, Meyer / Mayer share
+   their code and spelling; Martin / Martine and Moreau / Meyer share a
+   code but not the spelling: kept apart by the distance. */
+function dupSound(v) {
+    const c = dupSound.cache || (dupSound.cache = new Map());
+    let out = c.get(v); if (out) return out;
+    const words = slugify(String(v).replace(/ç/gi, 's')).split(' ').filter(Boolean).map(frSound);   // ç is s: the slug would make it a c, read k
+    out = { trans: words.map(w => w.trans).join(' '), code: words.map(w => w.code).join(' ') };
+    if (c.size > 50000) c.clear();
+    c.set(v, out);
+    return out;
+}
+function frSound(w) {
+    let s = w;
+    s = s.replace(/ph/g, 'f').replace(/th/g, 't').replace(/ch(?=[rl])/g, 'k').replace(/s?ch|sh/g, 'S').replace(/ck|cq|qu|q/g, 'k');   // chr, chl: Christophe, Chloé
+    s = s.replace(/gu(?=[eiy])/g, 'G').replace(/ge(?=[aou])/g, 'j').replace(/g(?=[eiy])/g, 'j').replace(/G/g, 'g');   // gu before e/i stays hard: Guillaume
+    s = s.replace(/c(?=[eiy])/g, 's').replace(/c/g, 'k');
+    s = s.replace(/w/g, 'v').replace(/z/g, 's').replace(/y/g, 'i').replace(/x$/, '').replace(/x/g, 'ks').replace(/h/g, '');
+    s = s.replace(/(ain|ein|aim|eim)(?=[^aeioumn]|$)/g, '1').replace(/(in|im|un|um)(?=[^aeioumn]|$)/g, '1')
+        .replace(/(an|am|en|em)(?=[^aeioumn]|$)/g, '2').replace(/(on|om)(?=[^aeioumn]|$)/g, '3');
+    s = s.replace(/aul(?=[tdx])/g, 'o').replace(/eau|au/g, 'o').replace(/ou/g, 'u').replace(/ai|ei/g, 'e').replace(/oeu|eu/g, 'e');
+    s = s.replace(/bv/g, 'v').replace(/(.)\1+/g, '$1');
+    for (let k = 0; k < 2 && s.length > 2 && /[dtsxzp]$/.test(s); k++) s = s.slice(0, -1);   // silent final letters
+    if (s.length > 2 && /e$/.test(s)) s = s.slice(0, -1);                                       // final mute e
+    /* Metaphone's merges: the key casts wide, the spelling distance narrows it. */
+    let m = s.replace(/[123]/g, 'N').replace(/S/g, 'X').replace(/d/g, 't').replace(/v/g, 'f').replace(/g/g, 'k').replace(/z/g, 's');
+    m = (/^[aeiou]/.test(m) ? 'A' : m[0]) + m.slice(1).replace(/[aeiou]/g, '');
+    return { trans: s, code: m.replace(/(.)\1+/g, '$1').toUpperCase() };
+}
+/* Similarity of two texts, 0 to 1: 1 − edit distance / the longer length (Levenshtein). */
+function similarity(a, b) {
+    a = String(a ?? ''); b = String(b ?? '');
+    if (a === b) return 1;
+    const n = a.length, m = b.length; if (!n || !m) return 0;
+    let prev = new Array(m + 1), cur = new Array(m + 1);
+    for (let j = 0; j <= m; j++) prev[j] = j;
+    for (let i = 1; i <= n; i++) {
+        cur[0] = i;
+        for (let j = 1; j <= m; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1));
+        [prev, cur] = [cur, prev];
+    }
+    return 1 - prev[m] / Math.max(n, m);
+}
+
 /* Which rows a deletion keeps: one per group, its first (or last) row. */
 function dedupeKeep(t, spec, last) {
     const u = dupUnion(t, spec); if (!u || u.error) return u;
@@ -241,7 +323,8 @@ function renderDedupe() {
         + (d.keys.length > 1 ? `<button class="dk-x" onclick="dedupeEdit(${ki}, -1, 'dropKey')" title="Remove this key">×</button>` : '') + '</div>'
         + k.fields.map((f, fi) => `<div class="dk-field">`
             + `<select class="bs-input bs-select dk-col" onchange="dedupeEdit(${ki}, ${fi}, 'col', this.value)">${colOpts(f.col)}</select>`
-            + `<select class="bs-input bs-select dk-fn" onchange="dedupeEdit(${ki}, ${fi}, 'fn', this.value)">${fnOpts(f.fn)}</select>`
+            + `<select class="bs-input bs-select dk-fn" onchange="dedupeEdit(${ki}, ${fi}, 'fn', this.value)"${f.fn === 'sound' ? ' title="Same sound (Metaphone adapted to French: Dupont = Dupond, Lefebvre = Lefèvre), then spellings close enough"' : ''}>${fnOpts(f.fn)}</select>`
+            + (f.fn === 'sound' ? `<select class="bs-input bs-select dk-tol" onchange="dedupeEdit(${ki}, ${fi}, 'tol', this.value)" title="How close the spellings must be, once the sounds match">${DUP_TOL.map(([v, l]) => `<option value="${v}"${v === (+f.tol || .8) ? ' selected' : ''}>${l}</option>`).join('')}</select>` : '')
             + (f.fn === 'fx' ? `<input type="text" class="bs-input dk-expr" spellcheck="false" autocomplete="off" placeholder="firstNumber(v)" value="${esc(f.expr || '')}" oninput="dedupeEdit(${ki}, ${fi}, 'expr', this.value)" title="v is the cell's text, e.g. left(slug(v), 5)">` : '')
             + `<button class="dk-x" onclick="dedupeEdit(${ki}, ${fi}, 'drop')" title="Remove this field">×</button></div>`).join('')
         + `<button class="dk-add" onclick="dedupeEdit(${ki}, -1, 'add')">+ Field</button></div>`).join('');
@@ -255,6 +338,7 @@ function dedupeEdit(ki, fi, what, v) {
     else if (what === 'drop') { d.keys[ki].fields.splice(fi, 1); if (!d.keys[ki].fields.length && d.keys.length > 1) d.keys.splice(ki, 1); }
     else if (what === 'col') { const f = d.keys[ki].fields[fi]; Object.assign(f, dedupeNewField(t, t.headers.indexOf(v)), f.fn === 'fx' ? { fn: 'fx', expr: f.expr } : {}); }
     else if (what === 'fn') d.keys[ki].fields[fi].fn = v;
+    else if (what === 'tol') d.keys[ki].fields[fi].tol = +v;
     else if (what === 'expr') { d.keys[ki].fields[fi].expr = v; return dedupeNoteSoon(); }   // typing: no redraw, the field keeps its focus
     renderDedupe();
 }

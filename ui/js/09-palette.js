@@ -36,6 +36,7 @@ function paletteCommands() {
     add('File', 'Save', () => saveInPlace(), 'Ctrl+S', loaded);
     add('File', 'Save as… — another name, delimiter, encoding or Excel', openSaveModal, '', loaded);
     add('File', 'Save as Excel workbook', () => saveExcel(), '', loaded);
+    add('File', 'Save as SQLite database — one table, typed columns', () => saveExcel(null, 'sqlite'), '', loaded);
     add('File', 'Extract the rows shown to a new file', extractFiltered, '', loaded);
     add('File', 'Discard all edits and reload from disk', discardEdits, '', loaded && isDirty(t));
     add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
@@ -77,6 +78,8 @@ function paletteCommands() {
     add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
     add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
     add('Help', 'Keyboard shortcuts', openKeys, 'F1');
+    add('View', t && t.tail ? 'Stop following the file' : 'Follow the end of the file (tail -f) — new lines as they are written', () => toggleTail(), t && t.tail ? '✓' : '', loaded && !!t.lang);
+    add('View', 'Clear the reopen cache — big files are scanned again', idxClear);
     add('View', 'Monospace font…' + (monoPick() ? ` — ${monoPick() === 'monospace' ? 'system monospace' : monoPick()}` : ''), openFontDialog);
     add('Edit', 'Find — step through the matches without filtering', () => { if (!findBarOpen()) toggleSRBar(); document.getElementById('sr-find').focus(); }, 'Ctrl+F', loaded);
     THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));

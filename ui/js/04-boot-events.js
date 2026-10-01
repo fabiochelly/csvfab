@@ -54,7 +54,7 @@ window.addEventListener('drop', (e) => {
             for (const d of dirs) {
                 const inner = [];
                 for await (const [name, h] of d.entries())
-                    if (h.kind === 'file' && /\.(csv|tsv|txt|log|xlsx|xlsm|json|jsonl|ndjson)$/i.test(name)) inner.push(h);
+                    if (h.kind === 'file' && /\.(csv|tsv|txt|log|xlsx|xlsm|json|jsonl|ndjson|sqlite|sqlite3|db3)$/i.test(name)) inner.push(h);
                 inner.sort((a, b) => a.name.localeCompare(b.name));
                 if (inner.length) await addHandles(inner, d);
             }

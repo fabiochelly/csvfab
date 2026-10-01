@@ -30,9 +30,10 @@ csvfab                  # open the window
 csvfab data.csv more.tsv
 csvfab export.xlsx      # converted to export.csv beside it, which is what opens
 csvfab server.log app.py  # not a table: opened as raw text, one line per row, coloured
+csvfab data.sqlite        # a table of a SQLite database, as a CSV beside it
 ```
 
-A file that is not a table (a log, code, configuration) opens in *Raw text* mode: one line per row, every space kept, syntax colours from the theme's VS Code palette, Ln / Col in the status bar, saved back byte for byte. The delimiter menu of the status bar switches between raw text and a table. A JSON file asks whether to flatten its records into a CSV or open it as text.
+A file that is not a table (a log, code, configuration) opens in *Raw text* mode: one line per row, every space kept, syntax colours from the theme's VS Code palette, Ln / Col in the status bar, saved back byte for byte. The delimiter menu of the status bar switches between raw text and a table. A JSON file asks whether to flatten its records into a CSV or open it as text. On a raw text file, *Follow* in the status bar shows new lines as they are written, as `tail -f`.
 
 Files opened while the window is already there land in it as new tabs. A double-click on a column's resize handle fits it to its content.
 

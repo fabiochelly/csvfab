@@ -91,7 +91,7 @@ const DELIMS = [
 ];
 
 function currentDelim(t) { return t.delimiter || t.detectedDelim || ';'; }
-function stemOf(name) { return name.replace(/\.(csv|tsv|txt|xlsx)$/i, ''); }
+function stemOf(name) { return name.replace(/\.(csv|tsv|txt|xlsx|sqlite)$/i, ''); }
 function xlsxName(t) { return stemOf(t.name) + '.xlsx'; }
 function csvExt(t) { const m = t.name.match(/\.(csv|tsv|txt)$/i); return m ? m[0] : '.csv'; }
 function saveChoice() { const r = document.querySelector('input[name="save-fmt"]:checked'); return r ? r.value : ''; }
@@ -106,7 +106,8 @@ function openSaveModal() {
     document.getElementById('save-fmt').innerHTML = (cur === '\n' ? `<label class="col-label"><span><input type="radio" name="save-fmt" value="r" checked> Text file — lines as they are (current)</span><span class="k">¶</span></label>` : '')
         + DELIMS.map((d, i) =>
         `<label class="col-label"><span><input type="radio" name="save-fmt" value="d${i}" ${d.v === cur ? 'checked' : ''}> ${esc(d.label)}${d.v === cur ? ' (current)' : ''}</span><span class="k">${esc(d.shown)}</span></label>`).join('')
-        + '<label class="col-label"><span><input type="radio" name="save-fmt" value="x"> Excel workbook</span><span class="k">.xlsx</span></label>';
+        + '<label class="col-label"><span><input type="radio" name="save-fmt" value="x"> Excel workbook</span><span class="k">.xlsx</span></label>'
+        + '<label class="col-label"><span><input type="radio" name="save-fmt" value="q"> SQLite database — one table, typed columns</span><span class="k">.sqlite</span></label>';
     const curEnc = currentEnc(t);
     const encs = ENCODINGS.some(x => x[0] === curEnc) ? ENCODINGS : ENCODINGS.concat([[curEnc, encName(curEnc)]]);
     document.getElementById('save-enc').innerHTML = encs.map(([v, l]) =>
@@ -118,7 +119,8 @@ function openSaveModal() {
         /* The extension follows the format; the stem the user typed is kept. */
         const ext = (name.value.match(/\.[^.]*$/) || [''])[0];
         if (saveChoice() === 'x') name.value = stemOf(name.value) + '.xlsx';
-        else if (/^\.xlsx$/i.test(ext)) name.value = stemOf(name.value) + csvExt(t);
+        else if (saveChoice() === 'q') name.value = stemOf(name.value) + '.sqlite';
+        else if (/^\.(xlsx|sqlite)$/i.test(ext)) name.value = stemOf(name.value) + csvExt(t);
         updateSaveNote();
     });
     name.oninput = updateSaveNote;
@@ -132,13 +134,13 @@ function openSaveModal() {
 function updateSaveNote() {
     const t = T(); if (!t) return;
     const name = document.getElementById('save-name').value.trim(), c = saveChoice();
-    document.getElementById('save-enc-box').style.display = c === 'x' ? 'none' : '';   // a workbook has no text encoding
+    document.getElementById('save-enc-box').style.display = c === 'x' || c === 'q' ? 'none' : '';   // a workbook or a database has no text encoding
     const changes = [];
-    if (c !== 'x' && saveDelimOf(c) !== currentDelim(t)) changes.push(saveDelimOf(c) === '\n' ? 'as text' : currentDelim(t) === '\n' ? 'as a one-column CSV' : 're-delimited');
-    if (c !== 'x' && saveEncChoice() !== currentEnc(t)) changes.push(`re-encoded as ${encName(saveEncChoice())}`);
+    if (c !== 'x' && c !== 'q' && saveDelimOf(c) !== currentDelim(t)) changes.push(saveDelimOf(c) === '\n' ? 'as text' : currentDelim(t) === '\n' ? 'as a one-column CSV' : 're-delimited');
+    if (c !== 'x' && c !== 'q' && saveEncChoice() !== currentEnc(t)) changes.push(`re-encoded as ${encName(saveEncChoice())}`);
     const where = t.path ? 'beside the source' : 'where you choose';
     let note;
-    if (c === 'x') note = `Writes the workbook ${where}. ${t.name} is left as it is${isDirty(t) ? ' and keeps its pending edits' : ''}.`;
+    if (c === 'x' || c === 'q') note = `Writes the ${c === 'x' ? 'workbook' : 'database'} ${where}. ${t.name} is left as it is${isDirty(t) ? ' and keeps its pending edits' : ''}.`;
     else if (name === t.name) note = !t.path && !t.handle
         ? 'This tab is a read-only copy: change the name to write a new file.'
         : `Overwrites ${t.name}${changes.length ? ', ' + changes.join(', ') : ''} — a timestamped .bak copy is kept.`;
@@ -155,6 +157,7 @@ async function submitSaveModal() {
     /* Nothing is awaited before this point: a handle tab's save-as opens a
        picker, which needs the click's user activation. */
     if (c === 'x') { if (!/\.xlsx$/i.test(name)) name += '.xlsx'; return saveExcel(name); }
+    if (c === 'q') { if (!/\.(sqlite|sqlite3|db|db3)$/i.test(name)) name += '.sqlite'; return saveExcel(name, 'sqlite'); }
     if (!/\.[^.]+$/.test(name)) name += '.csv';
     const delim = saveDelimOf(c), enc = saveEncChoice() || currentEnc(t);
     if (name === t.name) {
@@ -217,7 +220,7 @@ async function saveAs(t, name, delim, enc) {
 
 /* Where the workbook goes when the tab has no server-side path: next to the
    file if the tab came from an open folder, otherwise wherever the user says. */
-async function xlsxDestination(t, name) {
+async function xlsxDestination(t, name, sqlite) {
     if (t.dirHandle && await ensureWritable(t.dirHandle)) {
         try { return await t.dirHandle.getFileHandle(name, { create: true }); }
         catch (e) { /* fall through to the picker */ }
@@ -226,18 +229,22 @@ async function xlsxDestination(t, name) {
     try {
         return await showSaveFilePicker({
             suggestedName: name,
-            types: [{ description: 'Excel workbook', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+            types: [sqlite ? { description: 'SQLite database', accept: { 'application/vnd.sqlite3': ['.sqlite', '.sqlite3', '.db'] } }
+                : { description: 'Excel workbook', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
         });
     } catch (e) { return null; }
 }
 
 /* Excel is a second artefact, not a second save target: the CSV is untouched
    and keeps whatever pending edits it had. */
-async function saveExcel(name) {
+/* kind 'sqlite': the same route to a SQLite database of one table (server.py, write_sqlite), named
+   after the file, its columns typed from their values (a code with a leading zero stays text). */
+async function saveExcel(name, kind) {
     const t = T(); if (!t) return;
-    name = name || xlsxName(t);
+    const sq = kind === 'sqlite', what = sq ? 'Database' : 'Workbook';
+    name = name || (sq ? stemOf(t.name) + '.sqlite' : xlsxName(t));
     if (!t.loaded) { uiAlert('The file is still loading.'); return; }
-    if (!SRV) { uiAlert('Building a workbook needs the local bridge.\n\nStart the app with csvfab (or ./serve.sh).'); return; }
+    if (!SRV) { uiAlert(`Building a ${what.toLowerCase()} needs the local bridge.\n\nStart the app with csvfab (or ./serve.sh).`); return; }
 
     setStats(`Building ${name}…`);
     startProgress();
@@ -247,7 +254,7 @@ async function saveExcel(name) {
     const chunks = [];
     await streamCSV(t, t.allData, t.headers.map((_, i) => i), c => chunks.push(c), delim, { enc: 'utf-8', bom: false });   // what server.py reads
     const body = new Blob(chunks, { type: 'text/csv' });
-    const q = `/api/xlsx?delim=${encodeURIComponent(delim)}&sheet=${encodeURIComponent(stemOf(name))}&header=${t.syntheticHeader ? 0 : 1}`;
+    const q = `/api/${sq ? 'sqlite' : 'xlsx'}?delim=${encodeURIComponent(delim)}&sheet=${encodeURIComponent(stemOf(name).replace(/\.(sqlite3|db3?)$/i, ''))}&header=${t.syntheticHeader ? 0 : 1}`;
     const limits = (j) => (j.truncated_rows || j.truncated_cols) ? ' · truncated to Excel\'s limits' : '';
 
     try {
@@ -257,24 +264,24 @@ async function saveExcel(name) {
             const j = await r.json().catch(() => ({}));
             if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
             endProgress();
-            doneMsg(`${t.name} | Workbook written: ${baseName(dest)} — ${fmt(j.rows)} rows${limits(j)}.`);
+            doneMsg(`${t.name} | ${what} written: ${baseName(dest)} — ${fmt(j.rows)} rows${limits(j)}.`);
         } else {
             const r = await srvFetch(q, { method: 'POST', body });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const j = JSON.parse(r.headers.get('X-Xlsx-Info') || '{}');
             const blob = await r.blob();
-            const handle = await xlsxDestination(t, name);
-            if (!handle) { endProgress(); setStats('Workbook not written.'); return; }
+            const handle = await xlsxDestination(t, name, sq);
+            if (!handle) { endProgress(); setStats(`${what} not written.`); return; }
             const w = await handle.createWritable();
             await w.write(blob);
             await w.close();
             endProgress();
-            doneMsg(`${t.name} | Workbook written: ${handle.name} — ${fmt(j.rows || 0)} rows${limits(j)}.`);
+            doneMsg(`${t.name} | ${what} written: ${handle.name} — ${fmt(j.rows || 0)} rows${limits(j)}.`);
         }
     } catch (err) {
         endProgress();
-        setStats(`Workbook failed: ${err.message || err}`);
-        uiAlert(`Could not build the workbook:\n${err.message || err}`);
+        setStats(`${what} failed: ${err.message || err}`);
+        uiAlert(`Could not build the ${what.toLowerCase()}:\n${err.message || err}`);
     }
 }
 

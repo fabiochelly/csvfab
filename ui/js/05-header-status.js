@@ -222,6 +222,8 @@ function renderStatusFormat(t) {
         + pill(dcls, `<span class="cap">${!dl ? '?' : dl === '\t' ? '⇥' : text ? '¶' : esc(dl)}</span>${dname}${autoTag(!s.delimiter)}`, text ? 'Raw text · or read as a table' : 'Delimiter', "openSbMenu(event, 'd')")
         + pill(ecls, `${enc ? esc(encName(enc)) + (loaded && t.bom && enc === 'utf-8' ? ' BOM' : '') : 'Encoding'}${autoTag(!s.encoding)}`, 'Encoding', "openSbMenu(event, 'e')")
         + (text ? '' : pill('', `${head}${autoTag(s.headerMode === 'auto')}`, 'Header line', "openSbMenu(event, 'h')"))
+        + (text && loaded && (t.path || t.handle) ? pill(t.tail ? 'd-live' + (t.tailPaused ? ' paused' : '') : '', t.tail ? (t.tailPaused === 'edits' ? 'Paused' : 'Live') : 'Follow',
+            t.tail ? (t.tailPaused === 'edits' ? 'Following paused while edits are pending · click: stop' : 'New lines appear as they are written · click: stop') : 'Follow the end of the file, as tail -f', 'toggleTail(event)') : '')
         + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
             'Line endings · click: switch', 'toggleEol(event)') : '')
         + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Type colours ${typeColorsOn() ? 'on' : 'off'}"></span>`
