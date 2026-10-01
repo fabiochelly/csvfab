@@ -17,6 +17,29 @@ ASSETS = {".js": "text/javascript", ".css": "text/css", ".png": "image/png",
 VIEWER = os.path.join(config.APP_DIR, "viewer.htm")
 
 _page = None            # (signature de viewer.htm et jeton, octets prêts à l'envoi)
+
+# Politique de sécurité de la page. Elle ne peut pas empêcher le code de s'exécuter
+# (gestionnaires onclick en ligne : unsafe-inline ; formules compilées : unsafe-eval) ;
+# elle empêche ce code, quel qu'il soit, d'envoyer quoi que ce soit ailleurs qu'au
+# serveur local : connect-src (fetch), img-src (une image-balise), form-action, et
+# aucun cadre. La page détient le jeton qui lit tous les fichiers : rien ne doit sortir.
+# blob: pour le worker d'analyse (21-…), data: pour les icônes SVG du CSS, cdnjs pour
+# le repli de PapaParse si papaparse.min.js manque.
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
+    "worker-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "media-src 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+])
 _app_js = None          # (signature des sources, corps, etag)
 
 
@@ -35,7 +58,7 @@ def page(req):
             cached = _page = (sig, html.replace("__CSVE_TOKEN__", req.server.token).encode("utf-8"))
     except OSError as e:
         raise HttpError(500, f"viewer.htm illisible : {e}", text=True)
-    req.send(200, cached[1], "text/html; charset=utf-8")
+    req.send(200, cached[1], "text/html; charset=utf-8", {"Content-Security-Policy": CSP})
 
 
 def app_js(req):

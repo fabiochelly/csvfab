@@ -2,6 +2,31 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.14.0 · 2 October 2026
+
+**Security**
+- **Formulas can no longer run arbitrary code.** A formula is checked before it runs: columns, the functions of the ƒx list, their methods, operators and the usual text, number and date methods get through; anything else — `window`, `fetch`, `eval`, assignments, `new`… — is refused with a message saying what is not available. A formula pasted from someone else can no longer read your files. Every documented formula works exactly as before, just as fast.
+- **The window cannot send anything to another site.** Whatever runs in it, nothing can be sent anywhere but csvfab's own local server: no request, no image, no form to another address.
+- **Booby-trapped files tested.** File names, column titles and values crafted to inject code into the window are checked in every view (grid, row card, panels, dialogs, comparisons, tooltips…): they are always shown as text.
+
+**Fixes**
+- **Two-digit years in Excel exports:** `31/12/99` is now 1999, as on screen (it was 2099).
+- **Excel export of columns full of unique values** (IDs, amounts) no longer piles them up in memory — and is slightly faster.
+- **Opening a SQLite database lists its tables at once**, however large they are; their row counts are shown as approximate (≈).
+- **Two backups in the same second no longer overwrite each other** (`-2`, `-3`… are added), beside the file and in the backup folder.
+- **Large Excel workbooks open with far less memory** (a 300 000-row sheet: 24 MB → 1 MB at peak), and a booby-trapped archive (zip bomb) is refused.
+- **Saves survive a power cut** even right after they finish: the folder holding the file is written to disk too.
+
+## 1.13.0 · 2 October 2026
+
+- **Saving an unchanged file gives back its exact bytes**, whatever the file holds — valid or not — and an edit changes only the bytes of its own line. Checked on a corpus of 41 broken files: quoted line breaks, mixed line endings, BOMs, UTF-16 with or without BOM, mixed encodings, unclosed quotes, NUL bytes, random bytes. Fixed on the way: a quoted header line lost its quotes (a title holding the delimiter broke the file), a file without a final line break got one, an empty file became a line break, blank lines at the top were dropped, and a UTF-16 file was rewritten (quotes, BOM, invalid characters) — all now kept byte for byte.
+- **Why does this row look wrong?** In the row card (*Why?*), the row menu and the palette: expected and observed field counts and the probable cause — an unquoted delimiter (in which column, found from the kind of value each column holds), a line cut by an unquoted line break, a quote never closed or running on past its line and swallowing the next rows, missing fields — the file's bytes around each problem in hex, UTF-8 lines in a Windows-1252 file, garbled accents, NUL and invisible characters, cells a spreadsheet would run as formulas. A repair is suggested when it is safe: quote the cut fields as one, join the cut line, pad, re-read a line as UTF-8 — an ordinary edit, undoable.
+- **Huge fields no longer freeze the window:** a 5 MB value used to hang it; it now opens in a third of a second.
+- **The last column is fully reachable:** when every row fitted on screen, its end stayed hidden under the scroll strip (and always would have with macOS overlay scrollbars).
+- **A slightly faster start:** the window opens a few milliseconds sooner, the page and its script come from memory.
+- **Saving keeps the file's permissions:** a private file stays private.
+- **Following a growing log** no longer risks confusing the connection when lines arrive during a read.
+
 ## 1.12.0 · 1 October 2026
 
 - **Duplicates that sound alike.** A *Sounds like* cleaning in the duplicates dialog: a Metaphone adapted to French groups Dupont and Dupond, Lefebvre and Lefèvre, Philippe and Filippe, Schmitt and Schmidt, and a spelling tolerance (very close, close, loose) keeps apart what only sounds alike (Martin and Martine). Also as formula helpers: `{Nom}.phonetic()` and `similarity(a, b)`.

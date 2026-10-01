@@ -91,6 +91,9 @@ class HttpTest(unittest.TestCase):
                 self.assertEqual(r.header("Cache-Control"), "no-store")
                 self.assertIn(f"window.CSVFAB_TOKEN = '{self.b.token}'", r.text)
                 self.assertNotIn("__CSVE_TOKEN__", r.text)
+                csp = r.header("Content-Security-Policy")
+                for d in ("connect-src 'self'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'"):
+                    self.assertIn(d, csp)
 
     # --- /app.js ---------------------------------------------------------
     def test_app_js_joins_ui_js_in_name_order(self):

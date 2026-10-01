@@ -5,8 +5,10 @@
    below cover what a spreadsheet formula usually does — numbers read the
    French way, dates day first, text cleaning — and are plain arguments
    of the compiled function, so a formula calls them by name. It is the
-   user's own code on their own data, compiled with new Function(); an
-   error in one row leaves that cell empty and is counted, never thrown.
+   checked before it is compiled (38-formula-parser.js): only the helpers,
+   the listed methods and operators get through — no JavaScript at large,
+   which would run with the page's access to every file. An error in one
+   row leaves that cell empty and is counted, never thrown.
    The result goes into a new column, or replaces a column's values in
    the rows the filters show.
 ----------------------------------------------------------------*/
@@ -241,19 +243,22 @@ function fxOut(v) {
     return String(v);
 }
 
-/* {Name} → $[i]. A name is matched exactly, then ignoring case, accents and symbols. */
+/* Checked and rewritten (fxCompileSafe, 38-…), {Name} → $[i]: a name is matched exactly,
+   then ignoring case, accents and symbols. { fn, used } or { error, at }. */
 function compileFormula(t, src) {
-    const slugs = t.headers.map(h => slugify(h)), unknown = [], used = [];
-    const body = src.replace(/\{([^{}\n]+)\}/g, (m, name) => {
-        let c = t.headers.indexOf(name);
-        if (c < 0) c = t.headers.indexOf(name.trim());
-        if (c < 0) c = slugs.indexOf(slugify(name));
-        if (c < 0) { unknown.push(name); return 'undefined'; }
-        if (!used.includes(c)) used.push(c);
-        return `$[${c}]`;
-    });
-    if (unknown.length) return { error: `Unknown column: {${unknown[0]}}` };
-    if (!body.trim()) return { error: '' };
+    if (!src.trim()) return { error: '' };
+    const slugs = t.headers.map(h => slugify(h)), used = [];
+    let body;
+    try {
+        body = fxCompileSafe(src, (name, at) => {
+            let c = t.headers.indexOf(name);
+            if (c < 0) c = t.headers.indexOf(name.trim());
+            if (c < 0) c = slugs.indexOf(slugify(name));
+            if (c < 0) throw new FxError(`Unknown column: {${name}}`, at);
+            if (!used.includes(c)) used.push(c);
+            return `$[${c}]`;
+        }, ['row']);
+    } catch (e) { return { error: e.message, at: e.at }; }
     try { return { fn: new Function('$', 'row', ...Object.keys(FX), `"use strict"; return (${body}\n);`), used }; }
     catch (e) { return { error: e.message }; }
 }

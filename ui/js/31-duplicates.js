@@ -45,7 +45,12 @@ function dupFormula(src) {
     const c = dupFormula.cache || (dupFormula.cache = new Map());
     if (c.has(src)) return c.get(src);
     let out;
-    try { const f = new Function('v', ...Object.keys(FX), `"use strict"; return (${src}\n);`); out = { fn: v => fxOut(f(v, ...FX_VALUES)) }; }
+    try {
+        /* Checked like any formula (38-…): v and the helpers, nothing else. */
+        const body = fxCompileSafe(src, (name, at) => { throw new FxError(`Write v for the cell's value (not {${name}})`, at); }, ['v']);
+        const f = new Function('v', ...Object.keys(FX), `"use strict"; return (${body}\n);`);
+        out = { fn: v => fxOut(f(v, ...FX_VALUES)) };
+    }
     catch (e) { out = { error: e.message }; }
     if (c.size > 100) c.clear();
     c.set(src, out);
