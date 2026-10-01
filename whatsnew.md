@@ -17,6 +17,10 @@ Newest first. Every version is on the [releases page](https://github.com/fabioch
 - **Large Excel workbooks open with far less memory** (a 300 000-row sheet: 24 MB → 1 MB at peak), and a booby-trapped archive (zip bomb) is refused.
 - **Saves survive a power cut** even right after they finish: the folder holding the file is written to disk too.
 
+**Under the hood**
+- **Security tests** run in a real, windowless Chromium: the hostile-file walk through every view (no injected code may run, no element may appear), some 55 attempts to escape the formula language, every documented formula compared row by row with the previous engine, and the window's outgoing requests blocked.
+- **The external audit's findings were each checked against the code:** the ones still true are fixed above; those already fixed in 1.13.0 (temporary file names shared between simultaneous requests, permissions lost on save, no test suite, a single-file server) are listed there.
+
 ## 1.13.0 · 2 October 2026
 
 - **Saving an unchanged file gives back its exact bytes**, whatever the file holds — valid or not — and an edit changes only the bytes of its own line. Checked on a corpus of 41 broken files: quoted line breaks, mixed line endings, BOMs, UTF-16 with or without BOM, mixed encodings, unclosed quotes, NUL bytes, random bytes. Fixed on the way: a quoted header line lost its quotes (a title holding the delimiter broke the file), a file without a final line break got one, an empty file became a line break, blank lines at the top were dropped, and a UTF-16 file was rewritten (quotes, BOM, invalid characters) — all now kept byte for byte.
@@ -26,6 +30,13 @@ Newest first. Every version is on the [releases page](https://github.com/fabioch
 - **A slightly faster start:** the window opens a few milliseconds sooner, the page and its script come from memory.
 - **Saving keeps the file's permissions:** a private file stays private.
 - **Following a growing log** no longer risks confusing the connection when lines arrive during a read.
+
+**Under the hood**
+- **The local server is split into modules** (`bridge/`: configuration shared with the launcher, window session, safe writes, HTTP routes, Excel and SQLite formats, fonts) instead of one 1 600-line file; `server.py` only opens the port and starts it. Conversions are loaded only when first used, so the server answers twice as fast after starting (43 → 27 ms), and the launcher skips two heavy imports before starting the browser (18 → 13.5 ms).
+- **Simultaneous writes are safe:** two requests writing at the same moment no longer share a temporary file name, and an unexpected error answers cleanly instead of dropping the connection.
+- **A test suite** (`python3 -m unittest`, standard library only): the server and the launcher tested from outside as the app uses them, each module on its own, the byte-for-byte guarantee checked in the real page on a generated corpus of broken files (`tests/corpus.py`), the row diagnosis, the grid's edges. Deliberately broken code makes it fail.
+- **A performance guard** (`tests/bench.py`): the previous version and the new one measured alternately, on the same processor core, each change judged on its pairs of runs — nothing may get slower.
+- **One version number** (`bridge/config.py`) instead of two; the packages (AUR, Homebrew, Windows installer, macOS app) ship the new `bridge/` folder, and the release archives no longer carry the tests.
 
 ## 1.12.0 · 1 October 2026
 
