@@ -48,6 +48,7 @@ function paletteCommands() {
     add('View', 'Raw line — the selected row as it sits in the file', () => { if (!rowCard.raw) rowCardRaw(true); toggleRowCard(true); }, '', loaded && !!sel);
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
+    add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);
     add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — num({Amount}) > 1000 && …'), toggleExprFilter, '', loaded);
     add('Rows', 'Group by… — count, sum, average per value, in a new tab', () => openGroupBy(), '', loaded);
     add('Edit', 'Anonymise… — names, e-mails, phones, postal codes', openAnon, '', loaded);
@@ -72,6 +73,7 @@ function paletteCommands() {
     if (loaded && t.rowMark) add('Rows', 'Remove the marks', () => clearRowMark());
     add('Columns', 'Convert formats — dates, numbers, phone numbers…', () => openConvert(), '', loaded);
     add('Columns', 'Show or hide columns…', openColManager, '', loaded);
+    add('Columns', t && t.frozen ? 'Unfreeze the first column' : 'Freeze the first column — it stays in view when scrolling sideways', toggleFreeze, t && t.frozen ? '✓' : '', loaded);
     add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
     add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
     add('Edit', 'Find — step through the matches without filtering', () => { if (!findBarOpen()) toggleSRBar(); document.getElementById('sr-find').focus(); }, 'Ctrl+F', loaded);

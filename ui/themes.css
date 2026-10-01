@@ -5,6 +5,10 @@
    the default; <html data-theme="tokyonight"> switches to Tokyo Night (night).
    The *-rgb triples feed translucent tints: rgba(var(--accent-rgb), .15). */
 :root {
+    /* A button joined to a field (.input-group, the ƒx): between the surface and the field's
+       own background, so it stands out from its border without matching the field. Mixed here,
+       on :root, so every dark palette gets it from its own colours; the light ones set theirs. */
+    --addon-bg: color-mix(in srgb, var(--surf) 45%, var(--bg-deep));
     --bg: #0d1117; --bg-rgb: 13, 17, 23; --bg-deep: #010409; --bg-deep-rgb: 1, 4, 9;
     --surf: #161b22; --surf-2: #21262d; --surf-3: #30363d; --bar-2: #1c2128; --filter-bg: #12171e;
     --brd: #30363d; --brd-2: #484f58; --scroll: #3d444d;
@@ -67,6 +71,7 @@
 /* VS Code as the user runs it: the Tokyo Night theme for VS Code — #1a1b26
    editor, #16161e panels and status bar, #a9b1d6 text, #3d59a1 buttons. */
 :root[data-theme="vscode"] {
+    --addon-bg: var(--bg);   /* its --surf is its --bg-deep: the mix would be the field's own colour */
     --bg: #1a1b26; --bg-rgb: 26, 27, 38; --bg-deep: #16161e; --bg-deep-rgb: 22, 22, 30;
     --surf: #16161e; --surf-2: #1e202e; --surf-3: #292e42; --bar-2: #16161e; --filter-bg: #14141b;
     --brd: #202330; --brd-2: #363b54; --scroll: #363b54;
@@ -89,6 +94,7 @@
    white), --hi-rgb dark (it tints overlays), and light native widgets. */
 :root[data-theme="light"] {
     color-scheme: light;
+    --addon-bg: var(--surf-2);
     --bg: #ffffff; --bg-rgb: 255, 255, 255; --bg-deep: #f6f8fa; --bg-deep-rgb: 246, 248, 250;
     --surf: #f6f8fa; --surf-2: #eaeef2; --surf-3: #d0d7de; --bar-2: #f6f8fa; --filter-bg: #f6f8fa;
     --brd: #d0d7de; --brd-2: #afb8c1; --scroll: #c1c8cf;
@@ -110,6 +116,7 @@
 /* Catppuccin Latte. */
 :root[data-theme="latte"] {
     color-scheme: light;
+    --addon-bg: var(--surf-2);
     --bg: #eff1f5; --bg-rgb: 239, 241, 245; --bg-deep: #e6e9ef; --bg-deep-rgb: 230, 233, 239;
     --surf: #e6e9ef; --surf-2: #dce0e8; --surf-3: #ccd0da; --bar-2: #e6e9ef; --filter-bg: #e9ecf1;
     --brd: #ccd0da; --brd-2: #bcc0cc; --scroll: #bcc0cc;

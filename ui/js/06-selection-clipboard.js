@@ -25,8 +25,13 @@ function barStyle(t, c, v) {
     const x = numKey(v), span = (b.max - b.min) || 1;
     if (isNaN(x)) return '';
     const z = (0 - b.min) / span * 100, p = (x - b.min) / span * 100, a = Math.min(z, p), w = Math.abs(p - z);
-    const rgb = x < 0 ? 'var(--danger-rgb)' : 'var(--accent-rgb)';
-    return `;background-image: linear-gradient(90deg, transparent ${a.toFixed(1)}%, rgba(${rgb}, .28) ${a.toFixed(1)}%, rgba(${rgb}, .28) ${(a + w).toFixed(1)}%, transparent ${(a + w).toFixed(1)}%)"`;
+    /* A 3 px rule at the base of the cell, over the text's width (content-box: inside the
+       padding), from zero. Longhands inline, not a rule matched against every cell, nor the
+       background shorthand, which would reset the colour a stylesheet gives the cell. A second,
+       empty layer clipped to the border box: the background colour follows the LAST layer's
+       clip, and the selection's tint would otherwise stop at the padding. */
+    const col = x < 0 ? 'var(--danger)' : 'var(--prim)', a1 = a.toFixed(1), a2 = (a + Math.max(w, .6)).toFixed(1);
+    return `;background-image:linear-gradient(90deg,transparent ${a1}%,${col} ${a1}%,${col} ${a2}%,transparent ${a2}%),none;background-size:100% 3px,auto;background-position:left 0 bottom 4px,0 0;background-repeat:no-repeat;background-origin:content-box,padding-box;background-clip:content-box,border-box`;
 }
 function cellCls(i, c, rg, fp, row, marked, ov) {
     const k = marked ? ['mkc'] : [];
@@ -100,10 +105,11 @@ function revealCell(r, c) {
        drawn. Left of it, the sticky row numbers cover what scrolls under them;
        the first column goes all the way left, nothing cut off. */
     const t = T(), L = t && colLayout(t), k = L ? L.vis.indexOf(c) : -1;
-    if (k === 0) container.scrollLeft = 0;
+    if (k >= 0 && k < L.F) { /* frozen: always in view */ }
+    else if (L && k === L.F) container.scrollLeft = 0;        // the first column that scrolls goes all the way left
     else if (k > 0) {
-        const x0 = L.x[k], x1 = L.x[k + 1];
-        if (x0 < container.scrollLeft + idxColW) container.scrollLeft = x0 - idxColW;
+        const x0 = L.x[k], x1 = L.x[k + 1], cover = L.x[L.F];   // the row numbers and the frozen columns cover what scrolls under them
+        if (x0 < container.scrollLeft + cover) container.scrollLeft = x0 - cover;
         else if (x1 > container.scrollLeft + container.clientWidth - 16) container.scrollLeft = x1 - container.clientWidth + 16;
     }
     renderOnScroll();                     // the window follows, as for any scroll (a far jump redraws)

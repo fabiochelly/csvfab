@@ -221,7 +221,18 @@ function renderStatusFormat(t) {
         + pill('', `${head}${autoTag(s.headerMode === 'auto')}`, 'Header line — click to change', "openSbMenu(event, 'h')")
         + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
             'Line endings — click to switch between CRLF and LF; the next Save writes them', 'toggleEol(event)') : '')
+        + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Colours by column type (numbers, dates): ${typeColorsOn() ? 'on' : 'off'} — click to switch ${typeColorsOn() ? 'off' : 'on'}"></span>`
         + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])} — click to change" style="${swatchCss(currentTheme())}"></span>`;
+}
+
+/* Numbers and dates coloured in the grid, on unless switched off here: a class on <html>
+   (set before the first paint by viewer.htm), so the switch redraws nothing. */
+function typeColorsOn() { return !document.documentElement.classList.contains('no-kcol'); }
+function toggleTypeColors() {
+    const on = !typeColorsOn();
+    document.documentElement.classList.toggle('no-kcol', !on);
+    try { localStorage.setItem('csvfab-type-colors', on ? '1' : '0'); } catch (e) { }
+    renderStatusFormat(T());
 }
 
 /* Toolbar dropdowns (.dd): a button followed by its .dd-menu. One open at a time. */

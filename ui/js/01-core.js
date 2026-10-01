@@ -47,7 +47,7 @@ function newTab(src) {
         delimiter: '', detectedDelim: '', detectedEol: '\n',
         encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
         headerMode: 'auto', syntheticHeader: false,
-        globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, onlyIrregular: false, quoteErrors: 0, mojibake: false, dupSpec: null, onlyDups: false, rowMark: null,   // valFilters: {col: Set of EXCLUDED values}
+        globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, frozen: 0, onlyIrregular: false, quoteErrors: 0, mojibake: false, dupSpec: null, onlyDups: false, rowMark: null,   // valFilters: {col: Set of EXCLUDED values}
         useRegex: false, useSlug: false, useReverse: false, useExpr: false, exprErr: '',   // useExpr: the search box is a formula (23-expr-filter)
         scrollTop: 0, lastUsed: Date.now()
     };

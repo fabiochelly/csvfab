@@ -355,7 +355,14 @@ function colLayout(t) {
     let s = idxColW;
     for (let k = 0; k < vis.length; k++) { const w = t.colWidths[vis[k]]; if (w == null) return null; x[k] = s; s += w; }
     x[vis.length] = s;
-    return { vis, x };
+    /* The column's kind as a class of its cells (numbers right-aligned, numbers and dates
+       coloured): one class per cell, no per-column rule for every cell to be matched against. */
+    const kinds = t.loaded ? columnKinds(t) : [];
+    const kc = vis.map(c => kinds[c] === 'n' ? ' kn' : kinds[c] === 'd' ? ' kd' : '');
+    /* F: the visible columns frozen at the left (t.frozen, 0 or 1 for now — the code takes any
+       count). They are drawn in every row whatever the window, sticky right after the row
+       numbers; the window of other columns starts after them. */
+    return { vis, x, kc, F: Math.min(t.frozen || 0, vis.length) };
 }
 function viewRows(t) {
     const top = Math.max(0, Math.floor((container.scrollTop - thead.offsetHeight) / ROW_H));   // rows start below the header
@@ -383,7 +390,7 @@ function drawWindow(t, lean) {
     const [k0, k1] = viewCols(L), a = container.scrollLeft - m, b = container.scrollLeft + container.clientWidth + m;
     let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
     let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
-    w.c0 = c0; w.c1 = c1;
+    w.c0 = Math.max(c0, L.F); w.c1 = c1;      // the frozen columns are drawn apart (rowsHtml)
     return w;
 }
 /* The cells' font, measured once on a canvas: the advance of one character (the
@@ -422,10 +429,13 @@ function cellOv(t, cIdx, c, html) {
 /* One cell of row i, as HTML: column k of the layout L. */
 function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
     const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = showBreaks(highlightCell(c, cIdx, t.hl));
-    return `<div class="cell${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${barStyle(t, cIdx, c)}">${html}</div>`;
+    const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
+    return `<div class="cell${L.kc[k]}${frz}${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${html}</div>`;
 }
-/* The spacer standing, in a row, for the columns before the window (none when it starts at the first). */
-const hsp = (L, c0) => c0 ? `<div class="hsp" style="width:${L.x[c0] - idxColW}px"></div>` : '';
+/* The spacer standing, in a row, for the columns between the frozen ones (or the row numbers)
+   and the window — none when the window starts right there. */
+const hspW = (L, c0) => c0 > L.F ? (L.x[c0] - L.x[L.F]) + 'px' : '';
+const hsp = (L, c0) => c0 > L.F ? `<div class="hsp" style="width:${hspW(L, c0)}"></div>` : '';
 /* Rows i0…i1 of the view, as HTML, in the window's columns w.c0…w.c1 of w.L. */
 function rowsHtml(t, i0, i1, w) {
     const data = t.filteredData, rg = selRange(t), fp = fillRect(), L = w.L, W = L.x[L.x.length - 1], sp = hsp(L, w.c0);
@@ -436,7 +446,9 @@ function rowsHtml(t, i0, i1, w) {
             <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Click: select the row · Drag: move it">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
-            </div>${sp}`;
+            </div>`;
+        for (let k = 0; k < L.F; k++) html += cellHtml(t, i, r, d, mk, k, L, rg, fp);
+        html += sp;
         for (let k = w.c0; k <= w.c1; k++) html += cellHtml(t, i, r, d, mk, k, L, rg, fp);
         html += '</div>';
     }
@@ -447,7 +459,7 @@ function rowsHtml(t, i0, i1, w) {
 function redrawRows(t, i0, i1) {
     if (!drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
     const L = colLayout(t);
-    if (!L || L.vis.join(',') !== drawn.vis) return render();
+    if (!L || L.vis.join(',') + '|' + L.F !== drawn.vis) return render();
     const w = { c0: drawn.c0, c1: drawn.c1, L };
     for (let i = Math.max(i0, drawn.r0); i <= Math.min(i1, drawn.r1); i++) {
         const row = tbody.querySelector(`.row[data-idx="${i}"]`);
@@ -460,24 +472,25 @@ function redrawRows(t, i0, i1) {
    created or dropped. */
 function shiftCols(t, w) {
     const o0 = drawn.c0, o1 = drawn.c1, n0 = w.c0, n1 = w.c1, L = w.L, data = t.filteredData, rg = selRange(t), fp = fillRect();
-    const pos = new Map(L.vis.map((c, k) => [c, k])), spw = n0 ? (L.x[n0] - idxColW) + 'px' : '';
+    const pos = new Map(L.vis.map((c, k) => [c, k])), F = L.F, spw = hspW(L, n0);
     for (const row of tbody.querySelectorAll('.row[data-idx]')) {
         const i = +row.dataset.idx, r = data[i], mk = markedCells(t, r), d = r.data;
         const html = (a, b) => { let h = ''; for (let k = a; k <= b; k++) h += cellHtml(t, i, r, d, mk, k, L, rg, fp); return h; };
-        for (const el of [...row.children]) { const c = el.dataset.c; if (c == null) continue; const k = pos.get(+c); if (k == null || k < n0 || k > n1) el.remove(); }
-        let sp = row.children[1]; if (sp && !sp.classList.contains('hsp')) sp = null;
-        if (n0 < o0) (sp || row.firstElementChild).insertAdjacentHTML('afterend', html(n0, Math.min(o0 - 1, n1)));
+        for (const el of [...row.children]) { const c = el.dataset.c; if (c == null) continue; const k = pos.get(+c); if (k == null || (k >= F && (k < n0 || k > n1))) el.remove(); }
+        const lead = row.children[F];             // the row number, or the last frozen cell: the spacer comes after it
+        let sp = row.children[F + 1]; if (sp && !sp.classList.contains('hsp')) sp = null;
+        if (n0 < o0) (sp || lead).insertAdjacentHTML('afterend', html(n0, Math.min(o0 - 1, n1)));
         if (n1 > o1) row.insertAdjacentHTML('beforeend', html(Math.max(o1 + 1, n0), n1));
-        if (!n0) { if (sp) sp.remove(); }
+        if (n0 <= F) { if (sp) sp.remove(); }
         else if (sp) sp.style.width = spw;
-        else row.firstElementChild.insertAdjacentHTML('afterend', hsp(L, n0));
+        else lead.insertAdjacentHTML('afterend', hsp(L, n0));
     }
 }
 /* The drawn cells re-sized from the widths (a column being resized): the width of
    every cell and spacer in place, no redraw. */
 function placeCells(t) {
     const L = colLayout(t); if (!L || !drawn) return;
-    const W = L.x[L.x.length - 1] + 'px', pos = new Map(L.vis.map((c, k) => [c, k])), spw = drawn.c0 ? (L.x[drawn.c0] - idxColW) + 'px' : '';
+    const W = L.x[L.x.length - 1] + 'px', pos = new Map(L.vis.map((c, k) => [c, k])), spw = hspW(L, drawn.c0);
     tbody.style.width = W;
     for (const row of tbody.children) {
         if (row.dataset.idx == null) continue;
@@ -485,6 +498,7 @@ function placeCells(t) {
         for (const el of row.children) {
             if (el.classList.contains('hsp')) { el.style.width = spw; continue; }
             const c = el.dataset.c; if (c == null) continue; const k = pos.get(+c); if (k == null) continue; el.style.width = (L.x[k + 1] - L.x[k]) + 'px';
+            if (k < L.F) el.style.left = L.x[k] + 'px';
         }
     }
 }
@@ -505,7 +519,7 @@ function renderOnScroll() {
     const t = T();
     if (!t || !t.loaded || !drawn || drawn.t !== t || drawn.n !== t.filteredData.length) return render();
     const L = colLayout(t);
-    if (!L || L.vis.join(',') !== drawn.vis) return render();   // columns shown or hidden since: draw anew
+    if (!L || L.vis.join(',') + '|' + L.F !== drawn.vis) return render();   // columns shown or hidden since: draw anew
     const w = drawWindow(t);
     const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP;
     const colsMove = Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP;
@@ -548,7 +562,7 @@ function render(lean) {
     const w = drawWindow(t, lean), L = w.L;
     tbody.style.height = data.length * ROW_H + 'px'; tbody.style.width = L.x[L.x.length - 1] + 'px';
     tbody.innerHTML = rowsHtml(t, w.r0, w.r1, w);
-    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') };
+    drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') + '|' + L.F };
     syncSpace(t);
 }
 

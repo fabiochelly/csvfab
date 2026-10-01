@@ -524,22 +524,70 @@ _RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 _DATE_FMT_IDS = set(range(14, 23)) | set(range(27, 37)) | set(range(45, 48)) | set(range(50, 59))
 
 
-def _xlsx_first_sheet(zf):
-    """(nom, nombre de feuilles, chemin de la 1re feuille dans le zip, dates 1904 ?)"""
+def _xlsx_sheets(zf):
+    """Les feuilles du classeur, dans l'ordre des onglets : [{name, path, hidden}], plus dates 1904 ?"""
     wb = ET.fromstring(zf.read("xl/workbook.xml"))
     sheets = wb.findall(f"{_NS}sheets/{_NS}sheet")
     if not sheets:
         raise ValueError("classeur sans feuille")
-    rid = sheets[0].get(f"{_RNS}id")
-    target = None
-    for rel in ET.fromstring(zf.read("xl/_rels/workbook.xml.rels")):
-        if rel.get("Id") == rid:
-            target = rel.get("Target")
-    if not target:
+    targets = {rel.get("Id"): rel.get("Target") for rel in ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))}
+    out = []
+    for i, sh in enumerate(sheets):
+        target = targets.get(sh.get(f"{_RNS}id"))
+        if not target:
+            continue
+        path = target.lstrip("/") if target.startswith("/") else "xl/" + target
+        out.append({"name": sh.get("name") or f"Sheet{i + 1}", "path": path,
+                    "hidden": sh.get("state") in ("hidden", "veryHidden")})
+    if not out:
         raise ValueError("feuille introuvable dans le classeur")
-    path = target.lstrip("/") if target.startswith("/") else "xl/" + target
     pr = wb.find(f"{_NS}workbookPr")
-    return sheets[0].get("name") or "Sheet1", len(sheets), path, pr is not None and pr.get("date1904") in ("1", "true")
+    return out, pr is not None and pr.get("date1904") in ("1", "true")
+
+
+def _xlsx_sheet_probe(zf, path):
+    """(remplie ?, taille annoncee par <dimension>). Lu en flux et arrete a la premiere
+    cellule qui porte une valeur : une feuille vide (le cas courant : Feuil2, Feuil3,
+    des cellules seulement mises en forme) n'en a aucune, une pleine en a une tout de suite."""
+    dim = None
+    with zf.open(path) as f:
+        for ev, el in ET.iterparse(f, events=("start", "end")):
+            if ev == "start":
+                if el.tag == f"{_NS}dimension":
+                    m = _re.match(r"([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$", el.get("ref", ""))
+                    if m and m.group(3):
+                        dim = [int(m.group(4)) - int(m.group(2)) + 1, _xlsx_col(m.group(3)) - _xlsx_col(m.group(1)) + 1]
+                continue
+            if el.tag == f"{_NS}v" and (el.text or "").strip():
+                return True, dim
+            if el.tag == f"{_NS}t" and (el.text or "").strip():      # une chaine en ligne (inlineStr)
+                return True, dim
+            if el.tag == f"{_NS}row":
+                el.clear()
+    return False, dim
+
+
+def xlsx_sheet_list(src):
+    """Toutes les feuilles avec leur etat, pour que la page propose un choix."""
+    with zipfile.ZipFile(src) as zf:
+        sheets, _ = _xlsx_sheets(zf)
+        for sh in sheets:
+            sh["filled"], sh["dim"] = _xlsx_sheet_probe(zf, sh["path"])
+            del sh["path"]
+    return sheets
+
+
+def _xlsx_pick(zf, sheets, wanted):
+    """La feuille demandee par son nom ; a defaut, la premiere visible et remplie."""
+    if wanted:
+        for sh in sheets:
+            if sh["name"] == wanted:
+                return sh
+        raise ValueError(f"pas de feuille « {wanted} »")
+    for sh in sheets:
+        if not sh["hidden"] and _xlsx_sheet_probe(zf, sh["path"])[0]:
+            return sh
+    return sheets[0]
 
 
 def _xlsx_shared_strings(zf):
@@ -605,10 +653,15 @@ def _xlsx_num_text(raw, comma):
     return s.replace(".", ",") if comma else s
 
 
-def xlsx_to_csv(src, out, delim):
-    """Premiere feuille de src (chemin ou fichier ouvert) -> lignes CSV dans out (texte). Renvoie un bilan."""
+def xlsx_to_csv(src, out, delim, sheet=None):
+    """Une feuille de src (chemin ou fichier ouvert) -> lignes CSV dans out (texte). Renvoie un bilan.
+    sheet : son nom ; sans, la premiere feuille visible qui porte une valeur."""
     with zipfile.ZipFile(src) as zf:
-        name, nsheets, sheet_path, d1904 = _xlsx_first_sheet(zf)
+        sheets, d1904 = _xlsx_sheets(zf)
+        sh = _xlsx_pick(zf, sheets, sheet)
+        name, sheet_path = sh["name"], sh["path"]
+        # Les autres feuilles qui portent des donnees, pour le bilan : les vides et les masquees ne comptent pas.
+        others = sum(1 for o in sheets if o is not sh and not o["hidden"] and _xlsx_sheet_probe(zf, o["path"])[0])
         shared = _xlsx_shared_strings(zf)
         dates = _xlsx_date_styles(zf)
         comma = delim == ";"
@@ -659,7 +712,7 @@ def xlsx_to_csv(src, out, delim):
                     rows += 1
                     maxw = max(maxw, len(cells))
                 el.clear()
-    return {"sheet": name, "sheets": nsheets, "rows": rows, "cols": max(width, maxw)}
+    return {"sheet": name, "others": others, "rows": rows, "cols": max(width, maxw)}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -772,6 +825,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 return
 
+        if route == "/api/xlsx-sheets":
+            # Les feuilles d'un classeur (?path=), vides et masquees comprises : la page
+            # ne propose un choix que s'il y en a plusieurs a garder.
+            p = self._path_arg()
+            if not p or not os.path.isfile(p):
+                return self._json(404, {"error": "not a file"})
+            try:
+                return self._json(200, {"sheets": xlsx_sheet_list(p)})
+            except (zipfile.BadZipFile, KeyError, ET.ParseError, ValueError) as e:
+                return self._json(400, {"error": f"ce n'est pas un classeur xlsx lisible ({e})"})
         if route == "/api/stat":
             p = self._path_arg()
             if not p or not os.path.isfile(p):
@@ -893,6 +956,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         dest = (q.get("dest") or [""])[0]
         dest = os.path.realpath(os.path.expanduser(dest)) if dest else None
         backup = (q.get("backup") or ["0"])[0] == "1"
+        sheet = (q.get("sheet") or [""])[0] or None
+        # ?pick=1 sans ?sheet= : si plusieurs feuilles visibles portent des valeurs, rien
+        # n'est converti, la liste revient pour que la page demande laquelle. Un seul envoi
+        # du classeur dans le cas courant (une feuille), deux seulement s'il faut choisir.
+        pick = (q.get("pick") or ["0"])[0] == "1" and not sheet
         if src and not os.path.isfile(src):
             return self._json(404, {"error": "fichier introuvable"})
         d = os.path.dirname(dest) if dest else STATE
@@ -915,9 +983,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         f.write(chunk)
                         remaining -= len(chunk)
             try:
+                if pick:
+                    sheets = xlsx_sheet_list(src or tmp_in)
+                    if sum(1 for s in sheets if s["filled"] and not s["hidden"]) > 1:
+                        return self._json(200, {"choose": sheets})
                 if dest:
                     with open(tmp_out, "w", encoding="utf-8", newline="") as out:
-                        info = xlsx_to_csv(src or tmp_in, out, delim)
+                        info = xlsx_to_csv(src or tmp_in, out, delim, sheet)
                         out.flush()
                         os.fsync(out.fileno())
                     if backup and os.path.isfile(dest):
@@ -926,7 +998,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     info.update(ok=True, path=dest, size=os.path.getsize(dest))
                     return self._json(200, info)
                 out = io.StringIO()
-                info = xlsx_to_csv(src or tmp_in, out, delim)
+                info = xlsx_to_csv(src or tmp_in, out, delim, sheet)
                 return self._send(200, out.getvalue().encode("utf-8"), "text/csv; charset=utf-8",
                                   {"X-Xlsx-Info": json.dumps(info)})
             except (zipfile.BadZipFile, KeyError, ET.ParseError, ValueError, IndexError) as e:

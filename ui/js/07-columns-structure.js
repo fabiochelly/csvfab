@@ -501,10 +501,30 @@ function applyColStyles() {
             const c = parseInt(k, 10), w = t.colWidths[k];
             css += `#mainTable thead th:nth-child(${c + 2}) { box-sizing: border-box; width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }\n`;
         });
+        /* Frozen columns' header cells, sticky at the left edge their cells stick to (colLayout's L.F) —
+           not when nothing scrolls sideways (.nohs), as for the row numbers. */
+        const vis = visibleCols(t), F = Math.min(t.frozen || 0, vis.length); let left = idxColW;
+        for (let k = 0; k < F; k++) {
+            const c = vis[k];
+            css += `#grid-layer:not(.nohs) #mainTable thead th:nth-child(${c + 2}) { position: sticky; left: ${left}px; z-index: 115; }\n`;
+            if (k === F - 1) css += `#mainTable thead th:nth-child(${c + 2}) { border-right-color: rgba(var(--accent-rgb), .6); }\n`;
+            left += t.colWidths[c] || 0;
+        }
     }
+    document.body.classList.toggle('frozen', !!(t && t.frozen));   // the ☰ menu's Freeze / Unfreeze label
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
     if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
+}
+
+/* Freeze the first visible column: it stays at the left, after the row numbers, when the
+   grid scrolls sideways. Per tab, a view setting like hidden columns (not an edit). */
+function toggleFreeze() {
+    const t = T(); if (!t || !t.loaded) return;
+    t.frozen = t.frozen ? 0 : 1;
+    applyColStyles(); render();
+    const c = visibleCols(t)[0];
+    setStats(t.frozen ? `Column "${t.headers[c]}" frozen: it stays in view when scrolling sideways.` : 'Columns unfrozen.');
 }
 
 function openColManager() {

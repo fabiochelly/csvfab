@@ -67,8 +67,20 @@ function openColPanel(e, col) {
         const line = (a, b, full, after) => `<div class="cp-kv"><span>${a}</span><b title="${esc(full || b)}">${esc(b)}</b>${after ? `<i class="cnt">${after}</i>` : ''}</div>`;
         /* Text: the shortest and longest values themselves, with their length. */
         const txt = ([len, v]) => { const x = v.trim(); return [x, x, `(${fmt(len)} char${len === 1 ? '' : 's'})`]; };
+        /* The median: the middle of the values in order (the mean of the two middle ones for an
+           even count), from the counted values, no second pass; a click selects the first cell
+           holding it, or the nearest value. */
+        let med = NaN;
+        if (lo && kind === 'n') {
+            const ks = [];
+            for (const [v, n] of entries) { if (!cellType(v)) continue; const k = numKey(v.trim()); if (!isNaN(k)) ks.push([k, n]); }
+            ks.sort((a, b) => a[0] - b[0]);
+            const at = p => { let s = 0; for (const [k, n] of ks) { s += n; if (s > p) return k; } return NaN; };
+            med = cnt % 2 ? at((cnt - 1) / 2) : (at(cnt / 2 - 1) + at(cnt / 2)) / 2;
+        }
         if (lo && kind === 'n') range = `<div class="cp-pair">${line('min', lo[1])}${line('max', hi[1])}</div>`
-            + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`;
+            + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`
+            + `<div class="cp-pair"><div class="cp-kv"><span>med</span><b class="cp-link" onclick="colPanelGo(${col}, ${med})" title="The median: half of the values are below it. Click to go to the first cell holding it (or the nearest value)">${num(med)}</b></div></div>`;
         else if (lo && kind === 'd') range = line('min', lo[1]) + line('max', hi[1]);
         else if (lo) range = line('min', ...txt(lo)) + line('max', ...txt(hi));
         if (lo && (kind === 'n' || kind === 'd') && hi[0] > lo[0]) range += histogram(entries, key, lo, hi);
@@ -112,18 +124,45 @@ function openColPanel(e, col) {
     panel.querySelector('.cp-search').focus();
 }
 
-/* Distribution of a numeric or date column: 28 bins between min and max. */
+/* Distribution of a numeric or date column: 28 bins between min and max. Each bar tells, in a
+   tooltip shown at once (CSS, not a <title> and its delay), the values it holds — its smallest
+   and largest as written, so dates need no formatting back from their keys — and how many. */
 function histogram(entries, key, lo, hi) {
-    const B = 28, bins = new Array(B).fill(0), span = hi[0] - lo[0];
+    const B = 28, bins = new Array(B).fill(0), first = new Array(B), last = new Array(B), span = hi[0] - lo[0];
     for (const [v, n] of entries) {
         if (!cellType(v)) continue;
         const k = key(v.trim()); if (typeof k !== 'number' || isNaN(k)) continue;
-        bins[Math.min(B - 1, Math.floor((k - lo[0]) / span * B))] += n;
+        const b = Math.min(B - 1, Math.floor((k - lo[0]) / span * B));
+        bins[b] += n;
+        if (!first[b] || k < first[b][0]) first[b] = [k, v.trim()];
+        if (!last[b] || k > last[b][0]) last[b] = [k, v.trim()];
     }
-    const max = Math.max(...bins), W = 100 / B;
-    return `<svg class="cp-hist" viewBox="0 0 100 40" preserveAspectRatio="none">`
-        + bins.map((c, i) => c ? `<rect x="${(i * W + .3).toFixed(2)}" y="${(40 - Math.max(1.5, c / max * 38)).toFixed(2)}" width="${(W - .6).toFixed(2)}" height="${Math.max(1.5, c / max * 38).toFixed(2)}" rx=".6"><title>${fmt(c)} value${c === 1 ? '' : 's'}</title></rect>` : '').join('')
-        + '</svg>';
+    const max = Math.max(...bins);
+    return '<div class="cp-hist">' + bins.map((c, i) => {
+        const h = c ? Math.max(4, c / max * 100) : 0;
+        /* Anchored left, centred or right by the bar's place, so the tooltip stays in the panel. */
+        const pos = i < B / 3 ? 'left:0' : i >= B * 2 / 3 ? 'right:0' : `left:${((i + .5) / B * 100).toFixed(1)}%;transform:translateX(-50%)`;
+        const vals = !c ? '' : first[i][1] === last[i][1] ? esc(first[i][1]) : `${esc(first[i][1])} – ${esc(last[i][1])}`;
+        return `<div class="hb${c ? '' : ' z'}"><i style="height:${h.toFixed(1)}%"></i>`
+            + (c ? `<span class="tip" style="${pos}">${vals} <span>· ${fmt(c)} value${c === 1 ? '' : 's'}</span></span>` : '') + '</div>';
+    }).join('') + '</div>';
+}
+/* The first row shown whose value in column col is closest to x (the median: with an even
+   count it may be no cell's value), selected and scrolled to the middle of the view. */
+function colPanelGo(col, x) {
+    const t = T(); if (!t || !t.loaded) return;
+    closeColPanel();
+    let best = -1, gap = Infinity;
+    const rows = t.filteredData;
+    for (let i = 0; i < rows.length; i++) {
+        const v = cellStr(cellOf(rows[i], col)).trim(); if (!v || !isNumericLike(v)) continue;
+        const d = Math.abs(numKey(v) - x);
+        if (d < gap) { gap = d; best = i; if (!d) break; }
+    }
+    if (best < 0) return setStats('No row shown holds that value.');
+    if (t.hiddenCols.has(col)) { t.hiddenCols.delete(col); applyColStyles(); render(); }
+    container.scrollTop = Math.max(0, thead.offsetHeight + best * ROW_H - container.clientHeight / 2);
+    setSel(t, best, col, best, col); revealCell(best, col);
 }
 
 function renderColValues() {

@@ -4,7 +4,12 @@
 /* No scrollbar-color here: since Chromium 121 that standard property, once set, makes every
    ::-webkit-scrollbar rule below ignored — the thumb styling, and the 24 px wide scrollbar of
    the grid that the scroll strip (28-…) sits on. The rules below style the scrollbars alone. */
-:root { color-scheme: dark; --card-w: 400px; }   /* --card-w: the row card's width (22-row-card.js) */
+:root { color-scheme: dark; --card-w: 400px;    /* --card-w: the row card's width (22-row-card.js) */
+    /* The monospace stack, one place: MonoLisa (retail name, then the Nerd Font builds), Cascadia Code
+       (Windows 11, Windows Terminal), Monaco (macOS), JetBrains Mono (and its Nerd Font build), Consolas
+       (every Windows), the system's own last.
+       The cells' widths are measured in whichever is found (cellAdv(), titleWidth()). */
+    --mono: "MonoLisa", "MonolisaNerd", "MonoLisa Nerd Font", "Cascadia Code", "Monaco", "JetBrains Mono", "JetBrainsMono Nerd Font", "Consolas", monospace; }
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surf-3); border: 3px solid transparent; border-radius: 8px; background-clip: padding-box; }
@@ -13,7 +18,7 @@
 
 /* The tab bar, toolbar and replace bar, stacked above the grid. */
 #chrome { position: relative; z-index: 1000; }
-body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "Consolas", monospace; margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--txt); font-family: var(--mono); margin: 0; overflow: hidden; }
 
 /* --- Overlays & Modals --- */
 #drop-overlay {
@@ -67,7 +72,7 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 .cmdk-item .cl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmdk-item .cl b { color: var(--accent-2); font-weight: 700; }
 .cmdk-item .cg { flex: none; font-size: 11px; color: var(--txt-dim); padding: 1px 7px; border-radius: 9px; background: rgba(var(--gray-rgb), .15); }
-.cmdk-item kbd, .cmdk-foot kbd { font: 11px "Cascadia Code", monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .2); background: rgba(var(--hi-rgb), .06); color: var(--txt-mut); }
+.cmdk-item kbd, .cmdk-foot kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .2); background: rgba(var(--hi-rgb), .06); color: var(--txt-mut); }
 .cmdk-item .cur { font-size: 11px; color: var(--ok-txt); }
 .cmdk-empty { padding: 22px; text-align: center; color: var(--txt-dim); font-size: 13px; }
 .cmdk-foot { display: flex; gap: 18px; padding: 8px 16px; border-top: 1px solid var(--brd); font-size: 11.5px; color: var(--txt-dim); }
@@ -132,6 +137,14 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #dlg .dlg-sub { margin-top: 8px; font-size: 13px; color: var(--txt-mut); line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
 #dlg .bs-input { width: 100%; margin-top: 14px; }
 #dlg .modal-actions { margin-top: 20px; }
+/* The sheet picker of a workbook (27-import.js): uiDialog's box, a list in it. */
+#dlg.sheet-dlg { width: min(480px, calc(100vw - 32px)); }
+.sheet-list { margin-top: 14px; max-height: min(320px, 50vh); overflow-y: auto; border: 1px solid var(--brd); border-radius: 8px; padding: 4px; }
+.sheet-opt { display: flex; align-items: baseline; gap: 12px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; color: var(--txt); }
+.sheet-opt:hover { background: rgba(var(--gray-rgb), .14); }
+.sheet-opt.act { background: rgba(var(--accent-rgb), .16); color: var(--txt-hi); }
+.sheet-opt .sn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.sheet-opt .sd { flex: none; font-size: 12px; color: var(--txt-dim); font-variant-numeric: tabular-nums; }
 .btn-danger { background-color: var(--danger); color: var(--on-danger); }
 .btn-danger:hover { background-color: var(--danger-hover); }
 @keyframes dlg-fade { from { opacity: 0; } }
@@ -229,7 +242,7 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 .dk {
     display: inline-block; min-width: 1.5em; box-sizing: border-box; padding: 0 5px; margin-left: 4px; text-align: center;
     border: 1px solid rgba(var(--hi-rgb), .35); border-radius: 4px; background: rgba(var(--hi-rgb), .1); color: var(--txt-strong);
-    font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; line-height: 17px; vertical-align: 1px;
+    font-family: var(--mono); font-size: 12px; line-height: 17px; vertical-align: 1px;
 }
 .dd-item .chk { width: 14px; height: 14px; flex: none; visibility: hidden; }
 .dd-item.on .chk { visibility: visible; }
@@ -272,9 +285,9 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #clean-opts .none .k { color: var(--txt-faint); }
 #clean-note { font-size: 12px; color: var(--txt-mut); line-height: 1.45; margin: 12px 0 16px; }
 #modal-save .fld-label, #modal-dedupe .fld-label, #modal-bulk .fld-label, #modal-clean .fld-label { display: block; font-size: 12px; color: var(--txt-mut); margin: 0 0 5px; }
-#save-name { width: 100%; margin-bottom: 14px; font-family: "Cascadia Code", monospace; font-size: 13px; }
+#save-name { width: 100%; margin-bottom: 14px; font-family: var(--mono); font-size: 13px; }
 #save-fmt .col-label, #save-enc .col-label { display: flex; justify-content: space-between; align-items: center; }
-#save-fmt .k { color: var(--txt-sub); font-family: "Cascadia Code", monospace; font-size: 12px; }
+#save-fmt .k { color: var(--txt-sub); font-family: var(--mono); font-size: 12px; }
 #save-note { font-size: 12px; color: var(--txt-mut); line-height: 1.45; margin: 10px 0 16px; min-height: 2.9em; }
 #dedupe-cols { max-height: 240px; overflow-y: auto; border: 1px solid var(--brd); border-radius: 6px; padding: 8px 10px 2px; margin-bottom: 12px; }
 #dedupe-note { font-size: 12px; color: var(--txt-mut); line-height: 1.45; margin: 12px 0 16px; }
@@ -297,9 +310,31 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 #tbody .row { position: absolute; left: 0; height: 35px; display: flex; contain: strict; }   /* paint containment: an untouched row keeps its cached paint, the walk skips it */
 #tbody .cell { flex: none; height: 35px; box-sizing: border-box; line-height: 34px; border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd);
     padding: 0 10px; white-space: nowrap; font-size: 13px; cursor: cell; text-rendering: optimizeSpeed; font-variant-ligatures: none; }
+/* The column's kind (colLayout → kc): numbers right-aligned, so units line up (the font is
+   monospace); numbers and dates in the colours of their header icons, unless switched off. */
+#tbody .cell.kn { text-align: right; }
+:root:not(.no-kcol) #tbody .cell.kn { color: var(--cyan-txt); }
+:root:not(.no-kcol) #tbody .cell.kd { color: var(--violet-txt); }
 #tbody .cell.col-idx { position: sticky; left: 0; border-right: 2px solid var(--prim); }   /* the accent rule of .col-idx, which #tbody .cell's border would override */
 #tbody .hsp { flex: none; height: 35px; }   /* stands for the columns before the window */
 #tbody .cell.fh { position: relative; }
+/* Frozen columns (colLayout's L.F, toggleFreeze()): sticky after the row numbers, their left
+   edge inline. Opaque, since the other cells scroll under them: the row's own colour, and the
+   tints that are translucent elsewhere (selection, marks, fill preview) mixed into it. Under
+   .nohs nothing scrolls sideways: back in flow, as the row numbers. */
+#tbody .cell.frz, #tbody .cell.frz.fh { position: sticky; z-index: 100; }
+#tbody .row-even .cell.frz { background-color: var(--row-alt); }
+#tbody .row-odd .cell.frz { background-color: var(--row-bg, var(--bg)); }
+#tbody .row:hover .cell.frz { background-color: var(--row-hover); }
+#tbody .row-even .cell.frz.sel { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 18%, var(--row-alt)) !important; }
+#tbody .row-odd .cell.frz.sel { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 18%, var(--row-bg, var(--bg))) !important; }
+#tbody .row-even .cell.frz.mkc { background-color: color-mix(in srgb, rgb(var(--warn-rgb)) 16%, var(--row-alt)) !important; }
+#tbody .row-odd .cell.frz.mkc { background-color: color-mix(in srgb, rgb(var(--warn-rgb)) 16%, var(--row-bg, var(--bg))) !important; }
+#tbody .row-even .cell.frz.fillp { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 8%, var(--row-alt)) !important; }
+#tbody .row-odd .cell.frz.fillp { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 8%, var(--row-bg, var(--bg))) !important; }
+#tbody .cell.frz-last { border-right-color: rgba(var(--accent-rgb), .6); }   /* the colour only: a wider border would take a pixel from the pinned width */
+#grid-layer.nohs #tbody .cell.frz { position: relative; left: auto !important; z-index: auto; }
+body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 /* A cell is clipped (ellipsis) only when its value overflows — .ov, decided by cellOv()
    in 12-…: every overflow: hidden is a clip node and a paint chunk of its own, and the 600
    of a drawn window made Chromium's layerization the biggest cost of a scroll step. While
@@ -308,11 +343,11 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 /* A grid narrower than its viewport (.nohs, from syncSpace()): the row numbers have nothing
    to stick to, and a sticky cell costs property nodes and a paint chunk at every step. */
 #grid-layer.nohs #tbody .cell.col-idx { position: relative; z-index: auto; }
-#tbody .cell.sel { background: rgba(var(--accent-rgb), .18) !important; }
+#tbody .cell.sel { background-color: rgba(var(--accent-rgb), .18) !important; }   /* the colour only: a data bar is the cell's background-image */
 #tbody .cell.cur { box-shadow: inset 0 0 0 2px var(--prim); }
 #tbody .cell.fh::after { content: ''; position: absolute; right: 0; bottom: 0; width: 7px; height: 7px; background: var(--prim);
     border: 1px solid var(--bg); border-radius: 1px; cursor: crosshair; }
-#tbody .cell.fillp { background: rgba(var(--accent-rgb), .08) !important; box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .6); }
+#tbody .cell.fillp { background-color: rgba(var(--accent-rgb), .08) !important; box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .6); }
 #tbody .row.drop-above .cell { box-shadow: inset 0 2px 0 var(--prim); }
 #tbody .row.drop-below .cell { box-shadow: inset 0 -2px 0 var(--prim); }
 #tbody .row.row-dragging { opacity: .45; }
@@ -374,13 +409,13 @@ body { background: var(--bg); color: var(--txt); font-family: "Cascadia Code", "
 .rc-f.hid label { font-style: italic; color: var(--txt-faint); }
 .rc-f.cur label { color: var(--accent-2); }
 .rc-f textarea { width: 100%; box-sizing: border-box; resize: none; field-sizing: content; max-height: 140px; min-height: 26px; padding: 4px 8px;
-    font: 12.5px "Cascadia Code", "Consolas", monospace; line-height: 18px; color: var(--txt-hi); background: var(--bg-deep);
+    font: 12.5px var(--mono); line-height: 18px; color: var(--txt-hi); background: var(--bg-deep);
     border: 1px solid transparent; border-radius: 5px; outline: none; white-space: pre-wrap; }
 .rc-f textarea:hover { border-color: var(--brd); }
 .rc-f textarea:focus { border-color: var(--prim); box-shadow: 0 0 0 3px rgba(var(--prim-rgb), .22); }
 /* The raw line: the record's text, delimiters and quotes coloured, invisible characters named. */
 #rc-raw { display: none; margin: 8px 12px 0; padding: 8px 10px; border: 1px solid var(--brd); border-radius: 6px; background: var(--bg-deep);
-    font: 12px "Cascadia Code", "Consolas", monospace; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40%; overflow: auto; }
+    font: 12px var(--mono); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40%; overflow: auto; }
 #row-card.raw #rc-raw { display: block; }
 #rc-raw .rc-meta { display: block; font-family: 'Inter', sans-serif; font-size: 11.5px; color: var(--txt-dim); margin-bottom: 6px; white-space: normal; }
 #rc-raw .rc-meta .warn { color: var(--warn); }
@@ -427,7 +462,7 @@ th.drop-before { box-shadow: inset 3px 0 0 var(--prim); }
 th.drop-after { box-shadow: inset -3px 0 0 var(--prim); }
 th.dragging { opacity: .45; }
 .ty { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; margin-right: 7px; padding: 0 3px; box-sizing: border-box;
-    border-radius: 4px; font: 700 10px "Cascadia Code", monospace; vertical-align: 1px; }
+    border-radius: 4px; font: 700 10px var(--mono); vertical-align: 1px; }
 .ty svg { width: 11px; height: 11px; }
 .ty-n { color: var(--cyan-txt); background: rgba(var(--cyan-rgb), .13); }
 .ty-d { color: var(--violet-txt); background: rgba(var(--violet-rgb), .13); }
@@ -440,8 +475,12 @@ th.dragging { opacity: .45; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 #global-search { width: 260px; }
+/* No ligatures where formulas are typed or shown: MonoLisa, first of --mono, and many
+   monospace fonts draw && as one glyph, and Chromium repainted a
+   ligature half-formed while typing — the first & of "&& " vanished at the space. */
+input, textarea, code, .fxp-mono, .ac-l { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 /* Expression mode: the box is a formula — monospace, wider, red while it does not compile. */
-#global-search.expr { width: 520px; font-family: "Cascadia Code", "Consolas", monospace; font-size: 13px; }
+#global-search.expr { width: 520px; font-family: var(--mono); font-size: 13px; }
 #global-search.bad { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(var(--danger-rgb), .2); }
 /* Autocomplete of the expression box: column names inside a brace, helper functions elsewhere. */
 #expr-ac { display: none; position: fixed; z-index: 1600; max-height: 280px; overflow-y: auto; box-sizing: border-box; padding: 4px;
@@ -449,9 +488,9 @@ th.dragging { opacity: .45; }
 #expr-ac.open { display: block; animation: pop .12s ease-out; transform-origin: top left; }
 .ac-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 5px 10px; border-radius: 5px; cursor: pointer; color: var(--txt-hi); white-space: nowrap; }
 .ac-item.act { background: rgba(var(--accent-rgb), .14); }
-.ac-item .ac-l { font-family: "Cascadia Code", "Consolas", monospace; font-size: 12.5px; }
+.ac-item .ac-l { font-family: var(--mono); font-size: 12.5px; }
 .ac-item .ac-l b { color: var(--accent-2); font-weight: 700; }
-.ac-item .ac-k { font-size: 11px; color: var(--txt-dim); font-family: "Cascadia Code", "Consolas", monospace; }
+.ac-item .ac-k { font-size: 11px; color: var(--txt-dim); font-family: var(--mono); }
 th.gen-head { color: var(--txt-dim); font-style: italic; }
 .f-in { width: 100%; min-width: 0; }
 
@@ -510,17 +549,24 @@ input[type="radio"]:checked { background-image: url("data:image/svg+xml,%3csvg x
     transition: background .15s, border-color .15s; }
 .sb-pill:hover { background: rgba(var(--gray-rgb), .22); border-color: rgba(var(--gray-rgb), .45); }
 /* The delimiter itself in a thin frame of the pill's own colour, so a lone "," reads as a character. */
-.sb-pill .cap { font-family: "Cascadia Code", "Consolas", monospace; font-weight: 700; font-size: 12px; line-height: 14px; min-width: 8px; text-align: center;
+.sb-pill .cap { font-family: var(--mono); font-weight: 700; font-size: 12px; line-height: 14px; min-width: 8px; text-align: center;
     padding: 0 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, currentColor 45%, transparent); }
 .sb-theme { flex: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; margin-left: 4px;
     box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .3), 0 0 0 3px transparent; transition: box-shadow .15s, transform .15s; }
+/* The type-colour switch: a colour wheel the size of the theme swatch, made of the palette's
+   own hues (no literal colours), greyed out when off. */
+.sb-kcol { flex: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; margin-left: 6px;
+    background: conic-gradient(var(--danger-txt), var(--orange-txt), var(--warn), var(--ok-txt), var(--cyan-txt), var(--prim), var(--violet-txt), var(--pink-txt), var(--danger-txt));
+    box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .3); transition: box-shadow .15s, transform .15s, filter .15s, opacity .15s; }
+.sb-kcol:hover { transform: scale(1.1); box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .5); }
+.sb-kcol.off { filter: grayscale(1); opacity: .45; }
 .sb-theme:hover { transform: scale(1.1); box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .5); }
 .sb-theme.open { box-shadow: 0 0 0 1px var(--prim), 0 0 0 4px rgba(var(--prim-rgb), .25); }
 .sb-pill .auto { font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
 .sb-opt { gap: 28px; }
 .sb-opt.on { color: var(--txt-strong); font-weight: 500; }
 .sb-badge { flex: none; width: 58px; box-sizing: border-box; text-align: center; padding: 1px 0; border-radius: 5px;
-    font: 600 11.5px "Cascadia Code", "Consolas", monospace; line-height: 17px;
+    font: 600 11.5px var(--mono); line-height: 17px;
     color: var(--txt-hi); background: rgba(var(--hi-rgb), .05); border: 1px solid rgba(var(--hi-rgb), .28); }
 .sb-badge.c-auto { color: var(--accent-2); background: rgba(var(--accent-rgb), .13); border-color: rgba(var(--accent-rgb), .45); }
 .sb-badge.c-head { color: var(--txt-hi); background: rgba(var(--gray-rgb), .25); border-color: rgba(var(--gray-hi-rgb), .55); }
@@ -638,9 +684,18 @@ thead .col-idx { z-index: 120; }
 .cp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cp-search { width: 100%; margin: 4px 0 6px; font-size: 13px; padding: 5px 10px; }
 .cp-list { max-height: min(320px, calc(100vh - 300px)); overflow-y: auto; }
-.cp-hist { display: block; width: 100%; height: 44px; margin-top: 8px; }
-.cp-hist rect { fill: var(--prim); opacity: .75; }
-.cp-hist rect:hover { opacity: 1; }
+/* The histogram: one bar per bin, its values and count in a tooltip shown at once (no title delay). */
+.cp-hist { position: relative; display: flex; align-items: flex-end; gap: 1px; height: 44px; margin-top: 8px; }
+.cp-hist .hb { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.cp-hist .hb i { display: block; width: 100%; border-radius: 1.5px 1.5px 0 0; background: var(--prim); opacity: .75; }
+.cp-hist .hb.z i { opacity: 0; }
+.cp-hist .hb:hover i { opacity: 1; }
+.cp-hist .hb .tip { display: none; position: absolute; bottom: calc(100% + 6px); z-index: 2; padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+    background: var(--surf-3); border: 1px solid var(--brd-2); color: var(--txt-hi); font-size: 11.5px; line-height: 1.45; box-shadow: 0 6px 18px rgba(0,0,0,.4); pointer-events: none; }
+.cp-hist .hb .tip span { color: var(--txt-dim); }
+.cp-hist .hb:hover .tip { display: block; }
+.cp-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.cp-link:hover { color: var(--accent-2) !important; }
 .cp-val { background: linear-gradient(90deg, rgba(var(--accent-rgb), .11) var(--f, 0%), transparent var(--f, 0%)) no-repeat; }
 .cp-val { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; user-select: none; }
 .cp-val:hover { background: var(--surf-2); }
@@ -663,7 +718,7 @@ td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); pa
 .resizer:hover { background: var(--prim); }
 
 .cell-editor { position: fixed; z-index: 1400; box-sizing: border-box; margin: 0; padding: 7px 10px; resize: none; overflow: auto;
-    font: 13px "Cascadia Code", "Consolas", monospace; line-height: 19px; color: var(--txt-strong); background: var(--bg);
+    font: 13px var(--mono); line-height: 19px; color: var(--txt-strong); background: var(--bg);
     border: 2px solid var(--prim); border-radius: 3px; outline: none; box-shadow: 0 8px 24px rgba(0, 0, 0, .5); white-space: pre-wrap; }
 #tbody .cell.editing { color: transparent; }
 .nl { color: var(--txt-dim); font-size: 11px; padding: 0 2px; }
@@ -688,7 +743,7 @@ td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); pa
 .wl-drop b { color: var(--txt-hi); font-size: 15px; }
 .wl-drop span { font-size: 12.5px; }
 .wl-actions { display: flex; justify-content: center; gap: 10px; margin: 18px 0 30px; }
-.wl-actions kbd, .wl-keys kbd { font: 11px "Cascadia Code", monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .25); background: rgba(var(--hi-rgb), .08); color: inherit; }
+.wl-actions kbd, .wl-keys kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(var(--hi-rgb), .25); background: rgba(var(--hi-rgb), .08); color: inherit; }
 .wl-sec { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); margin: 0 4px 8px; }
 .wl-recent { text-align: left; border: 1px solid var(--brd); border-radius: 12px; overflow: hidden; margin-bottom: 28px; background: var(--surf); }
 .wl-file { display: grid; grid-template-columns: 18px 1fr auto 20px; grid-template-rows: auto auto; column-gap: 12px; padding: 9px 12px; cursor: pointer; border-top: 1px solid var(--brd); align-items: center; }
@@ -715,15 +770,73 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .lk-keys .bs-input { width: 100%; }
 .cv-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--txt-hi); }
 .cv-note { font-size: 12px; color: var(--txt-mut); margin-top: -4px; }
-#fx-expr { width: 100%; box-sizing: border-box; resize: vertical; font-family: "Cascadia Code", monospace; font-size: 13px; line-height: 1.5; }
+#fx-expr { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
 #fx-cols { max-height: 64px; overflow-y: auto; }
 .fx-help { margin-top: 10px; font-size: 12px; color: var(--txt-mut); }
 .fx-help summary { cursor: pointer; color: var(--accent-2); user-select: none; }
 #fx-ex { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0; }
 .fx-ex { display: flex; justify-content: space-between; gap: 12px; padding: 3px 8px; border-radius: 4px; cursor: pointer; }
 .fx-ex:hover { background: rgba(var(--hi-rgb), .1); }
-.fx-ex code { color: var(--txt-hi); font-family: "Cascadia Code", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-ex code { color: var(--txt-hi); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-ex span { flex: none; color: var(--txt-dim); }
 .fx-fns { line-height: 1.7; }
+.fx-fn { cursor: pointer; color: var(--txt-hi); font-family: var(--mono); }
+.fx-fn:hover { color: var(--accent-2); text-decoration: underline; }
+.fx-note { margin-top: 6px; color: var(--txt-dim); }
+.fx-lbl { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.fx-lbl .fx-btn { height: 26px; margin-bottom: 4px; }
+
+/* The ƒx button (filter box, computed column) and the function picker (30-…). */
+.fx-btn { flex: none; height: 32px; min-width: 34px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--brd); background: var(--addon-bg);
+    color: var(--txt-mut); font: italic 600 15px Georgia, "Times New Roman", serif; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.fx-btn:hover { color: var(--txt-hi); border-color: var(--prim); background: rgba(var(--accent-rgb), .1); }
+/* A button joined to the left of its field, as Bootstrap's input-group: one frame, the
+   button as tall as the field, one focus ring around both. */
+.input-group { display: flex; align-items: stretch; flex: none; }
+.input-group > .fx-btn { height: auto; border-radius: 6px 0 0 6px; margin-right: -1px; }
+.input-group > .bs-input { border-radius: 0 6px 6px 0; position: relative; }
+.input-group > .bs-input:focus, .input-group > .bs-input.bad { z-index: 1; }
+.input-group > .bs-input:focus:not(.bad) { box-shadow: none; }
+.input-group:focus-within { border-radius: 6px; box-shadow: 0 0 0 4px rgba(var(--prim-rgb), .25); }   /* the ring around the group, button included */
+.input-group:focus-within > .fx-btn { border-color: var(--prim); }
+.input-group > .fx-btn:hover { position: relative; z-index: 2; }
+#fxp { display: none; position: fixed; inset: 0; z-index: 2800; background: rgba(var(--bg-deep-rgb), .55); }
+#fxp.open { display: block; animation: fadein .12s ease-out; }
+.fxp-box { width: min(900px, calc(100vw - 32px)); height: min(580px, calc(100vh - 64px)); margin: 7vh auto 0; display: flex; flex-direction: column;
+    background: var(--surf); border: 1px solid var(--brd-2); border-radius: 14px; box-shadow: 0 28px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(var(--accent-rgb), .08);
+    overflow: hidden; font-family: 'Inter', sans-serif; animation: pop .16s ease-out; }
+.fxp-logo { flex: none; font: italic 600 17px Georgia, "Times New Roman", serif; color: var(--accent-2); }
+#fxp-in { flex: 1; height: 50px; background: transparent; border: none; outline: none; color: var(--txt-hi); font: 15px 'Inter', sans-serif; }
+#fxp-in::placeholder { color: var(--txt-dim); }
+.fxp-tabs { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--brd); overflow-x: auto; flex: none; }
+.fxp-tab { padding: 3px 11px; border-radius: 12px; font-size: 12px; color: var(--txt-mut); cursor: pointer; white-space: nowrap; user-select: none; }
+.fxp-tab:hover { color: var(--txt-hi); background: rgba(var(--gray-rgb), .15); }
+.fxp-tab.on { background: rgba(var(--accent-rgb), .16); color: var(--txt-hi); }
+.fxp-body { flex: 1; display: flex; min-height: 0; }
+.fxp-list { width: 38%; flex: none; overflow-y: auto; padding: 6px; border-right: 1px solid var(--brd); box-sizing: border-box; }
+.fxp-it { padding: 6px 12px; }
+.fxp-it .ty { margin-right: 0; }
+.fxp-mono { font-family: var(--mono); font-size: 13px; }
+.fxp-det { flex: 1; overflow-y: auto; padding: 18px 20px; min-width: 0; }
+.fxp-sig { display: flex; align-items: center; gap: 10px; }
+.fxp-sig code { flex: 1; font: 600 14.5px var(--mono); color: var(--txt-hi); overflow-wrap: anywhere; }
+.fxp-sig .cg { flex: none; font-size: 11px; color: var(--txt-dim); padding: 1px 7px; border-radius: 9px; background: rgba(var(--gray-rgb), .15); }
+.fxp-d { margin: 10px 0 16px; color: var(--txt-mut); font-size: 13px; line-height: 1.55; }
+.fxp-d code { font-family: var(--mono); color: var(--txt-hi); }
+.fxp-ex { padding: 8px 11px; margin-bottom: 8px; border: 1px solid var(--brd); border-radius: 8px; cursor: pointer; transition: background .12s, border-color .12s; }
+.fxp-ex:hover { background: rgba(var(--accent-rgb), .08); border-color: rgba(var(--accent-rgb), .5); }
+.fxp-ex code { display: block; font: 12.5px var(--mono); color: var(--txt-hi); overflow-wrap: anywhere; }
+.fxp-exl { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 12px; min-width: 0; }
+.fxp-eq { color: var(--txt-dim); font-family: var(--mono); }
+.fxp-res { font-family: var(--mono); color: var(--ok-txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fxp-res i { color: var(--txt-dim); }
+.fxp-res.err { color: var(--danger-txt); }
+.fxp-note { margin-left: auto; flex: none; color: var(--txt-dim); padding-left: 10px; }
+.fxp-row { margin-top: 12px; font-size: 11.5px; color: var(--txt-dim); line-height: 1.5; }
+.fxp-det .modal-actions { margin-top: 14px; }
+@media (max-width: 640px) {
+    .fxp-body { flex-direction: column; }
+    .fxp-list { width: 100%; height: 40%; border-right: none; border-bottom: 1px solid var(--brd); }
+}
 .fx-fns b { color: var(--txt-hi); font-weight: 600; }
-#modal-formula code, .fx-fns code { font-family: "Cascadia Code", monospace; }
+#modal-formula code, .fx-fns code { font-family: var(--mono); }

@@ -39,10 +39,7 @@ document.getElementById('use-expr').onchange = () => { updateExprUI(); exprAcClo
    or Tab insert, Escape closes. The list is a fixed div under the box,
    kept open through a click on it (mousedown prevented, so the box does
    not blur before the click lands). */
-const FX_SIG = { num: 'num(v)', date: 'date(v)', today: 'today()', days: 'days(a, b)', addDays: 'addDays(d, n)', year: 'year(d)', month: 'month(d)', day: 'day(d)',
-    fmtDate: 'fmtDate(d, "dd/mm/yyyy")', round: 'round(n, d)', fixed: 'fixed(n, d)', upper: 'upper(s)', lower: 'lower(s)', trim: 'trim(s)', capitalize: 'capitalize(s)',
-    slug: 'slug(s)', len: 'len(s)', left: 'left(s, n)', right: 'right(s, n)', pad: 'pad(s, n, "0")', extract: 'extract(s, regex, group)', replace: 'replace(s, regex, by)',
-    contains: 'contains(s, part)', empty: 'empty(v)', first: 'first(a, b, …)', join: 'join(sep, a, b, …)' };
+const FX_SIG = Object.fromEntries(FX_DOC.filter(x => x.n in FX).map(x => [x.n, x.s]));   // the signatures shown beside the suggestions (17-…)
 const acBox = document.createElement('div'); acBox.id = 'expr-ac'; document.body.appendChild(acBox);
 acBox.addEventListener('mousedown', e => e.preventDefault());          // keep the focus in the search box
 let exprAc = null;      // { items: [{label, insert, kind, hits}], act, start, end }
