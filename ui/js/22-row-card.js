@@ -83,7 +83,7 @@ function rowCardFields() {
         if (q && !removeAccents(h.toLowerCase()).includes(q) && !removeAccents(v.toLowerCase()).includes(q)) return;
         shown++;
         html += `<div class="rc-f${t.hiddenCols.has(c) ? ' hid' : ''}${c === cur ? ' cur' : ''}" data-c="${c}">`
-            + `<label onclick="rowCardGo(${c})" title="${esc(h)} — column ${c}${t.hiddenCols.has(c) ? ' (hidden in the grid)' : ''} · click to show it in the grid">${typeIcon(kinds[c])}${esc(h)}</label>`
+            + `<label onclick="rowCardGo(${c})" title="${t.hiddenCols.has(c) ? 'Hidden · ' : ''}Click: show in the grid">${typeIcon(kinds[c])}${esc(h)}</label>`
             + `<textarea rows="1" data-c="${c}" spellcheck="false" onfocus="rowCardFocus(this)" onblur="rowCardCommit(this)" onkeydown="rowCardKey(event, this)">${esc(v)}</textarea></div>`;
     });
     box.innerHTML = html || `<div class="rc-none">No field matches "${esc(rowCard.q)}".</div>`;

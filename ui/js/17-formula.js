@@ -92,6 +92,27 @@ const FX = {
     ifs: (...a) => { for (let i = 0; i + 1 < a.length; i += 2) if (a[i]) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; },
     cases: (v, ...a) => { const x = cellStr(v); for (let i = 0; i + 1 < a.length; i += 2) if (x === cellStr(a[i])) return a[i + 1]; return a.length % 2 ? a[a.length - 1] : ''; }
 };
+/* Method form: {City}.upper(), {Date}.year() === 2024, {Amount}.num().round(2) — each helper whose
+   first argument is the value is also a method of texts (every cell is one), numbers and dates, so a
+   formula reads left to right and one needs not know where the value goes among the arguments. A
+   native method of the same name is left alone: startsWith, endsWith, trim, split and replace stay
+   JavaScript's own (trim(v), split(v, …) and replace(v, …) are there as functions). Installed once,
+   non-enumerable; the app's own code never reads these names on a text, a number or a date. */
+const FX_ON_TEXT = ['num', 'date', 'days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate', 'round', 'fixed', 'abs',
+    'upper', 'lower', 'capitalize', 'slug', 'len', 'left', 'right', 'mid', 'pad', 'extract', 'contains', 'matches', 'empty', 'isEmail', 'isPhone', 'isNumber', 'isDate',
+    'firstNumber', 'digits', 'cases'];
+const FX_ON_NUMBER = ['round', 'fixed', 'abs', 'cases'];   // cases: {Date}.month().cases(1, "January", …)
+const FX_ON_DATE = ['days', 'months', 'years', 'addDays', 'addMonths', 'year', 'month', 'day', 'weekday', 'week', 'fmtDate'];
+const FX_METHOD = new Set(FX_ON_TEXT);
+for (const [proto, names] of [[String.prototype, FX_ON_TEXT], [Number.prototype, FX_ON_NUMBER], [Date.prototype, FX_ON_DATE]])
+    for (const n of names) if (!(n in proto)) Object.defineProperty(proto, n, { value: function (...a) { return FX[n](this instanceof Date ? this : this.valueOf(), ...a); }, writable: true, configurable: true });
+/* A helper's method signature, from its function one: left(s, n) → .left(n). */
+function fxMethodSig(x) {
+    if (!FX_METHOD.has(x.n)) return null;
+    const p = x.s.indexOf('('), args = x.s.slice(p + 1, x.s.lastIndexOf(')')).split(',').slice(1).join(',').trim();
+    return `.${x.n}(${args})`;
+}
+
 /* The numbers among a helper's arguments, empty cells left out (an average of 10 and nothing is 10). */
 function fxNums(v) { const out = []; for (const x of v) { if (typeof x !== 'number' && cellStr(x).trim() === '') continue; const n = fxNum(x); if (!isNaN(n)) out.push(n); } return out; }
 function fxFold(s) { return removeAccents(cellStr(s).toLowerCase()); }
@@ -117,53 +138,53 @@ function fxMonths(a, b) {
    'phone', the column to prefer — by its values — over the first text one
 ----------------------------------------------------------------*/
 const FX_DOC = [
-    { f: 'Numbers', n: 'num', s: 'num(v)', d: 'The value as a number: reads 1 234,50 as well as 1,234.50; an empty cell counts as 0.', ex: [['num({N}) * 1.2', 'plus 20 %']] },
-    { f: 'Numbers', n: 'round', s: 'round(n, digits)', d: 'Rounded to that many decimals (none by default).', ex: [['round(num({N}), 1)', 'one decimal']] },
-    { f: 'Numbers', n: 'fixed', s: 'fixed(n, digits)', d: 'Text with exactly that many decimals, written with the file\'s decimal mark.', ex: [['fixed(num({N}), 2)', 'two decimals']] },
-    { f: 'Numbers', n: 'abs', s: 'abs(n)', d: 'The value without its sign.', ex: [['abs(num({N}))', 'absolute value']] },
+    { f: 'Numbers', n: 'num', s: 'num(v)', d: 'The value as a number: reads 1 234,50 as well as 1,234.50; an empty cell counts as 0.', ex: [['{N}.num() * 1.2', 'plus 20 %']] },
+    { f: 'Numbers', n: 'round', s: 'round(n, digits)', d: 'Rounded to that many decimals (none by default).', ex: [['{N}.num().round(1)', 'one decimal']] },
+    { f: 'Numbers', n: 'fixed', s: 'fixed(n, digits)', d: 'Text with exactly that many decimals, written with the file\'s decimal mark.', ex: [['{N}.num().fixed(2)', 'two decimals']] },
+    { f: 'Numbers', n: 'abs', s: 'abs(n)', d: 'The value without its sign.', ex: [['{N}.num().abs()', 'absolute value']] },
     { f: 'Numbers', n: 'sum', s: 'sum(a, b, …)', d: 'The sum of the values given; empty cells are left out.', ex: [['sum({N}, 100)', 'add two values']] },
     { f: 'Numbers', n: 'avg', s: 'avg(a, b, …)', d: 'The average of the values given; empty cells are left out.', ex: [['avg({N}, 0)', 'average']] },
     { f: 'Numbers', n: 'min', s: 'min(a, b, …)', d: 'The smallest of the values given.', ex: [['min({N}, 1000)', 'capped at 1000']] },
     { f: 'Numbers', n: 'max', s: 'max(a, b, …)', d: 'The largest of the values given.', ex: [['max({N}, 0)', 'no negatives']] },
-    { f: 'Dates', n: 'date', s: 'date(v)', d: 'The value as a date: yyyy-mm-dd or day first (dd/mm/yyyy), a time kept.', ex: [['date({D})', 'read a date']] },
+    { f: 'Dates', n: 'date', s: 'date(v)', d: 'The value as a date: yyyy-mm-dd or day first (dd/mm/yyyy), a time kept.', ex: [['{D}.date()', 'read a date']] },
     { f: 'Dates', n: 'today', s: 'today()', d: 'Today\'s date.', ex: [['today()', 'today']] },
-    { f: 'Dates', n: 'days', s: 'days(from, to)', d: 'Days from one date to the other, negative when the second is earlier.', ex: [['days({D}, today())', 'days since']] },
-    { f: 'Dates', n: 'months', s: 'months(from, to)', d: 'Whole months from one date to the other.', ex: [['months({D}, today())', 'months since']] },
-    { f: 'Dates', n: 'years', s: 'years(from, to)', d: 'Whole years from one date to the other: an age.', ex: [['years({D}, today())', 'age']] },
-    { f: 'Dates', n: 'addDays', s: 'addDays(date, n)', d: 'The date n days later (earlier when n is negative).', ex: [['addDays({D}, 30)', 'thirty days later']] },
-    { f: 'Dates', n: 'addMonths', s: 'addMonths(date, n)', d: 'The date n months later; the 31st becomes the month\'s last day when needed.', ex: [['addMonths({D}, 1)', 'a month later']] },
-    { f: 'Dates', n: 'year', s: 'year(date)', d: 'The year.', ex: [['year({D})', 'year'], ['year({D}) === 2024', 'dated 2024']] },
-    { f: 'Dates', n: 'month', s: 'month(date)', d: 'The month, 1 to 12.', ex: [['month({D})', 'month']] },
-    { f: 'Dates', n: 'day', s: 'day(date)', d: 'The day of the month.', ex: [['day({D})', 'day']] },
-    { f: 'Dates', n: 'weekday', s: 'weekday(date)', d: 'The day of the week, 1 for Monday to 7 for Sunday.', ex: [['weekday({D}) >= 6', 'on a weekend']] },
-    { f: 'Dates', n: 'week', s: 'week(date)', d: 'The ISO week number.', ex: [['week({D})', 'week number']] },
-    { f: 'Dates', n: 'fmtDate', s: 'fmtDate(date, "dd/mm/yyyy")', d: 'The date written with a pattern: yyyy yy mm dd hh mi ss.', ex: [['fmtDate({D}, "yyyy-mm-dd")', 'ISO date']] },
-    { f: 'Text', n: 'upper', s: 'upper(s)', d: 'In capitals.', ex: [['upper({T})', 'capitals']] },
-    { f: 'Text', n: 'lower', s: 'lower(s)', d: 'In lower case.', ex: [['lower({T})', 'lower case']] },
-    { f: 'Text', n: 'capitalize', s: 'capitalize(s)', d: 'Every Word Capitalised, the rest in lower case.', ex: [['capitalize({T})', 'capitalised']] },
+    { f: 'Dates', n: 'days', s: 'days(from, to)', d: 'Days from one date to the other, negative when the second is earlier.', ex: [['{D}.days(today())', 'days since']] },
+    { f: 'Dates', n: 'months', s: 'months(from, to)', d: 'Whole months from one date to the other.', ex: [['{D}.months(today())', 'months since']] },
+    { f: 'Dates', n: 'years', s: 'years(from, to)', d: 'Whole years from one date to the other: an age.', ex: [['{D}.years(today())', 'age']] },
+    { f: 'Dates', n: 'addDays', s: 'addDays(date, n)', d: 'The date n days later (earlier when n is negative).', ex: [['{D}.addDays(30)', 'thirty days later']] },
+    { f: 'Dates', n: 'addMonths', s: 'addMonths(date, n)', d: 'The date n months later; the 31st becomes the month\'s last day when needed.', ex: [['{D}.addMonths(1)', 'a month later']] },
+    { f: 'Dates', n: 'year', s: 'year(date)', d: 'The year.', ex: [['{D}.year()', 'year'], ['{D}.year() === 2024', 'dated 2024']] },
+    { f: 'Dates', n: 'month', s: 'month(date)', d: 'The month, 1 to 12.', ex: [['{D}.month()', 'month']] },
+    { f: 'Dates', n: 'day', s: 'day(date)', d: 'The day of the month.', ex: [['{D}.day()', 'day']] },
+    { f: 'Dates', n: 'weekday', s: 'weekday(date)', d: 'The day of the week, 1 for Monday to 7 for Sunday.', ex: [['{D}.weekday() >= 6', 'on a weekend']] },
+    { f: 'Dates', n: 'week', s: 'week(date)', d: 'The ISO week number.', ex: [['{D}.week()', 'week number']] },
+    { f: 'Dates', n: 'fmtDate', s: 'fmtDate(date, "dd/mm/yyyy")', d: 'The date written with a pattern: yyyy yy mm dd hh mi ss.', ex: [['{D}.fmtDate("yyyy-mm-dd")', 'ISO date']] },
+    { f: 'Text', n: 'upper', s: 'upper(s)', d: 'In capitals.', ex: [['{T}.upper()', 'capitals']] },
+    { f: 'Text', n: 'lower', s: 'lower(s)', d: 'In lower case.', ex: [['{T}.lower()', 'lower case']] },
+    { f: 'Text', n: 'capitalize', s: 'capitalize(s)', d: 'Every Word Capitalised, the rest in lower case.', ex: [['{T}.capitalize()', 'capitalised']] },
     { f: 'Text', n: 'trim', s: 'trim(s)', d: 'Spaces removed at both ends, repeated spaces made one.', ex: [['trim({T})', 'clean spaces']] },
-    { f: 'Text', n: 'slug', s: 'slug(s)', d: 'Lower case without accents or symbols: for comparing loosely.', ex: [['slug({T})', 'slug']] },
-    { f: 'Text', n: 'len', s: 'len(s)', d: 'The number of characters.', ex: [['len({T}) > 20', 'long values']] },
-    { f: 'Text', n: 'left', s: 'left(s, n)', d: 'The first n characters.', ex: [['left({T}, 3)', 'first three']] },
-    { f: 'Text', n: 'right', s: 'right(s, n)', d: 'The last n characters.', ex: [['right({T}, 3)', 'last three']] },
-    { f: 'Text', n: 'mid', s: 'mid(s, start, n)', d: 'n characters from position start (the first is 1).', ex: [['mid({T}, 2, 3)', 'three from the 2nd']] },
+    { f: 'Text', n: 'slug', s: 'slug(s)', d: 'Lower case without accents or symbols: for comparing loosely.', ex: [['{T}.slug()', 'slug']] },
+    { f: 'Text', n: 'len', s: 'len(s)', d: 'The number of characters.', ex: [['{T}.len() > 20', 'long values']] },
+    { f: 'Text', n: 'left', s: 'left(s, n)', d: 'The first n characters.', ex: [['{T}.left(3)', 'first three']] },
+    { f: 'Text', n: 'right', s: 'right(s, n)', d: 'The last n characters.', ex: [['{T}.right(3)', 'last three']] },
+    { f: 'Text', n: 'mid', s: 'mid(s, start, n)', d: 'n characters from position start (the first is 1).', ex: [['{T}.mid(2, 3)', 'three from the 2nd']] },
     { f: 'Text', n: 'split', s: 'split(s, sep, n)', d: 'The nth part of the text cut at sep (the first is 1, -1 the last).', ex: [['split({T}, " ", 1)', 'first word'], ['split({T}, " ", -1)', 'last word']] },
-    { f: 'Text', n: 'pad', s: 'pad(s, n, "0")', d: 'Filled on the left up to n characters.', ex: [['pad({N}, 8, "0")', 'eight digits']] },
-    { f: 'Text', n: 'firstNumber', s: 'firstNumber(s)', d: 'The first number in the text, as written: "68 - Rhin" and "Rhin 68" give 68, "01 - Ain" keeps 01; a decimal part kept. Empty when there is none.', ex: [['firstNumber({T})', 'first number'], ['num(firstNumber({T})) > 50', 'as a number']] },
-    { f: 'Text', n: 'digits', s: 'digits(s)', d: 'Every digit of the text, the rest removed: "06 12-34" gives 061234.', ex: [['digits({T})', 'digits only']] },
-    { f: 'Text', n: 'extract', pick: 'email', s: 'extract(s, regex, group)', d: 'The part a regular expression captures (group 1 by default).', ex: [['extract({T}, "@(.+)$")', 'e-mail domain']] },
+    { f: 'Text', n: 'pad', s: 'pad(s, n, "0")', d: 'Filled on the left up to n characters.', ex: [['{N}.pad(8, "0")', 'eight digits']] },
+    { f: 'Text', n: 'firstNumber', s: 'firstNumber(s)', d: 'The first number in the text, as written: "68 - Rhin" and "Rhin 68" give 68, "01 - Ain" keeps 01; a decimal part kept. Empty when there is none.', ex: [['{T}.firstNumber()', 'first number'], ['{T}.firstNumber().num() > 50', 'as a number']] },
+    { f: 'Text', n: 'digits', s: 'digits(s)', d: 'Every digit of the text, the rest removed: "06 12-34" gives 061234.', ex: [['{T}.digits()', 'digits only']] },
+    { f: 'Text', n: 'extract', pick: 'email', s: 'extract(s, regex, group)', d: 'The part a regular expression captures (group 1 by default).', ex: [['{T}.extract("@(.+)$")', 'e-mail domain']] },
     { f: 'Text', n: 'replace', s: 'replace(s, regex, by)', d: 'Every match of a regular expression replaced; $1… reuse its groups.', ex: [['replace({T}, "\\s+", "-")', 'spaces to dashes']] },
-    { f: 'Tests', n: 'contains', s: 'contains(s, part)', d: 'True when the text contains the part, ignoring case and accents.', ex: [['contains({T}, "a")', 'contains an a']] },
+    { f: 'Tests', n: 'contains', s: 'contains(s, part)', d: 'True when the text contains the part, ignoring case and accents.', ex: [['{T}.contains("a")', 'contains an a']] },
     { f: 'Tests', n: 'startsWith', s: 'startsWith(s, part)', d: 'True when the text starts with the part, ignoring case and accents.', ex: [['startsWith({T}, "a")', 'starts with a']] },
     { f: 'Tests', n: 'endsWith', s: 'endsWith(s, part)', d: 'True when the text ends with the part, ignoring case and accents.', ex: [['endsWith({T}, "e")', 'ends with e']] },
-    { f: 'Tests', n: 'matches', s: 'matches(s, regex)', d: 'True when a regular expression matches (case ignored when given as text).', ex: [['matches({T}, "^[a-m]")', 'starts with a to m']] },
-    { f: 'Tests', n: 'empty', s: 'empty(v)', d: 'True when the cell is empty or only spaces.', ex: [['empty({T})', 'empty'], ['!empty({T})', 'filled']] },
-    { f: 'Tests', n: 'isEmail', pick: 'email', s: 'isEmail(v)', d: 'True when the value looks like an e-mail address.', ex: [['!isEmail({T})', 'not an e-mail']] },
-    { f: 'Tests', n: 'isPhone', pick: 'phone', s: 'isPhone(v)', d: 'True when the value reads as a phone number (national numbers as French).', ex: [['!isPhone({T})', 'not a phone']] },
-    { f: 'Tests', n: 'isNumber', s: 'isNumber(v)', d: 'True when the value reads as a number.', ex: [['isNumber({N})', 'a number']] },
-    { f: 'Tests', n: 'isDate', s: 'isDate(v)', d: 'True when the value reads as a date.', ex: [['!isDate({D})', 'not a date']] },
-    { f: 'Values', n: 'ifs', s: 'ifs(test1, value1, test2, value2, …, otherwise)', d: 'The value of the first test that holds, else the last argument.', ex: [['ifs(num({N}) > 1000, "big", num({N}) > 100, "medium", "small")', 'three sizes']] },
-    { f: 'Values', n: 'cases', s: 'cases(v, value1, result1, …, otherwise)', d: 'The result paired with the value v equals, else the last argument.', ex: [['cases({T}, "Paris", "75", "Lyon", "69", "other")', 'a code per value'], ['cases(month({D}), 1, "January", 2, "February", "other")', 'month names']] },
+    { f: 'Tests', n: 'matches', s: 'matches(s, regex)', d: 'True when a regular expression matches (case ignored when given as text).', ex: [['{T}.matches("^[a-m]")', 'starts with a to m']] },
+    { f: 'Tests', n: 'empty', s: 'empty(v)', d: 'True when the cell is empty or only spaces.', ex: [['{T}.empty()', 'empty'], ['!{T}.empty()', 'filled']] },
+    { f: 'Tests', n: 'isEmail', pick: 'email', s: 'isEmail(v)', d: 'True when the value looks like an e-mail address.', ex: [['!{T}.isEmail()', 'not an e-mail']] },
+    { f: 'Tests', n: 'isPhone', pick: 'phone', s: 'isPhone(v)', d: 'True when the value reads as a phone number (national numbers as French).', ex: [['!{T}.isPhone()', 'not a phone']] },
+    { f: 'Tests', n: 'isNumber', s: 'isNumber(v)', d: 'True when the value reads as a number.', ex: [['{N}.isNumber()', 'a number']] },
+    { f: 'Tests', n: 'isDate', s: 'isDate(v)', d: 'True when the value reads as a date.', ex: [['!{D}.isDate()', 'not a date']] },
+    { f: 'Values', n: 'ifs', s: 'ifs(test1, value1, test2, value2, …, otherwise)', d: 'The value of the first test that holds, else the last argument.', ex: [['ifs({N}.num() > 1000, "big", {N}.num() > 100, "medium", "small")', 'three sizes']] },
+    { f: 'Values', n: 'cases', s: 'cases(v, value1, result1, …, otherwise)', d: 'The result paired with the value v equals, else the last argument.', ex: [['{T}.cases("Paris", "75", "Lyon", "69", "other")', 'a code per value'], ['{D}.month().cases(1, "January", 2, "February", "other")', 'month names']] },
     { f: 'Values', n: 'first', s: 'first(a, b, …)', d: 'The first value that is not empty.', ex: [['first({T}, {T2}, "none")', 'first filled']] },
     { f: 'Values', n: 'join', s: 'join(sep, a, b, …)', d: 'The values joined with sep, empty ones skipped.', ex: [['join(" ", {T}, {T2})', 'join two columns']] },
     { f: 'Values', n: 'row', s: 'row', d: 'The row\'s number in the file.', ex: [['row % 2 === 0', 'even rows']] },
@@ -178,12 +199,12 @@ const FX_DOC = [
     { f: 'Methods', n: '.trim', s: '.trim()', d: 'Spaces removed at both ends.', ex: [['{T}.trim()', 'trimmed']] },
     { f: 'Methods', n: '.padStart', s: '.padStart(n, "0")', d: 'Filled on the left up to n characters.', ex: [['{N}.padStart(6, "0")', 'six digits']] },
     { f: 'Operators', n: '===', s: ' === ', d: 'Equal (the value as written: compare text with text). !== for different.', ex: [['{T} === ""', 'empty cell']] },
-    { f: 'Operators', n: '> < >= <=', s: ' > ', d: 'Compare numbers or dates: read them with num() or date() first.', ex: [['num({N}) >= 100', 'at least 100'], ['date({D}) < today()', 'in the past']] },
-    { f: 'Operators', n: '&&', s: ' && ', d: 'And: both must hold.', ex: [['!empty({T}) && num({N}) > 0', 'both']] },
-    { f: 'Operators', n: '||', s: ' || ', d: 'Or: either may hold.', ex: [['empty({T}) || empty({T2})', 'one of them empty']] },
-    { f: 'Operators', n: '!', s: '!', d: 'Not: reverses a test.', ex: [['!contains({T}, "test")', 'without "test"']] },
-    { f: 'Operators', n: '? :', s: ' ? "yes" : "no"', d: 'If … then … else.', ex: [['num({N}) > 1000 ? "big" : "small"', 'a condition']] },
-    { f: 'Operators', n: '+ - * /', s: ' + ', d: 'Arithmetic on numbers; + also joins text.', ex: [['{T} + " " + {T2}', 'join text'], ['num({N}) / 2', 'half']] }
+    { f: 'Operators', n: '> < >= <=', s: ' > ', d: 'Compare numbers or dates: read them with num() or date() first.', ex: [['{N}.num() >= 100', 'at least 100'], ['{D}.date() < today()', 'in the past']] },
+    { f: 'Operators', n: '&&', s: ' && ', d: 'And: both must hold.', ex: [['!{T}.empty() && {N}.num() > 0', 'both']] },
+    { f: 'Operators', n: '||', s: ' || ', d: 'Or: either may hold.', ex: [['{T}.empty() || {T2}.empty()', 'one of them empty']] },
+    { f: 'Operators', n: '!', s: '!', d: 'Not: reverses a test.', ex: [['!{T}.contains("test")', 'without "test"']] },
+    { f: 'Operators', n: '? :', s: ' ? "yes" : "no"', d: 'If … then … else.', ex: [['{N}.num() > 1000 ? "big" : "small"', 'a condition']] },
+    { f: 'Operators', n: '+ - * /', s: ' + ', d: 'Arithmetic on numbers; + also joins text.', ex: [['{T} + " " + {T2}', 'join text'], ['{N}.num() / 2', 'half']] }
 ];
 /* Numbers are written the way the file most likely writes them: a decimal
    comma in a ;-separated file (the French spreadsheet convention), a point otherwise. */
@@ -228,13 +249,13 @@ function evalRow(fn, t, r, used) {
 const FX_EXAMPLES = [   // {N} {D} {T} {T2}: a number, date, text and second text column of the file (fxExample(), 30-…)
     ['{T} + " " + {T2}', 'join two columns'],
     ['join(" ", {T}, {T2})', 'join, skipping empty values'],
-    ['num({N}) * 1.2', 'arithmetic'],
-    ['fixed(num({N}) / 3, 2)', 'two decimals'],
-    ['days({D}, today())', 'days since a date'],
-    ['year({D})', 'year of a date'],
-    ['fmtDate({D}, "yyyy-mm-dd")', 'reformat a date'],
-    ['extract({T}, "@(.+)$")', 'regex group (e-mail domain)'],
-    ['num({N}) > 1000 ? "big" : "small"', 'condition'],
+    ['{N}.num() * 1.2', 'arithmetic'],
+    ['fixed({N}.num() / 3, 2)', 'two decimals'],
+    ['{D}.days(today())', 'days since a date'],
+    ['{D}.year()', 'year of a date'],
+    ['{D}.fmtDate("yyyy-mm-dd")', 'reformat a date'],
+    ['{T}.extract("@(.+)$")', 'regex group (e-mail domain)'],
+    ['{N}.num() > 1000 ? "big" : "small"', 'condition'],
     ['first({T}, {T2}, "none")', 'first non-empty value']
 ];
 

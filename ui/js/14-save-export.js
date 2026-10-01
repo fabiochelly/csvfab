@@ -23,7 +23,10 @@ async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverrid
        fields rather than losing them (a short one is padded). */
     const width = t.headers.length;
     const whole = columnsToExport.length === width && columnsToExport.every((c, k) => c === k);
-    const quote = v => {
+    /* Raw text (33-…): a line is written as it is, and a file that ended without a line break still does. */
+    const text = !!(t.base && t.base.lines) && delim === '\n';
+    const noEnd = text && t.base.u8.length > 0 && t.base.u8[t.base.u8.length - 1] !== 10 && t.base.u8[t.base.u8.length - 1] !== 13;
+    const quote = text ? v => String(v ?? '') : v => {
         const sv = String(v ?? '');
         return (sv.includes(delim) || sv.includes('"') || sv.includes('\n') || sv.includes('\r')) ? `"${sv.replace(/"/g, '""')}"` : sv;
     };
@@ -46,18 +49,18 @@ async function streamCSV(t, dataToExport, columnsToExport, rawSink, delimOverrid
                 if (sameEol) {
                     const e = B.starts[r.b + 1];
                     if (runS >= 0 && s === runE) runE = e; else { flushRun(); runS = s; runE = e; }
-                    if (r.b === B.n - 1 && !endsNl) { flushRun(); parts.push(eolBytes); }   // the file's last line had no break
+                    if (r.b === B.n - 1 && !endsNl && !(noEnd && j === total - 1)) { flushRun(); parts.push(eolBytes); }   // the file's last line had no break
                 } else {
                     flushRun();
                     let e = B.starts[r.b + 1];
                     while (e > s && (B.u8[e - 1] === 10 || B.u8[e - 1] === 13)) e--;
-                    parts.push(B.u8.subarray(s, e), eolBytes);
+                    parts.push(B.u8.subarray(s, e)); if (!(noEnd && j === total - 1)) parts.push(eolBytes);
                 }
                 continue;
             }
             flushRun();
             const d = r.data;
-            str += (whole && d.length > width ? d : columnsToExport.map(cIdx => d[cIdx])).map(quote).join(delim) + eol;
+            str += (whole && d.length > width ? d : columnsToExport.map(cIdx => d[cIdx])).map(quote).join(delim) + (noEnd && j === total - 1 ? '' : eol);
         }
         flushStr(); flushRun();
         if (parts.length) await rawSink(parts.length === 1 ? parts[0] : new Blob(parts));
@@ -92,13 +95,16 @@ function stemOf(name) { return name.replace(/\.(csv|tsv|txt|xlsx)$/i, ''); }
 function xlsxName(t) { return stemOf(t.name) + '.xlsx'; }
 function csvExt(t) { const m = t.name.match(/\.(csv|tsv|txt)$/i); return m ? m[0] : '.csv'; }
 function saveChoice() { const r = document.querySelector('input[name="save-fmt"]:checked'); return r ? r.value : ''; }
+/* The delimiter a format choice writes: r is the raw text of a text file (33-…), lines as they are. */
+function saveDelimOf(c) { return c === 'r' ? '\n' : DELIMS[+c.slice(1)].v; }
 function saveEncChoice() { const r = document.querySelector('input[name="save-enc"]:checked'); return r ? r.value : ''; }
 
 function openSaveModal() {
     const t = T(); if (!t) return;
     if (!t.loaded) { uiAlert('The file is still loading.'); return; }
     const cur = currentDelim(t);
-    document.getElementById('save-fmt').innerHTML = DELIMS.map((d, i) =>
+    document.getElementById('save-fmt').innerHTML = (cur === '\n' ? `<label class="col-label"><span><input type="radio" name="save-fmt" value="r" checked> Text file — lines as they are (current)</span><span class="k">¶</span></label>` : '')
+        + DELIMS.map((d, i) =>
         `<label class="col-label"><span><input type="radio" name="save-fmt" value="d${i}" ${d.v === cur ? 'checked' : ''}> ${esc(d.label)}${d.v === cur ? ' (current)' : ''}</span><span class="k">${esc(d.shown)}</span></label>`).join('')
         + '<label class="col-label"><span><input type="radio" name="save-fmt" value="x"> Excel workbook</span><span class="k">.xlsx</span></label>';
     const curEnc = currentEnc(t);
@@ -128,7 +134,7 @@ function updateSaveNote() {
     const name = document.getElementById('save-name').value.trim(), c = saveChoice();
     document.getElementById('save-enc-box').style.display = c === 'x' ? 'none' : '';   // a workbook has no text encoding
     const changes = [];
-    if (c !== 'x' && DELIMS[+c.slice(1)].v !== currentDelim(t)) changes.push('re-delimited');
+    if (c !== 'x' && saveDelimOf(c) !== currentDelim(t)) changes.push(saveDelimOf(c) === '\n' ? 'as text' : currentDelim(t) === '\n' ? 'as a one-column CSV' : 're-delimited');
     if (c !== 'x' && saveEncChoice() !== currentEnc(t)) changes.push(`re-encoded as ${encName(saveEncChoice())}`);
     const where = t.path ? 'beside the source' : 'where you choose';
     let note;
@@ -150,7 +156,7 @@ async function submitSaveModal() {
        picker, which needs the click's user activation. */
     if (c === 'x') { if (!/\.xlsx$/i.test(name)) name += '.xlsx'; return saveExcel(name); }
     if (!/\.[^.]+$/.test(name)) name += '.csv';
-    const delim = DELIMS[+c.slice(1)].v, enc = saveEncChoice() || currentEnc(t);
+    const delim = saveDelimOf(c), enc = saveEncChoice() || currentEnc(t);
     if (name === t.name) {
         /* A delimiter or encoding change is itself worth writing: it bypasses "nothing to save". */
         if (await saveInPlace({ delim: delim === currentDelim(t) ? null : delim, enc: enc === currentEnc(t) ? null : enc })) adoptFormat(t, delim, enc);
@@ -205,7 +211,7 @@ async function saveAs(t, name, delim, enc) {
     await refreshStamp(t);
     adoptFormat(t, delim, we.enc);
     updateSaveBtn(); renderTabBar();
-    doneMsg(`${t.name} | Saved as a new file — ${fmt(t.allData.length)} rows written, ${from} left as it was.`);
+    doneMsg(`${t.name} | Saved as a new file — ${fmt(t.allData.length)} ${t.lang ? 'lines' : 'rows'} written, ${from} left as it was.`);
     return true;
 }
 
@@ -443,7 +449,7 @@ async function saveInPlace(opts) {
         markPristine(t);
         await refreshStamp(t);
         updateSaveBtn(); renderTabBar();
-        doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written`
+        doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} ${t.lang ? 'lines' : 'rows'} written`
             + (j.backup ? ` · backup ${j.backup}` : '') + '.');
         return true;
     }
@@ -469,7 +475,7 @@ async function saveInPlace(opts) {
     try { t.size = (await t.handle.getFile()).size; } catch (e) { }
     await refreshStamp(t);
     updateSaveBtn(); renderTabBar();
-    doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} rows written.`);
+    doneMsg(`${t.name} | Saved in place — ${fmt(t.allData.length)} ${t.lang ? 'lines' : 'rows'} written.`);
     return true;
 }
 

@@ -415,18 +415,15 @@ function updateIrregular(t) {
     chip.style.display = bad || q || (t && t.onlyIrregular) ? '' : 'none';
     chip.classList.toggle('on', !!(t && t.onlyIrregular));
     chip.textContent = `⚠ ${fmt(bad)} irregular row${bad === 1 ? '' : 's'}` + (q ? ` · ${fmt(q)} quote error${q === 1 ? '' : 's'}` : '');
-    chip.title = (t && t.onlyIrregular ? 'Showing only the irregular rows — click to show all. ' : 'Click to show only these rows. ')
-        + `Rows whose number of fields differs from the ${fmt(n)} columns of the header.`
-        + (q ? ' Quote errors: a quote opened and never closed — the parser may have merged several lines into one field.' : '');
+    chip.title = `Not ${fmt(n)} fields` + (q ? ' · quote errors: unclosed quotes' : '') + (t && t.onlyIrregular ? ' · click: show all' : ' · click: show only these');
 }
 function updateDupChip(t) {
     const chip = document.getElementById('dup-chip'), m = t && t.loaded && t.dupMarks;
     chip.style.display = m ? '' : 'none';
     if (!m) return;
     chip.classList.toggle('on', !!t.onlyDups);
-    chip.innerHTML = `⧉ ${fmt(m.group.size)} duplicates · ${fmt(m.groups)} groups<span class="chip-x" onclick="clearDupMarks(event)" title="Remove the duplicate marks">×</span>`;
-    chip.title = (t.onlyDups ? 'Showing only the duplicate rows, grouped — click to show all rows. ' : 'Click to show only the duplicate rows, grouped. ')
-        + `Compared on ${t.dupSpec.cols.length ? t.dupSpec.cols.join(', ') : 'the whole row'}.`;
+    chip.innerHTML = `⧉ ${fmt(m.group.size)} duplicates · ${fmt(m.groups)} group${m.groups === 1 ? '' : 's'}<span class="chip-x" onclick="clearDupMarks(event)" title="Remove the duplicate marks">×</span>`;
+    chip.title = `On ${dupSpecText(t.dupSpec)}` + (t.onlyDups ? ' · click: show all' : ' · click: show only these');
 }
 function toggleIrregular() {
     const t = T(); if (!t || !t.loaded) return;
@@ -441,10 +438,10 @@ function updateCount(t) {
     if (!t || !t.loaded) { box.style.display = 'none'; return; }
     const shown = t.filteredData.length, total = t.allData.length, cols = t.headers.length, hid = t.hiddenCols.size;
     box.style.display = '';
-    box.innerHTML = (shown !== total || hasFilter(t) ? `<b class="n-filt">${fmt(shown)}</b> / ` : '') + `<b class="n-total">${fmt(total)}</b> row${total === 1 ? '' : 's'}`
-        + ` · <b>${fmt(cols - hid)}</b> column${cols - hid === 1 ? '' : 's'}` + (hid ? ` <span class="hid">(${fmt(hid)} hidden)</span>` : '');
-    box.title = (shown !== total ? `${fmt(shown)} rows shown by the filters, out of ${fmt(total)}` : `${fmt(total)} rows`)
-        + ` · ${fmt(cols)} columns${hid ? `, ${fmt(hid)} hidden` : ''}`;
+    const unit = t.lang ? 'line' : 'row';     // a text file (33-…): lines, and its one column goes without saying
+    box.innerHTML = (shown !== total || hasFilter(t) ? `<b class="n-filt">${fmt(shown)}</b> / ` : '') + `<b class="n-total">${fmt(total)}</b> ${unit}${total === 1 ? '' : 's'}`
+        + (t.lang ? '' : ` · <b>${fmt(cols - hid)}</b> column${cols - hid === 1 ? '' : 's'}` + (hid ? ` <span class="hid">(${fmt(hid)} hidden)</span>` : ''));
+    box.removeAttribute('title'); delete box.dataset.t;   // the counts say it all
 }
 
 function updateStats() {
@@ -457,7 +454,7 @@ function updateStats() {
     const hasFilters = hasFilter(t);
     document.getElementById('btn-extract').style.display = '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
-    const gen = t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
+    const gen = t.lang ? '' : t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     const ex = t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '';
     setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}${ex}`);   // the counts: #sb-count, on the right
     rowCardSync();

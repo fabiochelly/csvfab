@@ -8,7 +8,7 @@
    the view as it was and says why in the status bar; a row whose
    evaluation throws is hidden and counted.
 ----------------------------------------------------------------*/
-const EXPR_PLACEHOLDER = 'e.g.  num({Amount}) > 1000 && contains({City}, "lyon")';
+const EXPR_PLACEHOLDER = 'e.g.  {Amount}.num() > 1000 && {City}.contains("lyon")';
 const FX_VALUES = Object.values(FX);
 
 /* { test(row) → boolean, errors, first } or { error } */
@@ -59,10 +59,14 @@ function exprAcUpdate() {
         const q = removeAccents(text.slice(open + 1, pos).trim().toLowerCase());
         items = rank(q, t.headers.map(h => ({ label: h, insert: `{${h}}`, kind: 'column' })));
     } else {
-        const m = text.slice(0, pos).match(/[A-Za-z_]\w*$/);
-        if (m && !/[\w}"']$/.test(text.slice(0, pos - m[0].length))) {      // a word begun, not the tail of something else
-            start = pos - m[0].length;
-            items = rank(m[0].toLowerCase(), Object.keys(FX).map(k => ({ label: k, insert: k + '(', kind: FX_SIG[k] || '' })));
+        const m = text.slice(0, pos).match(/[A-Za-z_]\w*$/), w = m ? m[0] : '', prev = text.slice(0, pos - w.length);
+        if (/[}\])"'\w]\.$/.test(prev)) {                            // after a value and a dot: its methods, the helpers' and JavaScript's
+            start = pos - w.length;
+            items = rank(w.toLowerCase(), [...FX_DOC.filter(x => FX_METHOD.has(x.n)).map(x => ({ label: x.n, insert: x.n + '(', kind: fxMethodSig(x) })),
+                ...FX_DOC.filter(x => x.f === 'Methods').map(x => ({ label: x.n.slice(1), insert: x.s.slice(1).replace(/\(.*$/, '('), kind: x.s }))]);
+        } else if (m && !/[\w}"'.]$/.test(prev)) {                     // a word begun, not the tail of something else
+            start = pos - w.length;
+            items = rank(w.toLowerCase(), Object.keys(FX).map(k => ({ label: k, insert: k + '(', kind: FX_SIG[k] || '' })));
         }
     }
     if (!items.length) return exprAcClose();

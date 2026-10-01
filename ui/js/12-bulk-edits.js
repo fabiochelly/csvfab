@@ -204,124 +204,7 @@ async function deleteHiddenRows() {
     setStats(`${t.name} | ${fmt(hidden)} hidden rows deleted, ${fmt(kept.length)} kept — not written yet, use Save.`);
 }
 
-/* Duplicates are counted over ALL rows, filtered or not. A row whose
-   compared cells are all empty is never a duplicate: 46 contacts without
-   an e-mail are not one contact. */
-function dedupeSpec(t) {
-    const cols = [...document.querySelectorAll('#dedupe-cols input:checked')].map(i => +i.value);
-    return { cols: cols.map(c => t.headers[c]), match: document.querySelector('input[name="dedupe-match"]:checked').value };
-}
-/* One comparison key per row of t.allData (null: all compared cells empty),
-   or null when a column of the spec no longer exists. Columns are named,
-   not indexed, so marks survive columns being added, moved or deleted. */
-function dupKeys(t, spec) {
-    const cols = spec.cols.map(h => t.headers.indexOf(h));
-    if (cols.includes(-1)) return null;
-    const use = cols.length ? cols : t.headers.map((_, i) => i), n = use.length;
-    const str = v => String(v == null ? '' : v);
-    /* toLowerCase, not toLocaleLowerCase('fr'): the same result for every locale but
-       Turkish, and several times faster (the whole-row key on 600 k rows: 4.4 s → 1.2 s). */
-    const norm = spec.match === 'slug' ? v => slugify(str(v)) : spec.match === 'loose' ? v => str(v).trim().toLowerCase() : str;
-    const keys = new Array(t.allData.length), few = n <= 3;   // a few columns: cellOf each; many: one split of the record
-    visitRows(t, t.allData, (r, i) => {
-        const d = few ? null : r.data;
-        let key = '', empty = true;
-        for (let k = 0; k < n; k++) {
-            const p = norm(few ? cellOf(r, use[k]) : d[use[k]]);
-            if (empty && p.trim() !== '') empty = false;
-            key = k ? key + '\u0001' + p : p;
-        }
-        keys[i] = empty ? null : key;
-    });
-    return keys;
-}
-function dedupeKeep() {
-    const t = T(), keys = dupKeys(t, dedupeSpec(t));
-    const last = document.querySelector('input[name="dedupe-keep"]:checked').value === 'last';
-    const seen = new Set(), n = t.allData.length, keep = new Array(n);
-    for (let k = 0; k < n; k++) {
-        const i = last ? n - 1 - k : k, key = keys[i];
-        keep[i] = key === null || !seen.has(key);
-        if (key !== null) seen.add(key);
-    }
-    return keep;
-}
-
-/* ---- MARK DUPLICATES ------------------------------------------------
-   The review before the deletion: every row of a duplicate group, the
-   first occurrence included, gets a coloured edge (alternating per group),
-   and a status bar chip filters the grid down to them, groups side by side.
-   t.dupSpec keeps the settings, and the groups are recomputed at each
-   applyFilters(), so edits and deletions update them. */
-function dupGroups(t) {
-    const spec = t.dupSpec && JSON.stringify(t.dupSpec);
-    if (spec && t.dupCache && t.dupCache.spec === spec && sameStamp(t.dupCache.stamp, dataStamp(t))) return;   // same rows, same spec: same groups
-    t.dupMarks = null; t.dupCache = null;
-    if (!t.dupSpec) return;
-    const keys = dupKeys(t, t.dupSpec);
-    if (!keys) { t.dupSpec = null; t.onlyDups = false; return; }   // a compared column is gone
-    const first = new Map(), count = new Map();
-    keys.forEach(k => { if (k !== null) count.set(k, (count.get(k) || 0) + 1); });
-    const group = new Map();
-    t.allData.forEach((r, i) => {
-        const k = keys[i];
-        if (k === null || count.get(k) < 2) return;
-        if (!first.has(k)) first.set(k, first.size);
-        group.set(r, first.get(k));
-    });
-    t.dupMarks = { group, groups: first.size };
-    t.dupCache = { spec, stamp: dataStamp(t) };
-}
-function markDuplicates() {
-    const t = T(); if (!t) return;
-    t.dupSpec = dedupeSpec(t); t.onlyDups = true;
-    closeAllModals();
-    applyFilters();
-    if (!t.dupMarks || !t.dupMarks.groups) { t.dupSpec = null; t.onlyDups = false; applyFilters(); setStats(`${t.name} | No duplicate rows.`); return; }
-    setStats(`${t.name} | ${fmt(t.dupMarks.group.size)} rows in ${fmt(t.dupMarks.groups)} duplicate groups, shown side by side — click the chip below to see all rows.`);
-}
-function toggleDupView() {
-    const t = T(); if (!t || !t.dupSpec) return;
-    t.onlyDups = !t.onlyDups;
-    applyFilters();
-}
-function clearDupMarks(e) {
-    if (e) e.stopPropagation();
-    const t = T(); if (!t) return;
-    t.dupSpec = null; t.onlyDups = false; t.dupMarks = null;
-    applyFilters();
-}
-function dupCls(t, r, prev) {
-    const g = t.dupMarks && t.dupMarks.group.get(r);
-    if (g == null) return '';             // no marks at all (dupMarks null) or a row outside every group
-    return ' dup ' + (g % 2 ? 'dup-b' : 'dup-a') + (t.onlyDups && prev && t.dupMarks.group.get(prev) !== g ? ' dup-first' : '');
-}
-function openDedupe() {
-    const t = T(); if (!t || !t.loaded) return;
-    document.getElementById('dedupe-cols').innerHTML = t.headers.map((h, i) =>
-        `<label class="col-label"><input type="checkbox" value="${i}" onchange="updateDedupeNote()"> ${esc(h)}</label>`).join('');
-    updateDedupeNote();
-    document.getElementById('modal-bg').style.display = 'block';
-    document.getElementById('modal-dedupe').style.display = 'block';
-}
-function updateDedupeNote() {
-    const t = T(); if (!t) return;
-    const dup = dedupeKeep().filter(k => !k).length;
-    document.getElementById('dedupe-note').innerHTML = dup
-        ? `<b>${fmt(dup)}</b> duplicate rows out of ${fmt(t.allData.length)} will be deleted (all rows are checked, filtered or not).`
-        : `No duplicate among the ${fmt(t.allData.length)} rows.`;
-    document.getElementById('dedupe-go').disabled = !dup;
-    document.getElementById('dedupe-show').disabled = !dup;
-}
-function applyDedupe() {
-    const t = T(); if (!t) return;
-    const keep = dedupeKeep();
-    const rows = t.allData.filter((_, i) => keep[i]), dup = t.allData.length - rows.length;
-    closeAllModals();
-    if (!dup) return;
-    commitRows(t, rows, { id: '-', col: '---', old: `${dup} duplicate rows`, new: 'Deleted', what: `${fmt(dup)} duplicates removed` });
-    setStats(`${t.name} | ${fmt(dup)} duplicate rows deleted — not written yet, use Save.`);
-}
+/* Duplicates: 31-duplicates.js. */
 
 /* ---------------------------------------------------------------
    VIRTUAL RENDERING
@@ -423,14 +306,14 @@ function textWidth(s) {
 function cellOv(t, cIdx, c, html) {
     if (c == null || c === '') return false;
     const s = typeof c === 'string' ? c : String(c);
-    if (html.indexOf('<') >= 0) return true;
+    if (html.indexOf('<') >= 0) return !t.lang || html.indexOf('<mark') >= 0 || s.length * cellAdv() > (t.colWidths[cIdx] || 480) - 30;   // a text line's colours are spans, not a reason to clip
     return textWidth(s) > (t.colWidths[cIdx] == null ? 480 : t.colWidths[cIdx]) - 21 + 0.05;   // the width was pinned at ceil(widest value + 21): that value fits by construction
 }
 /* One cell of row i, as HTML: column k of the layout L. */
 function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
-    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = showBreaks(highlightCell(c, cIdx, t.hl));
+    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, c, cIdx) : showBreaks(highlightCell(c, cIdx, t.hl));
     const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
-    return `<div class="cell${L.kc[k]}${frz}${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${html}</div>`;
+    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${html}</div>`;
 }
 /* The spacer standing, in a row, for the columns between the frozen ones (or the row numbers)
    and the window — none when the window starts right there. */
@@ -443,7 +326,7 @@ function rowsHtml(t, i0, i1, w) {
     for (let i = i0; i <= i1; i++) {
         const r = data[i], mk = markedCells(t, r), d = r.data;
         html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="top:${i * ROW_H}px;width:${W}px" data-idx="${i}">
-            <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Click: select the row · Drag: move it">
+            <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Drag: move">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
             </div>`;
@@ -554,6 +437,7 @@ function render(lean) {
     drawn = null;
     clearTimeout(jumpTimer); jumpTimer = 0;   // a redraw for any reason: nothing left to catch up
     syncLayer();
+    tbody.classList.toggle('tx', !!(t && t.lang));   // a text file: lines striped, no rules between them (33-…)
     if (!t || !t.loaded) { tbody.innerHTML = ''; tbody.style.height = '0px'; tbody.classList.remove('no-rows'); return; }
     const data = t.filteredData;
     if (data.length === 0) { tbody.innerHTML = '<div class="empty-msg">No results found</div>'; tbody.style.height = ''; tbody.classList.add('no-rows'); syncSpace(t); return; }
@@ -581,6 +465,7 @@ function pinColWidths(t) {
     const cells = thead.rows[0] && thead.rows[0].cells;
     if (!idxColW) idxColW = (cells && Math.ceil(cells[0].getBoundingClientRect().width)) || 90;
     if (!missing.length) return;
+    if (t.lang) { t.colWidths[0] = textColWidth(t); applyColStyles(); return; }   // a text file: one wide column (33-…)
     const [v0] = viewRows(t), rows = t.filteredData.slice(v0, v0 + 80);
     missing.forEach(i => {
         let w = cells && cells[i + 1] ? cells[i + 1].getBoundingClientRect().width : 0;

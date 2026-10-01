@@ -122,7 +122,7 @@ async function parseTab(t) {
         if (t.stamp) t.stamp.fp = await fingerprint(src.bytes);   // before the bytes go to the worker
         const phases = { transcode: 'Converting', scan: 'Reading' };
         let shown = '';
-        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter }, (p, ph) => {
+        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter, lines: t.delimiter === '\n' }, (p, ph) => {
             if (!active()) return;
             if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
             setProgress(p);
@@ -143,7 +143,10 @@ async function parseTab(t) {
     t.quoteErrors = base.qerr;
     /* The garbled-accents hint: the first 16 MB are plenty to notice it. */
     t.mojibake = base.n > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, Math.min(base.u8.length, 16 << 20))));
-    if (t.headers.length === 0 && base.n) {         // first read: decide what line 1 is
+    /* Raw text (33-…): one column, titled by the language, every line a row — line 1 included. */
+    t.lang = base.lines ? langOf(t.name) : null;
+    if (base.lines) { t.syntheticHeader = true; t.headers = [t.lang.label]; }
+    else if (t.headers.length === 0 && base.n) {    // first read: decide what line 1 is
         const mode = t.headerMode, row0 = recordFields(base, 0);
         const sample = []; for (let b = 1; b < Math.min(base.n, 1 + HEADER_SAMPLE); b++) sample.push(recordFields(base, b));
         const isHeader = mode === 'first' ? true : (mode === 'index' ? false : looksLikeHeader(row0, sample));
@@ -165,7 +168,7 @@ async function parseTab(t) {
     t.colSrc = t.headers.map((_, i) => i);
     if (!tabs.some(x => x.loading)) endProgress();
     if (active()) {
-        convertHeader(t, wantsSynthetic(t, t.headerMode));
+        if (!base.lines) convertHeader(t, wantsSynthetic(t, t.headerMode));
         renderHeader(); applyColStyles(); refreshParseOpts();
         applyFilters();                   // zeroes t.scrollTop: back to where the tab was, now that the extent is known
         t.scrollTop = top; container.scrollTop = top; render();

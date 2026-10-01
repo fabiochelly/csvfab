@@ -18,6 +18,11 @@
     --warn: #e3b341; --warn-hover: #d2a43a; --warn-rgb: 227, 179, 65; --on-warn: #000000; --mark-txt: #ffdf70;
     --danger: #f85149; --danger-hover: #da3633; --danger-rgb: 248, 81, 73; --danger-txt: #ff7b72; --on-danger: #ffffff;
     --ok: #3fb950; --ok-rgb: 46, 160, 67; --ok-txt: #7ee2a8;
+    --ok-subtle: #051b11; --ok-border-subtle: #0f5132; --ok-emph: #75b798;   /* Bootstrap 5.3 subtle tones (dark): solid, soft */
+    --danger-subtle: #2c0b0e; --danger-border-subtle: #842029; --danger-emph: #ea868f;
+    --diff-txt: #ea868f;   /* differing values (duplicates): red text on --danger-subtle */
+    /* syntax (raw text, 33-…): GitHub Dark's own token colours */
+    --sy-kw: #ff7b72; --sy-ctl: #ff7b72; --sy-str: #a5d6ff; --sy-num: #79c0ff; --sy-com: #8b949e; --sy-fn: #d2a8ff; --sy-type: #ffa657; --sy-var: #ffa657; --sy-prop: #79c0ff; --sy-re: #7ee787; --sy-tag: #7ee787; --sy-attr: #79c0ff; --sy-esc: #79c0ff; --sy-const: #79c0ff; --sy-err: #f85149; --sy-wrn: #d29922; --sy-inf: #58a6ff; --sy-dbg: #6e7681;
     --orange: #f0883e; --orange-rgb: 240, 136, 62; --orange-txt: #ffa657;
     --violet-rgb: 163, 113, 247; --violet-txt: #d2a8ff; --cyan-rgb: 57, 197, 207; --cyan-txt: #56d4dd;
     --pink-rgb: 247, 120, 186; --pink-txt: #ff9bce;
@@ -39,6 +44,11 @@
     --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #101014; --mark-txt: #e0af68;
     --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #101014;
     --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
+    --ok-subtle: #051b11; --ok-border-subtle: #0f5132; --ok-emph: #75b798;   /* Bootstrap 5.3 subtle tones (dark): solid, soft */
+    --danger-subtle: #2c0b0e; --danger-border-subtle: #842029; --danger-emph: #ea868f;
+    --diff-txt: #ea868f;   /* differing values (duplicates): red text on --danger-subtle */
+    /* syntax (raw text, 33-…): Tokyo Night's own token colours */
+    --sy-kw: #9d7cd8; --sy-ctl: #bb9af7; --sy-str: #9ece6a; --sy-num: #ff9e64; --sy-com: #565f89; --sy-fn: #7aa2f7; --sy-type: #2ac3de; --sy-var: #e0af68; --sy-prop: #73daca; --sy-re: #b4f9f8; --sy-tag: #f7768e; --sy-attr: #bb9af7; --sy-esc: #89ddff; --sy-const: #ff9e64; --sy-err: #f7768e; --sy-wrn: #e0af68; --sy-inf: #7aa2f7; --sy-dbg: #565f89;
     --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
     --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 125, 207, 255; --cyan-txt: #7dcfff;
     --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
@@ -59,6 +69,11 @@
     --warn: #f9e2af; --warn-hover: #f5d78f; --warn-rgb: 249, 226, 175; --on-warn: #11111b; --mark-txt: #f9e2af;
     --danger: #f38ba8; --danger-hover: #f5a0b8; --danger-rgb: 243, 139, 168; --danger-txt: #f38ba8; --on-danger: #11111b;
     --ok: #a6e3a1; --ok-rgb: 166, 227, 161; --ok-txt: #a6e3a1;
+    --ok-subtle: #051b11; --ok-border-subtle: #0f5132; --ok-emph: #75b798;   /* Bootstrap 5.3 subtle tones (dark): solid, soft */
+    --danger-subtle: #2c0b0e; --danger-border-subtle: #842029; --danger-emph: #ea868f;
+    --diff-txt: #ea868f;   /* differing values (duplicates): red text on --danger-subtle */
+    /* syntax (raw text, 33-…): Catppuccin Mocha's own token colours */
+    --sy-kw: #cba6f7; --sy-ctl: #cba6f7; --sy-str: #a6e3a1; --sy-num: #fab387; --sy-com: #9399b2; --sy-fn: #89b4fa; --sy-type: #f9e2af; --sy-var: #f2cdcd; --sy-prop: #b4befe; --sy-re: #f5c2e7; --sy-tag: #89b4fa; --sy-attr: #f9e2af; --sy-esc: #f5c2e7; --sy-const: #fab387; --sy-err: #f38ba8; --sy-wrn: #f9e2af; --sy-inf: #89b4fa; --sy-dbg: #7f849c;
     --orange: #fab387; --orange-rgb: 250, 179, 135; --orange-txt: #fab387;
     --violet-rgb: 203, 166, 247; --violet-txt: #cba6f7; --cyan-rgb: 148, 226, 213; --cyan-txt: #94e2d5;
     --pink-rgb: 245, 194, 231; --pink-txt: #f5c2e7;
@@ -81,6 +96,11 @@
     --warn: #e0af68; --warn-hover: #d6a25a; --warn-rgb: 224, 175, 104; --on-warn: #16161e; --mark-txt: #e0af68;
     --danger: #f7768e; --danger-hover: #ff8ea2; --danger-rgb: 247, 118, 142; --danger-txt: #f7768e; --on-danger: #16161e;
     --ok: #9ece6a; --ok-rgb: 158, 206, 106; --ok-txt: #9ece6a;
+    --ok-subtle: #051b11; --ok-border-subtle: #0f5132; --ok-emph: #75b798;   /* Bootstrap 5.3 subtle tones (dark): solid, soft */
+    --danger-subtle: #2c0b0e; --danger-border-subtle: #842029; --danger-emph: #ea868f;
+    --diff-txt: #ea868f;   /* differing values (duplicates): red text on --danger-subtle */
+    /* syntax (raw text, 33-…): Tokyo Night for VS Code's own token colours */
+    --sy-kw: #9d7cd8; --sy-ctl: #bb9af7; --sy-str: #9ece6a; --sy-num: #ff9e64; --sy-com: #565f89; --sy-fn: #7aa2f7; --sy-type: #2ac3de; --sy-var: #e0af68; --sy-prop: #73daca; --sy-re: #b4f9f8; --sy-tag: #f7768e; --sy-attr: #bb9af7; --sy-esc: #89ddff; --sy-const: #ff9e64; --sy-err: #f7768e; --sy-wrn: #e0af68; --sy-inf: #7aa2f7; --sy-dbg: #565f89;
     --orange: #ff9e64; --orange-rgb: 255, 158, 100; --orange-txt: #ff9e64;
     --violet-rgb: 187, 154, 247; --violet-txt: #bb9af7; --cyan-rgb: 42, 195, 222; --cyan-txt: #2ac3de;
     --pink-rgb: 255, 117, 181; --pink-txt: #ff75b5;
@@ -104,6 +124,11 @@
     --warn: #bf8700; --warn-hover: #a37200; --warn-rgb: 212, 167, 44; --on-warn: #ffffff; --mark-txt: #7d4e00;
     --danger: #cf222e; --danger-hover: #a40e26; --danger-rgb: 207, 34, 46; --danger-txt: #cf222e; --on-danger: #ffffff;
     --ok: #1a7f37; --ok-rgb: 26, 127, 55; --ok-txt: #1a7f37;
+    --ok-subtle: #d1e7dd; --ok-border-subtle: #a3cfbb; --ok-emph: #0a3622;   /* Bootstrap 5.3 subtle tones (light) */
+    --danger-subtle: #f8d7da; --danger-border-subtle: #f1aeb5; --danger-emph: #58151c;
+    --diff-txt: #b02a37;   /* Bootstrap's red-600: the emphasis tone above is too dark for text */
+    /* syntax (raw text, 33-…): GitHub Light's own token colours */
+    --sy-kw: #cf222e; --sy-ctl: #cf222e; --sy-str: #0a3069; --sy-num: #0550ae; --sy-com: #6e7781; --sy-fn: #8250df; --sy-type: #953800; --sy-var: #953800; --sy-prop: #0550ae; --sy-re: #116329; --sy-tag: #116329; --sy-attr: #0550ae; --sy-esc: #0550ae; --sy-const: #0550ae; --sy-err: #cf222e; --sy-wrn: #9a6700; --sy-inf: #0969da; --sy-dbg: #6e7781;
     --orange: #bc4c00; --orange-rgb: 188, 76, 0; --orange-txt: #bc4c00;
     --violet-rgb: 130, 80, 223; --violet-txt: #8250df; --cyan-rgb: 27, 124, 131; --cyan-txt: #1b7c83;
     --pink-rgb: 191, 57, 137; --pink-txt: #bf3989;
@@ -126,6 +151,11 @@
     --warn: #df8e1d; --warn-hover: #c77d15; --warn-rgb: 223, 142, 29; --on-warn: #ffffff; --mark-txt: #8a5a0b;
     --danger: #d20f39; --danger-hover: #b50d31; --danger-rgb: 210, 15, 57; --danger-txt: #d20f39; --on-danger: #ffffff;
     --ok: #40a02b; --ok-rgb: 64, 160, 43; --ok-txt: #2f7d1f;
+    --ok-subtle: #d1e7dd; --ok-border-subtle: #a3cfbb; --ok-emph: #0a3622;   /* Bootstrap 5.3 subtle tones (light) */
+    --danger-subtle: #f8d7da; --danger-border-subtle: #f1aeb5; --danger-emph: #58151c;
+    --diff-txt: #b02a37;   /* Bootstrap's red-600: the emphasis tone above is too dark for text */
+    /* syntax (raw text, 33-…): Catppuccin Latte's own token colours */
+    --sy-kw: #8839ef; --sy-ctl: #8839ef; --sy-str: #40a02b; --sy-num: #fe640b; --sy-com: #7c7f93; --sy-fn: #1e66f5; --sy-type: #df8e1d; --sy-var: #dd7878; --sy-prop: #7287fd; --sy-re: #ea76cb; --sy-tag: #1e66f5; --sy-attr: #df8e1d; --sy-esc: #ea76cb; --sy-const: #fe640b; --sy-err: #d20f39; --sy-wrn: #df8e1d; --sy-inf: #1e66f5; --sy-dbg: #8c8fa1;
     --orange: #fe640b; --orange-rgb: 254, 100, 11; --orange-txt: #c9500a;
     --violet-rgb: 136, 57, 239; --violet-txt: #8839ef; --cyan-rgb: 23, 146, 153; --cyan-txt: #137a80;
     --pink-rgb: 234, 118, 203; --pink-txt: #b8489a;

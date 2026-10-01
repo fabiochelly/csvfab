@@ -147,10 +147,12 @@ function fxpDetail(x) {
         const o = fxTry(t, r, src);
         return o.err ? `<span class="fxp-res err">${esc(o.err)}</span>` : `<span class="fxp-res">${o.v === '' ? '<i>empty</i>' : esc(o.v)}</span>`;
     };
-    let html = `<div class="fxp-sig">${x.f === 'Columns' ? typeIcon(x.kind) : ''}<code>${esc(x.s.trim())}</code><span class="cg">${x.f}</span></div>`;
+    const ms = x.f !== 'Columns' && fxMethodSig(x), col = ms ? fxArgColumn(t, x) || '{Column}' : '';
+    let html = `<div class="fxp-sig">${x.f === 'Columns' ? typeIcon(x.kind) : ''}<code>${esc(ms ? col + ms : x.s.trim())}</code><span class="cg">${x.f}</span></div>`
+        + (ms ? `<div class="fxp-alt">also <code>${esc(x.s)}</code></div>` : '');
     if (x.f === 'Columns') {
         html += `<div class="fxp-d">A column: in a formula, <code>${esc(x.s)}</code> is the row's cell as text. Read it with <code>num()</code> or <code>date()</code> to compute, or use its string methods: <code>${esc(x.s)}.startsWith("A")</code>.</div>`;
-        const k = x.kind, ex = k === 'n' ? [`num(${x.s}) > 0`, `round(num(${x.s}))`] : k === 'd' ? [`year(${x.s})`, `days(${x.s}, today())`] : [`${x.s}`, `upper(${x.s})`, `empty(${x.s})`];
+        const k = x.kind, ex = k === 'n' ? [`${x.s}.num() > 0`, `${x.s}.num().round()`] : k === 'd' ? [`${x.s}.year()`, `${x.s}.days(today())`] : [`${x.s}`, `${x.s}.upper()`, `${x.s}.empty()`];
         html += ex.map(src => fxpExHtml(src, '', res(src))).join('');
     } else {
         html += `<div class="fxp-d">${esc(x.d)}</div>`;
@@ -176,7 +178,16 @@ function fxpInsert(text, entry) {
     const at = box.selectionStart ?? box.value.length, before = box.value.slice(0, at).trimEnd();
     let sel0 = -1, sel1 = -1;                       // the range to select, relative to the inserted text
     const col = entry ? fxArgColumn(t, entry) : null;
-    if (entry && entry.f === 'Methods') {
+    const ms = entry && entry.f !== 'Columns' && entry.f !== 'Methods' && fxMethodSig(entry);
+    if (ms && text === entry.s) {
+        /* Method form: after a value already there ({City}, a call), only .name(…); else the likely
+           column in front, or a {Column} placeholder selected to be typed over. */
+        const after = /[}\])"'\w]$/.test(before);
+        text = after ? ms : (col || '{Column}') + ms;
+        const p = text.indexOf('(', text.indexOf(ms)), e0 = text.indexOf(')', p);
+        if (!after && !col) { sel0 = 0; sel1 = '{Column}'.length; }
+        else if (e0 > p + 1) { let e = p + 1; while (e < e0 && text[e] !== ',') e++; sel0 = p + 1; sel1 = e; }
+    } else if (entry && entry.f === 'Methods') {
         if (col && !/[}\])"'\w]$/.test(before)) text = col + text;
     } else if (entry && entry.f !== 'Columns' && entry.f !== 'Operators') {
         const p = text.indexOf('(');
@@ -186,7 +197,7 @@ function fxpInsert(text, entry) {
             else { sel0 = p + 1; sel1 = e; }
         }
     }
-    if (sel0 < 0 && entry && entry.f !== 'Columns' && entry.f !== 'Operators') {
+    if (sel0 < 0 && !ms && entry && entry.f !== 'Columns' && entry.f !== 'Operators') {
         /* The first argument still a placeholder, else the next one; nothing left: the caret after. */
         const p = text.indexOf('(');
         if (p >= 0) {

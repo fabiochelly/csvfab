@@ -77,6 +77,7 @@ let selSumTimer = 0;
 function selStats(t) {
     const rg = selRange(t); if (!rg) return updateStats();
     rowCardSync();                            // the card follows the active cell
+    if (t.lang) textPos(t);                   // a text file: Ln / Col (33-…)
     const cols = visibleCols(t).filter(c => c >= rg.c0 && c <= rg.c1), rows = rg.r1 - rg.r0 + 1;
     let msg = `${t.name} | ${fmt(rows)} × ${fmt(cols.length)} selected`;
     clearTimeout(selSumTimer);

@@ -29,13 +29,19 @@ Requirements: **Python 3.8+** and a **Chromium-based browser** (Chrome, Chromium
 csvfab                  # open the window
 csvfab data.csv more.tsv
 csvfab export.xlsx      # converted to export.csv beside it, which is what opens
+csvfab server.log app.py  # not a table: opened as raw text, one line per row, coloured
 ```
+
+A file that is not a table (a log, code, configuration) opens in *Raw text* mode: one line per row, every space kept, syntax colours from the theme's VS Code palette, Ln / Col in the status bar, saved back byte for byte. The delimiter menu of the status bar switches between raw text and a table. A JSON file asks whether to flatten its records into a CSV or open it as text.
 
 Files opened while the window is already there land in it as new tabs. A double-click on a column's resize handle fits it to its content.
 
 | Shortcut | |
 |---|---|
-| Ctrl+O / Ctrl+S / Ctrl+Q | open / save / quit |
+| Ctrl+P | command palette — every action, setting, tab, recent file and column, searched as you type |
+| Ctrl+O / Ctrl+S | open / save |
+| Ctrl+W / Ctrl+Q | close the tab / quit |
+| F1 | every keyboard shortcut |
 | Ctrl+Z / Ctrl+Y | undo / redo |
 | Ctrl+F, F3 / Shift+F3 | find in the rows shown without filtering them — every match highlighted, next / previous match |
 | Ctrl+C / Ctrl+V | copy / paste a range (Excel format) |

@@ -31,6 +31,18 @@ function startEdit(td, typed, caretEnd) {
     input.value = typed != null ? typed : oldVal;
     const b = td.getBoundingClientRect();
     Object.assign(input.style, { left: b.left + 'px', top: b.top + 'px', width: Math.max(b.width, 240) + 'px', minHeight: b.height + 'px' });
+    /* A text line (33-…): spaces kept, no wrapping, over the part of the line in view — the
+       column may be thousands of pixels wide — and Ln / Col followed in the status bar. */
+    const txt = !!t.lang;
+    if (txt) {
+        input.classList.add('tx'); input.wrap = 'off'; input.rows = 1;   // a textarea is two rows tall by default
+        const cr = container.getBoundingClientRect(), left = Math.max(b.left, cr.left + idxColW);
+        Object.assign(input.style, { left: left + 'px', width: Math.max(240, Math.min(b.right, cr.right - 26) - left) + 'px' });
+        const pos = () => textPos(t, { input, line: rowObj.id });
+        for (const ev of ['input', 'keyup', 'mouseup', 'select', 'focus']) input.addEventListener(ev, pos);
+        document.addEventListener('selectionchange', pos);
+        input.addEventListener('blur', () => document.removeEventListener('selectionchange', pos), { once: true });
+    }
     document.body.appendChild(input);
     td.classList.add('editing');
     const grow = () => {                      // + 4: the 2 px border, top and bottom (border-box)
@@ -42,6 +54,7 @@ function startEdit(td, typed, caretEnd) {
     input.addEventListener('input', grow);
     grow(); input.focus();
     if (typed != null || caretEnd) input.setSelectionRange(input.value.length, input.value.length); else input.select();
+    if (txt) textPos(t, { input, line: rowObj.id });
     const onScroll = () => finish('one');
     container.addEventListener('scroll', onScroll, { once: true });
     setStats(multi ? `${t.name} | Enter: this value in the ${fmt((multi.r1 - multi.r0 + 1) * visibleCols(t).filter(c => c >= multi.c0 && c <= multi.c1).length)} selected cells · Ctrl+Enter: a series from it · Shift+Enter: new line · Escape: cancel`
@@ -54,6 +67,7 @@ function startEdit(td, typed, caretEnd) {
         const v = input.value;
         container.removeEventListener('scroll', onScroll);
         input.remove(); td.classList.remove('editing');
+        if (txt) textPos(t);                  // back to the line's Ln
         if (mode === 'cancel') { paintSel(t); selStats(t); return; }
         if (mode === 'one' || !multi) {
             if (v !== oldVal) {
@@ -82,6 +96,7 @@ function startEdit(td, typed, caretEnd) {
         ev.stopPropagation();                 // the grid's own keys stay out of the editor
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(ev.ctrlKey || ev.metaKey ? 'series' : 'all'); }   // Shift+Enter: a line break
         else if (ev.key === 'Escape') { ev.preventDefault(); finish('cancel'); }
+        else if (txt && ev.key === 'Tab' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) { ev.preventDefault(); input.setRangeText('\t', input.selectionStart, input.selectionEnd, 'end'); textPos(t, { input, line: rowObj.id }); }   // code is indented with tabs
     });
 }
 

@@ -36,7 +36,7 @@
    it is kept as a character and counted as an error. */
 function csvScanWorker() {
     self.onmessage = e => {
-        const { buf, enc, validate, delim, nl, bom } = e.data;
+        const { buf, enc, validate, delim, nl, bom, lines } = e.data;   // lines: a text file — one record per line, no delimiter, no quote, empty lines kept
         const post = (m, tr) => self.postMessage(m, tr || []);
         try {
             let u8 = new Uint8Array(buf), outEnc = enc, lastPost = 0;
@@ -80,7 +80,7 @@ function csvScanWorker() {
                 for (let k = a; k < b; k++) if (u8[k] >= 0x80) { const w = seq(k); if (w < 0) bad = true; else { adj -= w === 2 ? 1 : 2; k += w - 1; } }
             };
             let odd = new Uint32Array(1024), no = 0;
-            let width = -1, qerr = 0, i = 0, nn = -2, nd = -2, nq = -2;
+            let width = -1, qerr = 0, i = 0, nn = -2, nd = -2, nq = lines ? -1 : -2;   // nq -1: no quote is ever looked for
             while (i < len) {
                 const rs = i, adjAt = adj;
                 let fields = 1;
@@ -123,7 +123,7 @@ function csvScanWorker() {
                 if (chars && (nq >= 0 && nq < eol)) walk(rs, e);
                 if (i < len) i += (u8[i] === 13 && NL === 10 && u8[i + 1] === 10) ? 2 : 1;
                 let z = e; if (NL === 10 && z > rs && u8[z - 1] === 13) z--;
-                if (z === rs) continue;   // an empty line is no record (as Papa's skipEmptyLines); it stays in the previous record's span
+                if (z === rs && !lines) continue;   // an empty line is no record (as Papa's skipEmptyLines); it stays in the previous record's span — in a text file it is a line like any other
                 if (n + 2 > starts.length) {
                     const g = new Big(starts.length * 2); g.set(starts); starts = g;
                     if (chars) { const h = new Big(starts.length); h.set(chars); chars = h; }
@@ -182,6 +182,15 @@ function sniffFormat(u8, enc, bom, delimiter) {
     return { delim: delimiter || r.meta.delimiter || ',', eol: r.meta.linebreak || '\n' };
 }
 
+/* A text file's line break, from its first 64 KB: CRLF, a lone CR (old Mac files), else LF. Its
+   "delimiter" is a line break, which no record ever holds — so the filters' raw-text fast path, which
+   refuses a query holding the delimiter, works unchanged. */
+function textEol(u8, bom) {
+    const h = u8.subarray(bom, bom + (64 << 10));
+    const cr = h.indexOf(13), lf = h.indexOf(10);
+    return { delim: '\n', eol: cr >= 0 && h[cr + 1] === 10 ? '\r\n' : cr >= 0 && lf < 0 ? '\r' : '\n' };
+}
+
 /* Bytes → base. The ArrayBuffer is handed over to the worker (not copied)
    and comes back as the base's bytes: the caller must not use it after. */
 async function loadBase(ab, o, onProgress) {
@@ -189,11 +198,11 @@ async function loadBase(ab, o, onProgress) {
     const sn = sniffEncoding(u8.subarray(0, 4096));
     const enc = o.encoding || sn.enc;
     const bom = sn.bom && sn.enc === enc ? (enc === 'utf-8' ? 3 : 2) : 0;
-    const { delim, eol } = o.delim ? { delim: o.delim, eol: o.eol || '\n' } : sniffFormat(u8, enc, bom, o.delimiter);
-    const m = await runScan({ buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom }, onProgress);
+    const { delim, eol } = o.lines ? textEol(u8, bom) : o.delim ? { delim: o.delim, eol: o.eol || '\n' } : sniffFormat(u8, enc, bom, o.delimiter);
+    const m = await runScan({ buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines }, onProgress);
     const base = {
         u8: new Uint8Array(m.buf, m.off, m.len), starts: m.starts, chars: m.chars, n: m.n, width: m.width, qerr: m.qerr,
-        enc: m.enc, bom: bom > 0, delim, eol, transcoded: m.enc.startsWith('utf-16'),
+        enc: m.enc, bom: bom > 0, delim, eol, transcoded: m.enc.startsWith('utf-16'), lines: !!o.lines,
         cmap: null, odd: new Map(), irr: null,
         keys: new Int32Array(1024).fill(-1), vals: new Array(1024), blk: null, lastB: -2
     };
@@ -272,7 +281,7 @@ function splitRecord(s, D) {
     }
     return out;
 }
-function recordFields(base, b) { return splitRecord(recordText(base, b), base.delim); }
+function recordFields(base, b) { return base.lines ? [recordText(base, b)] : splitRecord(recordText(base, b), base.delim); }   // a text file's line is one field, quotes and all
 
 /* A row's cells in new columns: map[c] = its old column (-1: a new, empty
    one). A long row keeps its extra fields; a short one stays short — the
@@ -356,6 +365,7 @@ function blockMatches(base, k, lower, queries, mode) {
 function cellOf(r, c) {
     if (r.d) return r.d[c];
     const base = r.base, b = r.b, slot = b & 1023;
+    if (base.lines && !base.cmap) return c === 0 ? recordText(base, b) : undefined;   // a text file: the line is the cell
     if (base.keys[slot] === b) return base.vals[slot][c];
     let s = c;
     if (base.cmap) { if (c >= base.cmap.length) return baseCells(base, b)[c]; s = base.cmap[c]; if (s < 0) return ''; }

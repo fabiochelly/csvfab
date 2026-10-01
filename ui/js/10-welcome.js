@@ -46,21 +46,57 @@ function relTime(ms) {
 }
 function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
 
+/* Every shortcut, by theme: the welcome screen shows a few, the panel (F1, ?, palette, ☰ menu,
+   welcome screen) all of them. A key list is 'Ctrl+Z' or several alternatives in an array. */
+const KEY_GROUPS = [
+    ['Files and tabs', [['Open files', 'Ctrl+O'], ['Save', 'Ctrl+S'], ['Command palette', ['Ctrl+P', 'Ctrl+Shift+P']], ['Previous / next tab', ['Alt+←', 'Alt+→']],
+        ['Go to tab 1 to 9', 'Alt+1…9'], ['Close the tab', 'Ctrl+W'], ['Quit', 'Ctrl+Q']]],
+    ['Editing', [['Edit the cell', ['Enter', 'F2']], ['Replace its value', 'start typing'], ['Line break in a cell', 'Shift+Enter'], ['Same value in every selected cell', 'Enter'],
+        ['A series in the selected cells', 'Ctrl+Enter'], ['Fill a series down', 'Ctrl+D'], ['Clear the cells', 'Delete'], ['Undo', 'Ctrl+Z'], ['Redo', ['Ctrl+Y', 'Ctrl+Shift+Z']],
+        ['Copy / paste a range', ['Ctrl+C', 'Ctrl+V']]]],
+    ['Moving and selecting', [['Move', '↑ ↓ ← →'], ['Extend the selection', 'Shift+arrows'], ['To the edge of the data', 'Ctrl+arrows'], ['A screen up / down', ['PgUp', 'PgDn']],
+        ['Start / end of the row', ['Home', 'End']], ['Start / end of the file', ['Ctrl+Home', 'Ctrl+End']], ['Select every row shown', 'Ctrl+A'], ['Go to row', 'Ctrl+G'], ['Row card', 'Ctrl+I']]],
+    ['Searching', [['Find without filtering', 'Ctrl+F'], ['Next / previous match', ['F3', 'Shift+F3']], ['Close what is open', 'Esc'], ['These shortcuts', ['F1', '?']]]],
+    ['Columns, with the mouse', [['Sort', 'click the title'], ['Add a sort key', 'Shift+click'], ['Rename', 'double-click the title'], ['Move', 'drag the title'],
+        ['Fit to the content', 'double-click its edge'], ['Extend a series', 'drag the selection\'s corner'], ['Copy instead of a series', 'Ctrl+drag']]]
+];
+/* Keys as <kbd> chips: Ctrl+Shift+P → Ctrl + Shift + P; words (click the title) stay text. */
+function kbdHtml(keys) {
+    const one = x => /^[a-z]/.test(x) && !/^[a-z]$/.test(x) ? `<span class="kw">${esc(x)}</span>` : x.split('+').map(p => `<kbd>${esc(p)}</kbd>`).join('<i>+</i>');
+    return (Array.isArray(keys) ? keys : [keys]).map(one).join('<span class="kor">or</span>');
+}
+function openKeys() {
+    closeDDs(); closeAllModals();
+    document.getElementById('keys-list').innerHTML = KEY_GROUPS.map(([title, rows]) => `<section class="kg"><h5>${esc(title)}</h5>`
+        + rows.map(([what, keys]) => `<div class="kr"><span>${esc(what)}</span><span class="kk">${kbdHtml(keys)}</span></div>`).join('') + '</section>').join('');
+    document.getElementById('modal-bg').style.display = 'block';
+    document.getElementById('modal-keys').style.display = 'block';
+}
+/* F1, or ? outside a text field: the shortcuts. */
+window.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key !== 'F1' && e.key !== '?') return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (e.key === '?' && (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable)) return;
+    if (document.getElementById('dlg')) return;
+    e.preventDefault(); openKeys();
+});
+
+/* Light on purpose: the name, a drop zone, the palette and the shortcuts, the recent files; what
+   the app does is said once, quietly, at the bottom. Opening is the drop zone (and Ctrl+O). */
 function renderWelcome() {
-    const k = (a, b) => `<div><span>${a}</span><span>${b}</span></div>`, kb = x => '<span class="kbs">' + x.split('+').map(p => `<kbd>${p}</kbd>`).join('+') + '</span>';
+    const ico = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
     emptyState.innerHTML = `<div class="wl">
-        <img class="wl-logo" src="icons/csvfab.svg" alt="">
-        <h1>csvfab</h1>
-        <p class="wl-sub">Open, filter, clean and rewrite CSV files — in place.</p>
-        <div class="wl-drop" onclick="openFiles()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <b>Drop CSV files here</b><span>or click to choose them — several at once, each in its own tab</span>
+        <div class="wl-hero"><img class="wl-logo" src="icons/csvfab.svg" alt=""><h1>csvfab</h1></div>
+        <div class="wl-drop wl-glass" onclick="openFiles()" title="Or Ctrl+O">
+            <span class="wl-drop-ico">${ico('<path d="M12 15V4"/><polyline points="7 9 12 4 17 9"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>')}</span>
+            <b>Drop files to open them</b><span>CSV, TSV, Excel or JSON — or click to choose</span>
         </div>
         <div class="wl-actions">
-            <button class="btn" onclick="openFiles()">Open files ${kb('Ctrl+O')}</button>
-            <button class="btn btn-outline" onclick="openPalette()">Command palette ${kb('Ctrl+K')}</button>
+            <button class="wl-key" onclick="openPalette()">Command palette <span class="kk">${kbdHtml('Ctrl+P')}</span></button>
+            <button class="wl-key" onclick="openKeys()">Shortcuts <span class="kk">${kbdHtml('F1')}</span></button>
         </div>
-        ${recents.length ? `<div class="wl-sec">Recent</div><div class="wl-recent">${recents.map((r, i) => `
+        ${recents.length ? `<div class="wl-sec">Recent</div><div class="wl-recent wl-glass">${recents.map((r, i) => `
             <div class="wl-file" onclick="openRecent(${i})" title="${esc(r.path || 'Opened with the file picker: reopening asks for access again')}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h8"/></svg>
                 <span class="n">${esc(r.name)}</span>
@@ -68,13 +104,7 @@ function renderWelcome() {
                 <span class="x" onclick="event.stopPropagation(); forgetRecent(${i})" title="Remove from the list">×</span>
                 <span class="d">${esc(r.path ? pathDir(r.path) : 'file picker')}</span>
             </div>`).join('')}</div>` : ''}
-        <div class="wl-keys">
-            ${k('Command palette', kb('Ctrl+K'))}${k('Save', kb('Ctrl+S'))}
-            ${k('Undo / redo', kb('Ctrl+Z') + ' ' + kb('Ctrl+Y'))}${k('Copy / paste a range', kb('Ctrl+C') + ' ' + kb('Ctrl+V'))}
-            ${k('Fill a series down', kb('Ctrl+D'))}${k('Switch tab', kb('Alt+←') + ' ' + kb('Alt+→'))}
-            ${k('Row card', kb('Ctrl+I'))}${k('Go to row', kb('Ctrl+G'))}
-            ${k('Find / next match', kb('Ctrl+F') + ' ' + kb('F3'))}
-        </div>
+        <p class="wl-foot"><span>open</span><span>filter</span><span>clean</span><span>rewrite in place</span></p>
     </div>`;
 }
 

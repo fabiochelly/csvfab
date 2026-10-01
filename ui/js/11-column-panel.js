@@ -80,7 +80,7 @@ function openColPanel(e, col) {
         }
         if (lo && kind === 'n') range = `<div class="cp-pair">${line('min', lo[1])}${line('max', hi[1])}</div>`
             + `<div class="cp-pair"><div class="cp-kv"><span>sum</span><b>${num(sum)}</b></div><div class="cp-kv"><span>avg</span><b>${num(sum / cnt)}</b></div></div>`
-            + `<div class="cp-pair"><div class="cp-kv"><span>med</span><b class="cp-link" onclick="colPanelGo(${col}, ${med})" title="The median: half of the values are below it. Click to go to the first cell holding it (or the nearest value)">${num(med)}</b></div></div>`;
+            + `<div class="cp-pair"><div class="cp-kv"><span>med</span><b class="cp-link" onclick="colPanelGo(${col}, ${med})" title="Click: go to it">${num(med)}</b></div></div>`;
         else if (lo && kind === 'd') range = line('min', lo[1]) + line('max', hi[1]);
         else if (lo) range = line('min', ...txt(lo)) + line('max', ...txt(hi));
         if (lo && (kind === 'n' || kind === 'd') && hi[0] > lo[0]) range += histogram(entries, key, lo, hi);
@@ -101,8 +101,8 @@ function openColPanel(e, col) {
             <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col + 1})" ${col === t.headers.length - 1 ? 'disabled' : ''} title="Move right">▶</button>
             <button class="btn btn-outline" onclick="closeColPanel(); openSplit(${col})">Split</button>
             <button class="btn btn-outline" onclick="closeColPanel(); openMerge(${col})">Merge</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Convert this column's dates, numbers or phone numbers">Convert</button>
-            ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})" title="Draw each value as a bar in its cell">Bars</button>` : ''}
+            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Dates, numbers, phones">Convert</button>
+            ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})">Bars</button>` : ''}
         </div>
         <div class="dd-sep"></div>
         <div class="cp-prof">${prof}</div>

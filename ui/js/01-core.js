@@ -58,11 +58,10 @@ function renderTabBar() {
     bar.innerHTML = tabs.map(t => {
         const cls = t.id === activeTabId ? 'active' : (t.loading ? 'loading' : (t.loaded ? '' : 'unloaded'));
         const meta = t.loading ? 'loading…' : (t.rowCount ? fmt(t.rowCount) : '');
-        const title = `${esc(t.name)} — ${(t.size / 1048576).toFixed(1)} MB`
-            + (t.handle ? ' — writable (Save overwrites it)'
-                : t.path ? ' — writable through the local bridge (Save overwrites it)'
-                : ' — read-only copy')
-            + (t.loaded ? ' — in RAM' : (t.loading ? ' — loading' : ' — released from RAM (re-read on click)'));
+        /* The full path on disk first (a bridge tab's; a picked file's path is never given to the page). */
+        const title = esc(t.path || t.name) + '&#10;' + `${(t.size / 1048576).toFixed(1)} MB`
+            + (t.handle || t.path ? '' : ' · read-only copy')
+            + (t.loaded || t.loading ? '' : ' · released from RAM');
         return `<div class="tab ${cls}" onclick="activateTab(${t.id})" title="${title}">
             <span class="dot"></span>
             <span class="t-name">${esc(t.name)}</span>

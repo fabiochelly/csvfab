@@ -10,7 +10,7 @@
    when the API is missing.
 ----------------------------------------------------------------*/
 const FSA = typeof window.showOpenFilePicker === 'function';
-const CSV_TYPES = [{ description: 'CSV / text tables', accept: { 'text/csv': ['.csv', '.tsv', '.txt'] } }];
+const CSV_TYPES = [{ description: 'CSV / text tables', accept: { 'text/csv': ['.csv', '.tsv', '.txt'] } }];   // .txt opens as raw text unless switched to a table (33-…)
 /* Opening also takes workbooks and JSON, converted to a CSV beside them (27-import.js); saving never offers those. */
 const OPEN_TYPES = CSV_TYPES.concat([{ description: 'Excel workbook / JSON (converted to CSV)', accept: {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx', '.xlsm'], 'application/json': ['.json', '.jsonl', '.ndjson'] } }]);
@@ -144,7 +144,7 @@ function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandl
         t.handle = e.handle || null;
         t.dirHandle = e.dirHandle || null;
         t.path = e.path || null;
-        t.delimiter = delim; t.headerMode = hmode; t.encoding = encoding;
+        t.delimiter = e.raw || !isTableName(e.name) ? '\n' : delim; t.headerMode = hmode; t.encoding = encoding;   // not a table (a log, code, a JSON opened as text): raw text, 33-…
         tabs.push(t);
         if (!first) first = t;
     });
@@ -157,7 +157,8 @@ function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandl
 async function processFiles(fileList) {   // read-only path: <input type=file>, legacy drop
     const entries = [];
     for (const f of Array.from(fileList)) {
-        if (importKind(f.name)) { const e = await importFile(f); if (e) entries.push(e); }   // a workbook or JSON: its CSV, as a copy
+        const raw = await importAsText(f.name); if (raw === null) continue;
+        if (importKind(f.name) && !raw) { const e = await importFile(f); if (e) entries.push(e); }   // a workbook or JSON: its CSV, as a copy
         else entries.push({ file: f, name: f.name, size: f.size });
     }
     addTabs(entries);
@@ -168,7 +169,8 @@ async function processFiles(fileList) {   // read-only path: <input type=file>, 
 async function addPathTabs(paths) {
     const entries = [];
     for (let p of paths) {
-        if (importKind(baseName(p))) { p = await importPath(p); if (!p) continue; }   // a workbook or JSON: the CSV written beside it
+        const raw = await importAsText(baseName(p)); if (raw === null) continue;
+        if (importKind(baseName(p)) && !raw) { p = await importPath(p); if (!p) continue; }   // a workbook or JSON: the CSV written beside it
         const known = tabs.find(t => t.path === p);
         if (known) { activateTab(known.id); continue; }
         try {
@@ -184,7 +186,8 @@ async function addPathTabs(paths) {
 async function addHandles(handles, dirHandle) {
     const entries = [];
     for (const h of handles) {
-        if (importKind(h.name)) { const e = await importHandle(h, dirHandle); if (e) entries.push(e); continue; }
+        const raw = await importAsText(h.name); if (raw === null) continue;
+        if (importKind(h.name) && !raw) { const e = await importHandle(h, dirHandle); if (e) entries.push(e); continue; }
         try { const f = await h.getFile(); entries.push({ file: f, handle: h, dirHandle, name: f.name, size: f.size }); }
         catch (e) { console.warn('cannot read', h.name, e); }
     }

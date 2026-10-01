@@ -54,7 +54,7 @@ window.addEventListener('drop', (e) => {
             for (const d of dirs) {
                 const inner = [];
                 for await (const [name, h] of d.entries())
-                    if (h.kind === 'file' && /\.(csv|tsv|txt|xlsx|xlsm|json|jsonl|ndjson)$/i.test(name)) inner.push(h);
+                    if (h.kind === 'file' && /\.(csv|tsv|txt|log|xlsx|xlsm|json|jsonl|ndjson)$/i.test(name)) inner.push(h);
                 inner.sort((a, b) => a.name.localeCompare(b.name));
                 if (inner.length) await addHandles(inner, d);
             }
@@ -114,6 +114,7 @@ window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (k === 'o') { e.preventDefault(); openFiles(); }
     else if (k === 'q') { e.preventDefault(); quitApp(); }
+    else if (k === 'w') { e.preventDefault(); if (activeTabId != null) closeTab(activeTabId); }   // the active tab only (its own dialog if edits are pending); never the app — Chromium lets an --app window take the key
 });
 /* Themes: a data-theme attribute on <html> swaps the colour variables (see :root).
    Picked from the round two-colour swatch at the right end of the status bar. */
@@ -145,6 +146,9 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
+/* The browser's own "Leave site?" prompt: the only thing a page may show when its window is
+   closed from outside (the window manager, the title bar, Alt+F4) — no page can draw its own
+   dialog there. Ctrl+Q and Ctrl+W go through quitApp() and its dialog instead. */
 window.addEventListener('beforeunload', (e) => {
     if (!quitting && tabs.some(isDirty)) { e.preventDefault(); e.returnValue = ''; }
 });

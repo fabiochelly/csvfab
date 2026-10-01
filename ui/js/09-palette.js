@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------
-   COMMAND PALETTE (Ctrl+K, Ctrl+Shift+P)
+   COMMAND PALETTE (Ctrl+P, Ctrl+Shift+P)
    Rebuilt at each opening from the current state, so it only offers
    what applies (Undo when there is something to undo, Save when a file
    is loaded…). Fuzzy search: the letters typed must appear in order,
@@ -49,7 +49,7 @@ function paletteCommands() {
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);
-    add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — num({Amount}) > 1000 && …'), toggleExprFilter, '', loaded);
+    add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — {Amount}.num() > 1000 && …'), toggleExprFilter, '', loaded);
     add('Rows', 'Group by… — count, sum, average per value, in a new tab', () => openGroupBy(), '', loaded);
     add('Edit', 'Anonymise… — names, e-mails, phones, postal codes', openAnon, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
@@ -76,6 +76,8 @@ function paletteCommands() {
     add('Columns', t && t.frozen ? 'Unfreeze the first column' : 'Freeze the first column — it stays in view when scrolling sideways', toggleFreeze, t && t.frozen ? '✓' : '', loaded);
     add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
     add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
+    add('Help', 'Keyboard shortcuts', openKeys, 'F1');
+    add('View', 'Monospace font…' + (monoPick() ? ` — ${monoPick() === 'monospace' ? 'system monospace' : monoPick()}` : ''), openFontDialog);
     add('Edit', 'Find — step through the matches without filtering', () => { if (!findBarOpen()) toggleSRBar(); document.getElementById('sr-find').focus(); }, 'Ctrl+F', loaded);
     THEMES.forEach(([id, label]) => add('Theme', 'Theme: ' + label, () => setTheme(id), currentTheme() === id ? '✓' : ''));
     const s = t || parseDefaults;
@@ -152,10 +154,10 @@ document.getElementById('cmdk-in').addEventListener('keydown', e => {
         pal.act = (pal.act + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; renderPalette();
     } else if (e.key === 'Enter') { e.preventDefault(); runPalette(pal.act); }
     else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); closePalette(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); e.stopPropagation(); closePalette(); }   // the same keys toggle it
 });
 window.addEventListener('keydown', e => {
     if (document.getElementById('dlg')) return;
     const k = e.key.toLowerCase();
-    if ((e.ctrlKey || e.metaKey) && ((k === 'k' && !e.shiftKey) || (k === 'p' && e.shiftKey))) { e.preventDefault(); openPalette(); }
+    if ((e.ctrlKey || e.metaKey) && k === 'p' && !e.altKey) { e.preventDefault(); if (!document.getElementById('cmdk').classList.contains('open')) openPalette(); }   // Ctrl+P (the browser's print has no use here), Ctrl+Shift+P as in VS Code
 });

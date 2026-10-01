@@ -183,6 +183,5 @@ function updateMarkChip(t) {
     if (!m) return;
     chip.classList.toggle('on', !!m.only);
     chip.innerHTML = `◆ ${fmt(m.rows.size)} ${esc(m.label)}<span class="chip-x" onclick="clearRowMark(event)" title="Remove the marks">×</span>`;
-    chip.title = (m.only ? 'Showing only the marked rows — click to show all rows. ' : 'Click to show only the marked rows. ')
-        + `Tinted cells hold a different value; hover one to see the other (${m.tip.toLowerCase()}).`;
+    chip.title = m.only ? 'Click: show all' : 'Click: show only these';
 }

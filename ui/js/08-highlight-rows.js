@@ -30,10 +30,13 @@ function termsPattern(q, useSlug) {
 
 /* A cell is one line high: a line break shows as a discreet ↵. */
 function showBreaks(html) { return html.indexOf('\n') < 0 ? html : html.replace(/\r?\n/g, '<span class="nl">↵</span>'); }
-function highlightCell(text, cIdx, hl) {
+/* html: the text already as HTML (a text file's coloured line, 33-…) — the marks then go into
+   its text runs only, never into a tag; a match across two colours is not marked. */
+function highlightCell(text, cIdx, hl, html) {
     if (text === null || text === undefined) return '';
-    let out = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    let out = html != null ? html : String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     if (!hl || (hl.reverse && !hl.find)) return out;
+    const rep = (s, re, to) => html == null ? s.replace(re, to) : s.replace(/(^|>)([^<]+)/g, (m, a, run) => a + run.replace(re, to));
 
     let patterns = [];
     const colVal = hl.reverse ? '' : hl.colFilters[cIdx];   // inverted filters: nothing of theirs to highlight
@@ -44,12 +47,12 @@ function highlightCell(text, cIdx, hl) {
     if (patterns.length > 0) {
         try {
             let combinedRegex = new RegExp(`(${patterns.join('|')})`, 'gi');
-            out = out.replace(combinedRegex, '<mark>$1</mark>');
+            out = rep(out, combinedRegex, '<mark>$1</mark>');
         } catch (e) { }
     }
     /* The find field of the replace bar (29-…): its own mark, its own scope and case. */
     if (hl.find && (hl.findCol < 0 || hl.findCol === cIdx)) {
-        try { out = out.replace(new RegExp(`(${hl.find})`, hl.findCase ? 'g' : 'gi'), '<mark class="fd">$1</mark>'); } catch (e) { }
+        try { out = rep(out, new RegExp(`(${hl.find})`, hl.findCase ? 'g' : 'gi'), '<mark class="fd">$1</mark>'); } catch (e) { }
     }
     return out;
 }

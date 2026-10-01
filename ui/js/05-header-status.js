@@ -90,6 +90,7 @@ function numberedHeaders(n) { return Array.from({ length: n }, (_, i) => String(
 
 /* What the current mode asks for on this tab: true => generated 0,1,2… header */
 function wantsSynthetic(t, mode) {
+    if (t.lang) return true;                  // a text file: line 1 is a line
     if (mode === 'first') return false;
     if (mode === 'index') return true;
     const firstLine = t.syntheticHeader ? (t.allData[0] ? t.allData[0].data : []) : t.headers;
@@ -134,7 +135,7 @@ function applyHeaderMode(mode) {
 /* Delimiter and header share one dropdown to save toolbar room: the button
    shows a summary, the menu one group per setting with the active choice
    checked on the right. */
-const PARSE_DELIMS = [['', 'Auto'], [';', 'Semicolon'], [',', 'Comma'], ['\t', 'Tab'], ['|', 'Pipe']];
+const PARSE_DELIMS = [['', 'Auto'], [';', 'Semicolon'], [',', 'Comma'], ['\t', 'Tab'], ['|', 'Pipe'], ['\n', 'Raw text — one line per row']];   // \n: a text file (33-…), no delimiter looked for
 const PARSE_HEADERS = [['auto', 'Auto'], ['first', 'Titles on first line'], ['index', 'No titles (numbered)']];
 const parseDefaults = { delimiter: '', headerMode: 'auto', encoding: '' };   // used while no tab is open
 function delimShown(d) { return `<span class="dk">${d === '\t' ? '\\t' : esc(d)}</span>`; }   // HTML
@@ -153,14 +154,14 @@ function refreshParseOpts() {
    in use, plain otherwise. */
 const ENC_BADGE = { 'utf-8': ['UTF-8', 'e-utf8'], 'windows-1252': ['1252', 'e-1252'], 'iso-8859-1': ['8859-1', 'e-1252'],
     'iso-8859-15': ['8859-15', 'e-1252'], 'macintosh': ['MAC', 'e-mac'], 'utf-16le': ['UTF-16', 'e-utf16'] };
-const DELIM_BADGE = { '': ['auto', 'c-auto'], ';': [';', 'd-semi'], ',': [',', 'd-comma'], '\t': ['⇥', 'd-tab'], '|': ['|', 'd-other'] };
+const DELIM_BADGE = { '': ['auto', 'c-auto'], ';': [';', 'd-semi'], ',': [',', 'd-comma'], '\t': ['⇥', 'd-tab'], '|': ['|', 'd-other'], '\n': ['¶', 'd-raw'] };
 const HEAD_BADGE = { auto: ['auto', 'c-auto'], first: ['L1', 'c-head'], index: ['0 1 2', 'c-head'] };
 function sbMenuHtml(kind) {
     const t = T(), s = t || parseDefaults;
     const item = (k, i, label, on, [badge, cls]) =>
         `<div class="dd-item sb-opt${on ? ' on' : ''}" onclick="pickParse('${k}', ${i})"><span>${esc(label)}</span><span class="sb-badge${on ? ' ' + cls : ''}">${esc(badge)}</span></div>`;
     if (kind === 'd') {
-        const det = t && t.detectedDelim ? { ';': 'semicolon', ',': 'comma', '\t': 'tab', '|': 'pipe' }[t.detectedDelim] || t.detectedDelim : '';
+        const det = t && t.detectedDelim ? { ';': 'semicolon', ',': 'comma', '\t': 'tab', '|': 'pipe', '\n': 'raw text' }[t.detectedDelim] || t.detectedDelim : '';
         return '<div class="dd-head">Delimiter — re-reads the file</div>'
             + PARSE_DELIMS.map(([v, l], i) => item('d', i, v === '' && det ? `Auto (${det})` : l, v === s.delimiter, DELIM_BADGE[v])).join('');
     }
@@ -203,26 +204,28 @@ function toggleEol(e) {
 
 /* The status bar's format pills: what the active tab is read with — or,
    with no file loaded, the defaults the next one will be read with. */
-const DELIM_PILL = { ';': ['d-semi', 'Semicolon'], ',': ['d-comma', 'Comma'], '\t': ['d-tab', 'Tab'], '|': ['d-other', 'Pipe'] };
+const DELIM_PILL = { ';': ['d-semi', 'Semicolon'], ',': ['d-comma', 'Comma'], '\t': ['d-tab', 'Tab'], '|': ['d-other', 'Pipe'], '\n': ['d-raw', 'Raw text'] };
 function renderStatusFormat(t) {
     const box = document.getElementById('sb-fmt');
     const s = t || parseDefaults, loaded = !!(t && t.loaded);
     const autoTag = on => on ? '<span class="auto">auto</span>' : '';
     const dl = s.delimiter || (loaded && t.detectedDelim) || '';
-    const [dcls, dname] = dl ? (DELIM_PILL[dl] || ['d-other', 'Delimiter']) : ['neutral', 'Delimiter'];
+    const [dcls, dname0] = dl ? (DELIM_PILL[dl] || ['d-other', 'Delimiter']) : ['neutral', 'Delimiter'];
+    const text = dl === '\n', dname = text && loaded && t.lang ? `Raw text · ${esc(t.lang.label)}` : dname0;
+    textPos(t);
     const enc = s.encoding || (loaded && t.detectedEnc) || '';
     const ecls = !enc ? '' : enc === 'macintosh' ? 'e-mac' : SINGLE_BYTE.includes(enc) ? 'e-1252' : enc.startsWith('utf-16') ? 'e-utf16' : 'e-utf8';
     const head = loaded ? (t.syntheticHeader ? 'No titles' : 'Titles on line 1')
         : { auto: 'Titles', first: 'Titles on line 1', index: 'No titles' }[s.headerMode];
     const pill = (cls, html, title, click) => `<span class="sb-pill ${cls}" onclick="${click}" title="${esc(title)}">${html}</span>`;
     box.innerHTML = '<span class="sb-sep"></span>'
-        + pill(dcls, `<span class="cap">${!dl ? '?' : dl === '\t' ? '⇥' : esc(dl)}</span>${dname}${autoTag(!s.delimiter)}`, 'Delimiter — click to change', "openSbMenu(event, 'd')")
-        + pill(ecls, `${enc ? esc(encName(enc)) + (loaded && t.bom && enc === 'utf-8' ? ' BOM' : '') : 'Encoding'}${autoTag(!s.encoding)}`, 'Encoding — click to change', "openSbMenu(event, 'e')")
-        + pill('', `${head}${autoTag(s.headerMode === 'auto')}`, 'Header line — click to change', "openSbMenu(event, 'h')")
+        + pill(dcls, `<span class="cap">${!dl ? '?' : dl === '\t' ? '⇥' : text ? '¶' : esc(dl)}</span>${dname}${autoTag(!s.delimiter)}`, text ? 'Raw text · or read as a table' : 'Delimiter', "openSbMenu(event, 'd')")
+        + pill(ecls, `${enc ? esc(encName(enc)) + (loaded && t.bom && enc === 'utf-8' ? ' BOM' : '') : 'Encoding'}${autoTag(!s.encoding)}`, 'Encoding', "openSbMenu(event, 'e')")
+        + (text ? '' : pill('', `${head}${autoTag(s.headerMode === 'auto')}`, 'Header line', "openSbMenu(event, 'h')"))
         + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
-            'Line endings — click to switch between CRLF and LF; the next Save writes them', 'toggleEol(event)') : '')
-        + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Colours by column type (numbers, dates): ${typeColorsOn() ? 'on' : 'off'} — click to switch ${typeColorsOn() ? 'off' : 'on'}"></span>`
-        + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])} — click to change" style="${swatchCss(currentTheme())}"></span>`;
+            'Line endings · click: switch', 'toggleEol(event)') : '')
+        + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Type colours ${typeColorsOn() ? 'on' : 'off'}"></span>`
+        + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])}" style="${swatchCss(currentTheme())}"></span>`;
 }
 
 /* Numbers and dates coloured in the grid, on unless switched off here: a class on <html>
@@ -261,6 +264,7 @@ refreshParseOpts();
    (≥ 90 % of the non-empty cells, as for sorting), shown as an icon. */
 function columnKinds(t) {
     const c = t.kindsCache;
+    if (t.lang) return [''];                  // a text file: lines, not numbers nor dates
     if (c && sameStamp(c.stamp, dataStamp(t))) return c.kinds;   // renderHeader() runs after sorts, filters, undos: same rows, same kinds
     const rows = t.allData.slice(0, 400);
     const kinds = t.headers.map((_, c) => {
@@ -292,9 +296,9 @@ function renderHeader() {
         const sortInd = sk < 0 ? '' : `<span class="sort-ind">${t.sort[sk].dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${sk + 1}</sup>` : ''}</span>`;
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Column ${i} (from 0) · Click: sort (again: reverse) · Shift+click: then sort by this column too · Double-click: rename · Drag: move">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
+                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort · again: reverse · Shift+click: sub-sort">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
             </div>
-            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered by value — ' : ''}Profile and filter by value"></span>
+            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered · ' : ''}Profile, filter"></span>
             <div class="resizer" data-col="${i}"></div>
         </th>`;
         fCells += `<th>${colFilterBox(i, t.colFilters[i])}</th>`;

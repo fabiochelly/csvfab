@@ -20,6 +20,14 @@
    with the list instead of a CSV only when there is a choice to make.
 ----------------------------------------------------------------*/
 const IMPORT_RE = /\.(xlsx|xlsm|json|jsonl|ndjson)$/i;
+/* A JSON file is asked about: its records flattened into a CSV beside it, or the file itself as
+   raw text, line by line (33-…). true: as text; false: convert (or not an import at all); null: cancelled. */
+async function importAsText(name) {
+    if (importKind(name) !== 'json') return false;
+    const r = await uiChoice(`Open "${name}" as a table or as text?\n\nFlatten to CSV turns its records into rows and columns, written to a CSV beside it. Raw text opens the file itself, one line per row, every space kept.`,
+        { ok: 'Flatten to CSV', choices: ['Raw text'] });
+    return r === 'Raw text' ? true : r === true ? false : null;
+}
 function importKind(name) { const m = String(name).match(IMPORT_RE); return m ? (/^json|^ndjson|^jsonl/i.test(m[1]) ? 'json' : 'xlsx') : null; }
 function importDelim() { return parseDefaults.delimiter || ';'; }
 const csvNameFor = (name, sheet) => name.replace(/\.[^.]+$/, '') + (sheet ? ' - ' + sheet.replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim() : '') + '.csv';
