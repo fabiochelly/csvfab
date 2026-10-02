@@ -72,6 +72,18 @@ function openKeys() {
     document.getElementById('modal-bg').style.display = 'block';
     document.getElementById('modal-keys').style.display = 'block';
 }
+/* The version lives in bridge/config.py alone: the page asks the server (/api/ping, no token),
+   so a release never has to touch the page. The browser line is what a bug report needs. */
+function openAbout() {
+    closeDDs(); closeAllModals();
+    const ver = document.getElementById('ab-ver');
+    ver.textContent = '';
+    fetch('/api/ping').then(r => r.json()).then(j => { ver.textContent = j.version ? 'Version ' + j.version : ''; }).catch(() => { });
+    const ua = navigator.userAgentData, b = ua && ua.brands.find(x => !/Not.?A.?Brand|Chromium/i.test(x.brand)) || ua && ua.brands.find(x => /Chromium/.test(x.brand));
+    document.getElementById('ab-env').textContent = [b ? `${b.brand} ${b.version}` : '', ua ? ua.platform : ''].filter(Boolean).join(' · ');
+    document.getElementById('modal-bg').style.display = 'block';
+    document.getElementById('modal-about').style.display = 'block';
+}
 /* F1, or ? outside a text field: the shortcuts. */
 window.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;

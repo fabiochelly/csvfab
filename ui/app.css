@@ -266,6 +266,19 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 .dd-menu.sub { display: none; top: -7px; left: calc(100% + 2px); min-width: 240px; }   /* -7: its first item level with this one (padding + border) */
 .dd-item.has-sub:hover > .dd-menu.sub { display: block; animation: pop .12s ease-out; transform-origin: top left; }
 .dd-item.disabled { opacity: .4; pointer-events: none; }
+/* A line of buttons (Undo · Redo), as Chrome's menu groups Cut / Copy / Paste: the line itself
+   is not an item, each button lights up on its own. */
+.dd-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 2px 2px 2px 10px; font-size: 13px; color: var(--txt-hi); white-space: nowrap; user-select: none; }
+.dd-row .lbl { display: flex; align-items: center; gap: 10px; }
+.dd-row .lbl svg { width: 16px; height: 16px; flex: none; color: var(--txt-mut); }
+.dd-btns { display: flex; border: 1px solid var(--brd); border-radius: 6px; overflow: hidden; }
+.dd-btn { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer; color: var(--txt-hi); }
+.dd-btn + .dd-btn { border-left: 1px solid var(--brd); }
+.dd-btn svg { width: 14px; height: 14px; flex: none; color: var(--txt-mut); }
+.dd-btn:hover { background: var(--surf-2); }
+.dd-btn:hover svg { color: var(--txt-hi); }
+.dd-btn.disabled { pointer-events: none; color: var(--txt-faint); }
+.dd-btn.disabled svg { color: var(--txt-faint); }
 .swatch { width: 14px; height: 14px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(var(--hi-rgb), .25); }
 .dd-item.quit, .dd-item.quit .lbl svg { color: var(--danger-txt); }
 .dd-item.quit:hover { background: rgba(var(--danger-rgb), .14); }
@@ -886,6 +899,18 @@ td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); pa
 .wl .wl-actions kbd { border: 1px solid rgba(var(--hi-rgb), .3); background: rgba(var(--hi-rgb), .1); color: inherit; }   /* inside a button: translucent, over its own colour */
 .wl .wl-actions i { font-style: normal; margin: 0 2px; opacity: .7; }
 /* The shortcuts panel: the themes as cards in two columns. */
+#modal-about { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 28px 24px 20px; text-align: center; }
+#modal-about .ab-logo { width: 64px; height: 64px; }
+#modal-about h1 { margin: 8px 0 2px; font-size: 28px; font-weight: 300; letter-spacing: -.02em;
+    background: linear-gradient(90deg, var(--prim), rgb(var(--violet-rgb)), rgb(var(--pink-rgb))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+#modal-about .ab-ver { min-height: 18px; font: 12.5px var(--mono); color: var(--txt-mut); }
+#modal-about .ab-what { margin: 14px 0; font-size: 13px; line-height: 1.55; color: var(--txt); }
+#modal-about .ab-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+#modal-about a { color: var(--accent-2); text-decoration: none; }
+#modal-about a:hover { text-decoration: underline; }
+#modal-about .ab-env { margin-top: 14px; min-height: 16px; font-size: 11.5px; color: var(--txt-dim); }
+#modal-about .ab-legal { font-size: 11.5px; color: var(--txt-dim); }
+#modal-about .ab-author { margin-top: 10px; font-size: 13px; color: var(--txt); }
 #modal-keys { width: min(900px, calc(100vw - 32px)); }
 #modal-keys[style*="block"] { display: flex !important; flex-direction: column; max-height: 88vh; overflow: hidden; box-sizing: border-box; }
 #modal-keys > * { flex: none; }

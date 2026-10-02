@@ -16,6 +16,7 @@ __pycache__/
 
 # Local notes for Claude Code: they describe this machine, not the project.
 CLAUDE.md
+.claude/rules/
 
 # Lock files left by LibreOffice / OnlyOffice while a document is open
 .~lock.*

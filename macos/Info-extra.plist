@@ -8,7 +8,8 @@
   <key>CFBundleIdentifier</key><string>io.github.fabiochelly.csvfab</string>
   <key>CFBundleName</key><string>csvfab</string>
   <key>CFBundleDisplayName</key><string>csvfab</string>
-  <key>CFBundleIconFile</key><string>csvfab</string>
+  <!-- With its extension: Contents/Resources also holds the folder csvfab/ (the app's files). -->
+  <key>CFBundleIconFile</key><string>csvfab.icns</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>MIT license — https://github.com/fabiochelly/csvfab</string>
   <key>CFBundleDocumentTypes</key>

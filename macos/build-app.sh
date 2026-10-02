@@ -37,11 +37,14 @@ for s in 16 32 128 256 512; do
     d2=$((s * 2)); [ -f "$SRC/icons/csvfab-$d2.png" ] && cp "$SRC/icons/csvfab-$d2.png" "$set_/icon_${s}x${s}@2x.png"
 done
 iconutil -c icns "$set_" -o "$RES/csvfab.icns"
-rm -f "$RES/applet.icns" "$RES/droplet.icns"; rm -rf "$(dirname "$set_")"
+# osacompile (macOS 11+) also puts the Script Editor icon in an asset catalog, Assets.car,
+# named by CFBundleIconName: that key wins over CFBundleIconFile, so with either left in
+# place the Finder, the Dock and Launchpad keep showing the generic applet icon.
+rm -f "$RES/applet.icns" "$RES/droplet.icns" "$RES/Assets.car"; rm -rf "$(dirname "$set_")"
 
 # Identity, version and document types: the applet's own keys replaced, the rest merged in.
 PL="$APP/Contents/Info.plist"; PB=/usr/libexec/PlistBuddy
-for k in CFBundleIdentifier CFBundleName CFBundleDisplayName CFBundleIconFile CFBundleDocumentTypes; do "$PB" -c "Delete :$k" "$PL" 2>/dev/null || true; done
+for k in CFBundleIdentifier CFBundleName CFBundleDisplayName CFBundleIconFile CFBundleIconName CFBundleDocumentTypes; do "$PB" -c "Delete :$k" "$PL" 2>/dev/null || true; done
 "$PB" -c "Merge $HERE/Info-extra.plist" "$PL"
 for k in CFBundleShortVersionString CFBundleVersion; do "$PB" -c "Set :$k $V" "$PL" 2>/dev/null || "$PB" -c "Add :$k string $V" "$PL"; done
 
@@ -54,6 +57,9 @@ python3 -m compileall -q "$RES/csvfab/bridge" >/dev/null 2>&1 || true
 # what was just built here. Then Launch Services learns the bundle at once.
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 xattr -cr "$APP" 2>/dev/null || true
+# The Finder caches an app's icon by path: a rebuild over an older bundle would keep showing
+# the old one. A fresh date on the bundle makes it read the icon again.
+touch "$APP"
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREG" ] && "$LSREG" -f "$APP" >/dev/null 2>&1 || true
 echo "$APP (csvfab $V)"

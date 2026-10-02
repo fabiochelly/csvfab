@@ -79,6 +79,7 @@ function paletteCommands() {
     add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
     add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
     add('Help', 'Keyboard shortcuts', openKeys, 'F1');
+    add('Help', 'About csvfab… — version, licence, website', openAbout);
     add('View', t && t.tail ? 'Stop following the file' : 'Follow the end of the file (tail -f) — new lines as they are written', () => toggleTail(), t && t.tail ? '✓' : '', loaded && !!t.lang);
     add('View', 'Clear the reopen cache — big files are scanned again', idxClear);
     add('View', 'Monospace font…' + (monoPick() ? ` — ${monoPick() === 'monospace' ? 'system monospace' : monoPick()}` : ''), openFontDialog);

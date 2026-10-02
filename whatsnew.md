@@ -2,6 +2,12 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.15.0 · 2 October 2026
+
+- **About csvfab…** in the ☰ menu and the command palette: the version, links to the website, the release notes and the issue tracker, the browser and system in use (handy for a bug report), the licence and the author.
+- **A shorter ☰ menu:** related actions share one line, as in Chrome's menu — *Row* (Go to… · Card), *Edit* (Undo · Redo) and *Help* (Shortcuts · About…); their keyboard shortcuts are in the buttons' tooltips.
+- **macOS: the app shows its own icon** in the Finder, Launchpad and Spotlight, instead of the generic AppleScript one (and a sharper one on Retina screens). While it runs, the Dock still shows the browser's icon: the window belongs to Chrome or Chromium.
+
 ## 1.14.0 · 2 October 2026
 
 **Security**
