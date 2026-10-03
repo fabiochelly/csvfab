@@ -6,8 +6,8 @@ class Csvfab < Formula
 
   desc "Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
   homepage "https://github.com/fabiochelly/csvfab"
-  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v1.16.2.tar.gz"
-  sha256 "275eb9ff37bb416594375b0483fad6b3f56a8488048e868a59ab48531a8b1247"
+  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v1.17.0.tar.gz"
+  sha256 "315748e65c1d6817ba12245fd56d38b5ca2a29b8eda1aa9cd9465db909e01678"
   license "MIT"
 
   depends_on "python@3.13"
