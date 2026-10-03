@@ -102,7 +102,7 @@ EmEditor is a text editor with a CSV mode, and Windows-only; its open time is to
 
 ## The video
 
-`benchmark/video.py` films csvfab on the 5 M-row file — open, scroll, sort, filter — in a headless Chromium, frame by frame in real time, then shows the results above as bars that grow at the pace of the measured times. Every time on screen is measured while filming (the app's own) or read from `run.py`'s JSON.
+[Watch it on YouTube](https://youtu.be/4sEEdzOZrWk). `benchmark/video.py` films csvfab on the 5 M-row file — open, scroll, sort, filter — in a headless Chromium, frame by frame in real time, then shows the results above as bars that grow at the pace of the measured times. Every time on screen is measured while filming (the app's own) or read from `run.py`'s JSON.
 
 ```sh
 python3 benchmark/run.py --json results.json
