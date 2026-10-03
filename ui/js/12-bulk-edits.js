@@ -89,18 +89,147 @@ function sortKind(t, col) {
     for (const r of t.allData) { const ty = cellType(cellOf(r, col)); if (ty) { counts[ty]++; if (++seen >= 2000) break; } }
     return seen && counts.n / seen >= 0.9 ? 'n' : (seen && counts.d / seen >= 0.9 ? 'd' : 't');
 }
-/* Text keys → ranks: the distinct values sorted once with the collator
-   (values it calls equal share a rank, so they keep their order, as ties
-   do), then every row gets its value's rank. Empty (null) → NaN. */
+/* Text keys → ranks: the values put in the collator's order (values it calls
+   equal share a rank, so they keep their order, as ties do), then every row
+   gets its value's rank. Empty (null) → NaN.
+   Sorting with coll.compare costs n·log n collator calls, ~150 ns each: 12.8 M
+   distinct values took 42 s. So the values are first radix-sorted on numeric
+   keys made from their first TEXT_KEY_W characters, weighed by the collator
+   itself (textWeights()), which puts them in place without a single call; one
+   pass of coll.compare then checks the order while it numbers the ranks.
+   Anything the keys cannot see — a tie past their length, a long number, an
+   expansion such as ß = ss, a script beyond U+024F — shows up as a pair out
+   of order, and the array is then sorted with the collator: nearly sorted,
+   Array.prototype.sort (TimSort) needs few calls on it. The order is the
+   collator's in every case, never the keys'.
+   Values all distinct are ordered row by row: a Map of millions of strings
+   cost more than the sort (4.6 s of 12 for 12.8 M). Repeated ones (names,
+   cities) are ordered once each through the Map. Fewer than TEXT_KEY_MIN
+   distinct values, or values whose keys tell them apart no better than by
+   chance (a long common prefix: URLs, paths), keep the plain collator sort,
+   which the keys would only add to. */
+const TEXT_KEY_W = 18;                   // characters in the keys: three float64 of six 8-bit weights
+const TEXT_KEY_MIN = 5000;               // distinct values below which the plain sort is as fast
 function textRanks(col, coll) {
+    const n = col.length, out = new Float64Array(n);
+    if (n >= TEXT_KEY_MIN) {
+        // Row by row only when 16 384 rows spread over the column hold no value
+        // twice: 867 k e-mails over 5 M rows show ~160 repeats there, and were
+        // 7× faster through the Map (the keys on 5 M rows instead of 867 k).
+        const step = Math.max(1, Math.floor(n / 16384)), sample = new Set();
+        let filled = 0;
+        for (let i = 0; i < n; i += step) if (col[i] !== null) { sample.add(col[i]); filled++; }
+        let w;
+        if (sample.size === filled && (w = textKeysUseful([...sample].slice(0, 4096), coll))) {
+            const idx = [];
+            for (let i = 0; i < n; i++) if (col[i] !== null) idx.push(i);
+            const vals = idx.map(i => col[i]), rk = collatorRanks(vals, coll, w);
+            out.fill(NaN);
+            for (let j = 0; j < idx.length; j++) out[idx[j]] = rk[j];
+            return out;
+        }
+    }
     const rank = new Map();
-    for (let i = 0; i < col.length; i++) { const v = col[i]; if (v !== null && !rank.has(v)) rank.set(v, 0); }
-    const uniq = [...rank.keys()].sort(coll.compare);
-    let r = 0;
-    for (let i = 0; i < uniq.length; i++) { if (i && coll.compare(uniq[i - 1], uniq[i]) !== 0) r++; rank.set(uniq[i], r); }
-    const out = new Float64Array(col.length);
-    for (let i = 0; i < col.length; i++) out[i] = col[i] === null ? NaN : rank.get(col[i]);
+    for (let i = 0; i < n; i++) { const v = col[i]; if (v !== null && !rank.has(v)) rank.set(v, 0); }
+    const uniq = [...rank.keys()];
+    let w;
+    if (uniq.length >= TEXT_KEY_MIN && (w = textKeysUseful(uniq.slice(0, 4096), coll))) {
+        const rk = collatorRanks(uniq, coll, w);
+        for (let j = 0; j < uniq.length; j++) rank.set(uniq[j], rk[j]);
+    } else {
+        uniq.sort(coll.compare);
+        let r = 0;
+        for (let i = 0; i < uniq.length; i++) { if (i && coll.compare(uniq[i - 1], uniq[i]) !== 0) r++; rank.set(uniq[i], r); }
+    }
+    for (let i = 0; i < n; i++) out[i] = col[i] === null ? NaN : rank.get(col[i]);
     return out;
+}
+/* The character weights when the keys of a sample of distinct values tell at
+   least half of them apart, else null. */
+function textKeysUseful(sample, coll) {
+    if (sample.length < 2) return null;
+    const w = textWeights(coll), k = [new Float64Array(1), new Float64Array(1), new Float64Array(1)], seen = new Set();
+    for (const v of sample) { textKeys(v, w, k[0], k[1], k[2], 0); seen.add(k[0][0] + ',' + k[1][0] + ',' + k[2][0]); }
+    return seen.size * 2 >= sample.length ? w : null;
+}
+/* The rank of each of vals (non-null strings) in the collator's order: by
+   the keys, each run of equal keys then sorted with the collator (values
+   alike past TEXT_KEY_W characters: e-mails of the same name), checked by
+   rankWalk(), sorted again with the collator only if a pair is still out of
+   order. */
+function collatorRanks(vals, coll, w) {
+    const n = vals.length, k1 = new Float64Array(n), k2 = new Float64Array(n), k3 = new Float64Array(n);
+    for (let i = 0; i < n; i++) textKeys(vals[i], w, k1, k2, k3, i);
+    let o = new Uint32Array(n);
+    for (let i = 0; i < n; i++) o[i] = i;
+    o = radixOrder(radixOrder(radixOrder(o, k3, 1), k2, 1), k1, 1);
+    const cmp = (a, b) => vals[a] === vals[b] ? 0 : coll.compare(vals[a], vals[b]);
+    for (let i = 0; i < n;) {
+        const a = o[i];
+        let j = i + 1;
+        while (j < n && k1[o[j]] === k1[a] && k2[o[j]] === k2[a] && k3[o[j]] === k3[a]) j++;
+        if (j - i > 1) o.set(Array.from(o.subarray(i, j)).sort(cmp), i);
+        i = j;
+    }
+    const rk = new Float64Array(n);
+    if (!rankWalk(vals, o, coll, rk)) {
+        o = Array.from(o).sort(cmp);
+        rankWalk(vals, o, coll, rk);
+    }
+    return rk;
+}
+/* Ranks along order o into rk (indexed like vals); false at the first pair
+   out of order. Equal strings need no collator call. */
+function rankWalk(vals, o, coll, rk) {
+    let r = 0;
+    for (let i = 0; i < o.length; i++) {
+        const v = vals[o[i]];
+        if (i) {
+            const p = vals[o[i - 1]];
+            if (p !== v) { const c = coll.compare(p, v); if (c > 0) return false; if (c) r++; }
+        }
+        rk[o[i]] = r;
+    }
+    return true;
+}
+/* A weight per character up to U+024F, from the collator's own order of
+   them one by one (equal ones share it: a = A = à under sensitivity 'base'),
+   0 for those it ignores; 188 weights for 'fr', so 8 bits each. Built at
+   every sort: ~1 ms. */
+function textWeights(coll) {
+    const chars = [];
+    for (let c = 0x20; c < 0x250; c++) chars.push(String.fromCharCode(c));
+    chars.sort(coll.compare);
+    const w = new Uint8Array(0x250);
+    let r = 0, prev = null;
+    for (const ch of chars) {
+        if (coll.compare(ch, '') === 0) continue;
+        if (prev !== null && coll.compare(prev, ch) !== 0) r++;
+        w[ch.charCodeAt(0)] = Math.min(254, r + 1); prev = ch;
+    }
+    return w;
+}
+/* The keys of value s, written at i in k1–k3. A run of digits is compared as
+   a number (the collator is numeric): its length without leading zeros, then
+   its digits, so 9 < 10 < 010 = 10. Characters past U+024F weigh 255. */
+function textKeys(s, w, k1, k2, k3, i) {
+    let a = 0, b = 0, c3 = 0, n = 0;
+    const put = x => { if (n < 6) a = a * 256 + x; else if (n < 12) b = b * 256 + x; else c3 = c3 * 256 + x; n++; };
+    for (let p = 0; p < s.length && n < TEXT_KEY_W; p++) {
+        let c = s.charCodeAt(p);
+        if (c >= 48 && c <= 57) {
+            let j = p; while (j < s.length && s.charCodeAt(j) === 48) j++;
+            let e = j; while (e < s.length && (c = s.charCodeAt(e)) >= 48 && c <= 57) e++;
+            if (e === j) j = e - 1;                  // only zeros: the number 0
+            put(w[48 + Math.min(9, e - j)]);
+            for (let d = j; d < e && n < TEXT_KEY_W; d++) put(w[s.charCodeAt(d)]);
+            p = e - 1; continue;
+        }
+        const x = c < 0x250 ? w[c] : 255;
+        if (x) put(x);
+    }
+    while (n < TEXT_KEY_W) put(0);
+    k1[i] = a; k2[i] = b; k3[i] = c3;
 }
 /* A stable LSD radix sort of `order` on a Float64 key per row, 16 bits a
    pass: no comparison function, so 20 million rows sort in seconds rather
