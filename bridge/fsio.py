@@ -64,25 +64,43 @@ def fsync_dir(path):
         os.close(fd)
 
 
+_locks = {}
+_locks_guard = threading.Lock()
+
+
+def path_lock(path):
+    """Le verrou d'un fichier de destination. Le serveur sert chaque requête dans son fil :
+    deux écritures du même fichier (deux onglets, un export par-dessus une sauvegarde) se
+    suivent au lieu de se croiser. Réentrant : la route qui vérifie puis écrit le tient à
+    travers replacing(), qui le prend aussi."""
+    key = os.path.normcase(os.path.abspath(path))   # pas realpath : les routes passent un chemin déjà résolu (path_arg), et realpath relit le disque à chaque écriture
+    with _locks_guard:
+        lock = _locks.get(key)
+        if lock is None:
+            lock = _locks[key] = threading.RLock()
+        return lock
+
+
 @contextmanager
 def replacing(dest, durable=False):
     """Donne un chemin temporaire voisin de dest ; à la sortie sans erreur, il
     remplace dest (en gardant ses permissions : un CSV en 600 le reste), sinon
     il est effacé et dest reste tel quel. durable : le dossier est synchronisé
     après le remplacement (l'appelant a synchronisé le fichier lui-même)."""
-    tmp = temp_name(dest)
-    try:
-        yield tmp
+    with path_lock(dest):
+        tmp = temp_name(dest)
         try:
-            os.chmod(tmp, os.stat(dest).st_mode & 0o7777)
-        except FileNotFoundError:
-            pass                                  # nouveau fichier : le umask décide
-        os.replace(tmp, dest)
-    except BaseException:
-        remove(tmp)
-        raise
-    if durable:
-        fsync_dir(os.path.dirname(dest) or ".")
+            yield tmp
+            try:
+                os.chmod(tmp, os.stat(dest).st_mode & 0o7777)
+            except FileNotFoundError:
+                pass                              # nouveau fichier : le umask décide
+            os.replace(tmp, dest)
+        except BaseException:
+            remove(tmp)
+            raise
+        if durable:
+            fsync_dir(os.path.dirname(dest) or ".")
 
 
 @contextmanager

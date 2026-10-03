@@ -247,10 +247,10 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     /* Expression mode: the search box is a formula (23-expr-filter.js), tested
        on top of the column filters; one that does not compile keeps the view. */
     let exprRun = null;
-    t.exprErr = ''; t.exprRun = null;
+    t.exprErr = ''; t.exprRun = null; t.reErr = '';
     if (t.useExpr && globalQuery.trim()) {
         exprRun = exprRowTest(t, globalQuery);
-        if (exprRun.error) { t.exprErr = exprRun.error; markExprBox(true); return false; }
+        if (exprRun.error) { t.exprErr = exprRun.error; markExprBox(!exprRun.pending); return false; }
         t.exprRun = exprRun; globalQuery = '';
     }
     markExprBox(false);
@@ -268,8 +268,15 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
         let re = null, val = i.rawVal;
         if (useSlug && !isRegex) val = removeAccents(val.toLowerCase()); else if (!isRegex) val = val.toLowerCase();
         if (isRegex) { try { re = new RegExp(i.rawVal, 'i'); } catch (e) { } }
-        return { idx: i.idx, val: val, re: re, terms: isRegex ? null : queryTerms(val) };
+        return { idx: i.idx, val: val, re: re, raw: i.rawVal, terms: isRegex ? null : queryTerms(val) };
     }).filter(f => isRegex || f.terms.length);   // spaces only: no filter
+    /* A regex is tried apart first (40-…): one that backtracks without end would freeze the
+       window, edits not saved included. The view stays while it is checked, then filters. */
+    if (isRegex) {
+        const g = regexGate(t, [...(globalRegex ? [['g', globalQuery, 'i']] : []), ...compiledColFilters.filter(f => f.re).map(f => ['c' + f.idx, f.raw, 'i'])],
+            () => { if (T() === t) applyFilters(); });
+        if (g) { t.reErr = g.error; return false; }
+    }
 
     /* The record's own text first: a query without quote or delimiter (and,
        for the search across columns, without space, which joins the cells)
@@ -377,6 +384,7 @@ function applyFilters() {
     findHl(t);                            // the replace bar's find, highlighted apart (29-…)
 
     let tt = textFilterTest(t);
+    t.hl.reOk = !t.reErr;                 // render() highlights with the regex only once it passed the guard
     if (tt === false) { updateStats(); return; }   // an invalid regex or expression: the view stays, the status bar says why
     const narrow = tt && narrowsLast(t);
     if (narrow && t.filteredData.length * 8 < t.allData.length) tt = textFilterTest(t, true);   // few rows left: record by record
@@ -455,7 +463,7 @@ function updateStats() {
     document.getElementById('btn-extract').style.display = '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.lang ? '' : t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
-    const ex = t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '';
+    const ex = (t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '') + (t.reErr ? ` | regex: ${t.reErr}` : '');
     setStats(`${t.name}${hasFilters ? ' | filtered' : ''}${gen}${ex}`);   // the counts: #sb-count, on the right
     rowCardSync();
     findRefresh(t);                       // the find count follows every change (29-…)

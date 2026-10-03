@@ -11,8 +11,10 @@ def stat(req):
     if not p or not os.path.isfile(p):
         raise HttpError(404, "not a file")
     st = os.stat(p)
+    # mtime_ns en texte : la page le renvoie tel quel pour écrire (un nombre JavaScript
+    # n'a pas assez de chiffres pour des nanosecondes depuis 1970).
     return {"name": os.path.basename(p), "path": p, "size": st.st_size, "mtime": st.st_mtime,
-            "writable": os.access(p, os.W_OK)}
+            "mtime_ns": str(st.st_mtime_ns), "writable": os.access(p, os.W_OK)}
 
 
 def read(req):
@@ -49,9 +51,29 @@ def read(req):
             pass
 
 
+class _Changed(Exception):
+    pass
+
+
+def _changed(p, size, mtime_ns):
+    """Ce qui a bougé depuis que la page a vérifié le fichier, ou None."""
+    try:
+        st = os.stat(p)
+    except FileNotFoundError:
+        return "the file is gone"
+    if st.st_size != size or st.st_mtime_ns != mtime_ns:
+        return "the file was changed by another program"
+    return None
+
+
 def write(req):
     """Écriture atomique (bridge.fsio) ; ?backup=1 copie d'abord le fichier en .bak
-    (une fois par onglet et par session : c'est la page qui décide)."""
+    (une fois par onglet et par session : c'est la page qui décide).
+
+    ?expect_size=&expect_mtime_ns= : le fichier tel que la page l'a vérifié. Il est
+    comparé sous le verrou du fichier, une fois le corps reçu, juste avant de remplacer :
+    s'il a changé entre-temps, 409 et rien n'est écrit — la page vérifiait seule, et
+    une écriture d'un autre programme pendant l'envoi d'un gros fichier passait."""
     p = req.path_arg()
     if not p:
         raise HttpError(400, "chemin manquant")
@@ -59,14 +81,25 @@ def write(req):
     if not os.path.isdir(d):
         raise HttpError(400, f"dossier inexistant : {d}")
     n = req.content_length()
+    expect = None
+    if req.arg("expect_mtime_ns"):
+        try:
+            expect = (int(req.arg("expect_size")), int(req.arg("expect_mtime_ns")))
+        except (TypeError, ValueError):
+            raise HttpError(400, "expect_size / expect_mtime_ns invalides")
     made = None
     try:
-        if req.arg("backup") == "1":
-            made = fsio.backup(p)
-        with fsio.replacing(p, durable=True) as tmp:
+        with fsio.path_lock(p), fsio.replacing(p, durable=True) as tmp:
             with open(tmp, "wb") as f:
-                fsio.receive(req.rfile, n, f)
+                fsio.receive(req.rfile, n, f)       # le corps d'abord, même refusé : la connexion gardée ouverte reste alignée
                 fsio.fsync(f)
+            why = expect and _changed(p, *expect)
+            if why:
+                raise _Changed(why)
+            if req.arg("backup") == "1":
+                made = fsio.backup(p)
+    except _Changed as e:
+        raise HttpError(409, str(e))
     except Exception as e:
         raise HttpError(500, str(e))
     return {"ok": True, "bytes": n, "backup": os.path.basename(made) if made else None,

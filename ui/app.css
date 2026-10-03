@@ -384,6 +384,36 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 #modal-profile { width: min(1040px, calc(100vw - 40px)); height: 94vh; max-height: none; flex-direction: column; }
 #modal-profile[style*="block"] { display: flex !important; }
 #modal-profile .pf-wrap { flex: 1; min-height: 120px; max-height: none; }
+/* Schema (41-…): tall like the profile; a rule is a tick and a word, dimmed while unticked. */
+#modal-schema { width: min(980px, calc(100vw - 40px)); height: 90vh; max-height: none; flex-direction: column; }
+#modal-schema[style*="block"] { display: flex !important; }
+#modal-schema .pf-wrap { flex: 1; min-height: 120px; max-height: none; }
+#modal-schema h4 { margin: 0 0 14px; }
+#modal-schema .ok-txt { color: var(--ok-txt); }
+.pv.sc .warn { color: var(--warn); }
+.pv.sc td { vertical-align: top; max-width: 420px; }
+.pv.sc .sc-type { width: auto; padding: 2px 22px 2px 6px; font-size: 12px; }
+.pv.sc .sc-ex { font-size: 11px; margin-top: 3px; }
+.pv.sc .sc-rule { color: var(--txt-dim); }
+.pv.sc .sc-rule.on { color: var(--txt-hi); }
+.pv.sc code { font-family: var(--mono); font-size: 11px; }
+/* The rules cell wraps its rules (a .pv cell is one ellipsed line, 220 px at most). */
+.pv.sc { width: 100%; min-width: 0; table-layout: fixed; }
+.pv.sc td:last-child { white-space: normal; max-width: none; overflow: visible; }
+#sc-list.create th:nth-child(1) { width: 22%; } #sc-list.create th:nth-child(2) { width: 130px; }
+.pv.sc .sc-rule { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin: 2px 12px 2px 0; }
+.pv.sc .sc-rule label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+.pv.sc .sc-val { padding: 1px 6px; font-size: 12px; font-family: var(--mono); min-width: 0; }   /* width set per kind (ch) */
+.pv.sc select.sc-val { font-family: var(--ui); padding: 1px 26px 1px 6px; width: auto; }
+.pv.sc .sc-val.bad { border-color: var(--danger); }
+.pv.sc .sc-cnt { font-size: 11px; margin-left: 4px; }
+.pv.sc .sc-cnt.bad { color: var(--warn); }
+.pv.sc .sc-cnt.good { color: var(--ok-txt); }
+.pv.sc .sc-add { display: inline-block; margin-left: 2px; padding: 0 7px; border: 1px dashed var(--brd-2); border-radius: 10px; font-size: 11px; color: var(--txt-mut); cursor: pointer; white-space: nowrap; }
+.pv.sc .sc-add:hover { color: var(--txt-hi); border-color: var(--prim); }
+/* The "+ rule" menu: over the dialog (2000). */
+#sc-menu { position: fixed; top: auto; min-width: 260px; max-width: 420px; z-index: 2100; }
+#sc-menu .sc-sub { display: block; font-size: 11px; color: var(--txt-mut); margin-top: 1px; white-space: normal; font-family: var(--mono); }
 #modal-anon { width: min(820px, calc(100vw - 40px)); height: 94vh; max-height: none; flex-direction: column; }
 #modal-anon[style*="block"] { display: flex !important; }
 #modal-anon .an-wrap { flex: 1; min-height: 160px; max-height: none; }

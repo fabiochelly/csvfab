@@ -392,7 +392,9 @@ async function writeToHandle(t, handle, dataToExport, columnsToExport, delim, en
    streamCSV, and backed by disk rather than RAM once it gets big. The
    server writes to a neighbouring temp file and renames it over the
    original, so a failure mid-write cannot truncate anything. */
-async function srvWrite(t, path, doBackup, delim, rows, enc) {
+/* expect: the file as checkDisk() last saw it ({size, mtime_ns}); the server compares it just
+   before replacing the file and refuses with 409 if it moved — then { conflict } comes back. */
+async function srvWrite(t, path, doBackup, delim, rows, enc, expect) {
     startProgress();
     setStats(`Writing ${t.name}…`);
     await new Promise(r => setTimeout(r, 10));
@@ -402,7 +404,8 @@ async function srvWrite(t, path, doBackup, delim, rows, enc) {
 
     let res, j = {};
     try {
-        res = await srvFetch(srvFileUrl(path) + (doBackup ? '&backup=1' : ''),
+        res = await srvFetch(srvFileUrl(path) + (doBackup ? '&backup=1' : '')
+            + (expect && expect.mtime_ns ? `&expect_size=${expect.size}&expect_mtime_ns=${expect.mtime_ns}` : ''),
             { method: 'PUT', body: new Blob(chunks, { type: 'text/csv' }) });
         j = await res.json().catch(() => ({}));
     } catch (err) {
@@ -411,6 +414,7 @@ async function srvWrite(t, path, doBackup, delim, rows, enc) {
         return null;
     }
     endProgress();
+    if (res.status === 409) { setStats(`${t.name} | ${j.error || 'changed on disk'} while it was being saved — nothing written.`); return { conflict: j.error || 'changed on disk' }; }
     if (!res.ok || !j.ok) {
         const msg = j.error || `HTTP ${res.status}`;
         setStats(`Write failed: ${msg}`);
@@ -433,18 +437,21 @@ async function srvWrite(t, path, doBackup, delim, rows, enc) {
 ----------------------------------------------------------------*/
 async function diskStamp(t, file) {
     try {
-        if (t.path) { const st = await srvStat(t.path); return { size: st.size, mtime: st.mtime }; }
+        if (t.path) { const st = await srvStat(t.path); return { size: st.size, mtime: st.mtime, mtime_ns: st.mtime_ns }; }
         if (t.handle) { const f = file && file.lastModified ? file : await t.handle.getFile(); return { size: f.size, mtime: f.lastModified / 1000 }; }
     } catch (e) { }
     return null;                          // a read-only copy: nothing to compare
 }
-/* true = go ahead and write; false = stop (cancelled, or reloaded instead). */
+/* true = go ahead and write; false = stop (cancelled, or reloaded instead). t.checked: the file
+   as it was found here, which the server must still find when it writes (srvWrite's expect). */
 async function checkDisk(t) {
+    t.checked = null;
     if (!t.stamp) return true;
     const now = await diskStamp(t);
     if (!now) {
         return await uiConfirm(`"${t.name}" can no longer be found where it was opened.\n\nIt may have been moved, renamed or deleted. Saving writes it back there.`, { ok: 'Save anyway' });
     }
+    t.checked = now;
     /* A different mtime alone proves nothing: sync clients rewrite it after
        uploading our own save (kDrive sets its server's time, truncated to the
        second — observed 2.3 s EARLIER than the write), FAT keeps even seconds.
@@ -488,8 +495,15 @@ async function saveInPlace(opts) {
     if ((t.path || t.handle) && !await checkDisk(t)) return false;
 
     if (t.path) {                        // opened through the launcher
-        const j = await srvWrite(t, t.path, !t.backedUp, delim, null, enc);
-        if (!j) return false;
+        let j = await srvWrite(t, t.path, !t.backedUp, delim, null, enc, t.checked);
+        /* Changed between the check and the write: the server wrote nothing. Ask again
+           (overwrite or reload), as if it had been seen before saving. */
+        for (let k = 0; j && j.conflict && k < 3; k++) {
+            if (!await checkDisk(t)) return false;
+            j = await srvWrite(t, t.path, !t.backedUp, delim, null, enc, t.checked);
+        }
+        if (j && j.conflict) uiAlert(`"${t.name}" keeps changing on disk while it is being saved, so nothing was written.\n\nClose the program that writes it, then save again.`);
+        if (!j || j.conflict) return false;
         t.backedUp = true; t.size = j.size; t.modificationsLog = [];
         markPristine(t);
         await refreshStamp(t);
@@ -590,6 +604,9 @@ function applySearchReplace() {
     if (document.getElementById('sr-regex').checked) {
         try { re = new RegExp(fText, cs ? 'g' : 'gi'); }
         catch (e) { uiAlert(`This regular expression is not valid.\n\n${e.message}`); return; }
+        /* Tried apart first (40-…); once checked, the replace runs by itself. */
+        const g = regexGate(t, [[only < 0 ? 'g' : 'c' + only, fText, cs ? 'g' : 'gi']], () => { if (T() === t) applySearchReplace(); });
+        if (g) { if (g.pending) setStats(`${t.name} | Checking the regular expression before replacing…`); else uiAlert(`This regular expression is too slow for this file.\n\nIt ${g.error.replace(/^this regular expression /, '')}.`); return; }
     }
     /* Case ignored (the default, as in the filters): the text becomes a regex, its
        replacement a function so that a $ in it stays literal. */

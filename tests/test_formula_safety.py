@@ -78,9 +78,12 @@ class FormulaSafetyTest(unittest.TestCase):
         cls.b.stop()
 
     def test_every_documented_example_compiles_and_gives_the_same_values(self):
-        res = self.chrome.eval(f"""(() => {{
+        res = self.chrome.eval(f"""(async () => {{
             const t = __fx.tab({self.tab}), out = [];
             setSel(t, 0, 1, 0, 1);
+            /* Les regex d'une formule sont d'abord essayées à part (40-…) : une passe pour les faire vérifier. */
+            for (const x of FX_DOC) for (const [ex] of x.ex || []) compileFormula(t, fxExample(t, ex, x.pick));
+            while (regexWaiting.size) await new Promise(r => setTimeout(r, 20));
             for (const x of FX_DOC) for (const [ex] of x.ex || []) {{
                 const src = fxExample(t, ex, x.pick);
                 if (/uuid/.test(src)) continue;                       // aléatoires : jamais deux fois les mêmes
@@ -121,13 +124,16 @@ class FormulaSafetyTest(unittest.TestCase):
         self.assertEqual(res['{nom}[0]'], ["N"])
 
     def test_useful_syntax_still_works(self):
-        res = self.chrome.eval(f"""(() => {{
+        res = self.chrome.eval(f"""(async () => {{
             const t = __fx.tab({self.tab}), r = t.allData[0], out = {{}};
             fxComma = true;                                         // un fichier en « ; » : virgule décimale
-            for (const src of ['row % 2 === 0', '{{montant}}.num() > 100 ? "big" : "small"', 'Math.round({{montant}}.num())',
+            const srcs = ['row % 2 === 0', '{{montant}}.num() > 100 ? "big" : "small"', 'Math.round({{montant}}.num())',
                                'Math.max(1, 2) ** 2', '-{{montant}}.num()', 'matches({{email}}, /^user\\\\d+@/)', '[{{ville}}, "x"].join("-")',
                                '{{ville}}.length', 'Math.PI > 3', '{{nom}}.replace(/\\\\d+/g, "#")', '!empty({{nom}}) && {{ville}} !== "Paris"',
-                               '{{date}}.date().year() >= 2010', 'first("", {{ville}})', '"a\\\\"b" + \\'c\\'', '0x1F + .5', '1e3']) {{
+                               '{{date}}.date().year() >= 2010', 'first("", {{ville}})', '"a\\\\"b" + \\'c\\'', '0x1F + .5', '1e3'];
+            for (const src of srcs) compileFormula(t, src);          // les regex sont d'abord essayées à part (40-…)
+            while (regexWaiting.size) await new Promise(r => setTimeout(r, 20));
+            for (const src of srcs) {{
                 const c = compileFormula(t, src);
                 out[src] = c.error ? 'ERREUR ' + c.error : evalRow(c.fn, t, r, c.used);
             }}

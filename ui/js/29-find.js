@@ -17,7 +17,8 @@
 const FIND_LIST = 2e6;
 const find = { key: [], hlKey: '', list: null, n: 0, done: false, gen: 0, timer: 0 };
 
-/* What the bar asks for, or null (empty field) / {error} (a bad regex). */
+/* What the bar asks for, or null (empty field) / {error} (a bad regex; guard: true when it is
+   held by the regex guard, 40-…, as too slow or being checked). */
 function findSpec(t) {
     const q = document.getElementById('sr-find').value;
     if (!q) return null;
@@ -26,6 +27,8 @@ function findSpec(t) {
     let re = null;
     if (document.getElementById('sr-regex').checked) {
         try { re = new RegExp(q, cs ? '' : 'i'); } catch (e) { return { error: e.message }; }
+        const g = regexGate(t, [[only < 0 ? 'g' : 'c' + only, q, cs ? '' : 'i']], () => { if (T() === t) findRefresh(t); });
+        if (g) return { error: g.error, guard: true, pending: g.pending };
     }
     const cols = visibleCols(t).filter(c => only < 0 || c === only);
     const needle = cs ? q : q.toLowerCase();
@@ -48,7 +51,7 @@ function findHl(t) {
 function findRefresh(t) {
     if (!t || !t.loaded || !t.hl) return;
     const S = findBarOpen() ? findSpec(t) : null, ok = S && !S.error;
-    document.getElementById('sr-bar').classList.toggle('bad', !!(S && S.error));
+    document.getElementById('sr-bar').classList.toggle('bad', !!(S && S.error && !S.pending));
     const hlKey = ok ? [S.hl, S.only, S.cs].join('\0') : '';
     if (hlKey !== find.hlKey || (t.hl.find || '') !== (ok ? S.hl : '')) {
         find.hlKey = hlKey;
@@ -92,6 +95,8 @@ function findCount(t, S) {
 /* "3 / 128" when the selection sits on a match, else the count. */
 function findPos(t) {
     const el = document.getElementById('sr-pos');
+    const S = findBarOpen() && t ? findSpec(t) : null;
+    if (S && S.guard) { el.textContent = S.pending ? 'checking…' : 'too slow'; el.classList.toggle('none', !S.pending); return; }
     if (!findBarOpen() || !find.key.length) { el.textContent = ''; el.classList.remove('none'); return; }
     const n = find.n, more = find.done && !find.list && n >= FIND_LIST ? '+' : '';
     el.classList.toggle('none', find.done && n === 0);
@@ -154,7 +159,7 @@ function findStep(dir) {
     const S = findSpec(t);
     const box = document.getElementById('sr-find');
     if (!S) { box.focus(); return; }
-    if (S.error) { setStats(`${t.name} | This regular expression is not valid: ${S.error}`); return; }
+    if (S.error) { setStats(`${t.name} | ${S.guard ? 'Regex: ' : 'This regular expression is not valid: '}${S.error}`); return; }
     findRefresh(t);
     /* From the selection, else from the top of the view (backwards: its bottom). */
     let r, c;

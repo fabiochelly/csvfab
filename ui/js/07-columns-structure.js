@@ -135,9 +135,12 @@ const pad = (d, n) => { if (d.length >= n) return d; const c = d.slice(); while 
 const SPLIT_CHIPS = [[' ', 'space'], [',', ','], [';', ';'], ['-', '-'], ['/', '/'], ['|', '|'], ['@', '@'], ['\\t', '\\t'], ['\\s+', 'spaces', true]];
 let splitState = { userN: false, names: [] };
 
-function sepFinder(sep, isRegex) {
+/* t, col: the column it will split, for the regex guard (40-…), which calls retry once it has checked the pattern. */
+function sepFinder(sep, isRegex, t, col, retry) {
     if (isRegex) {
         let re; try { re = new RegExp(sep, 'g'); } catch (e) { return { error: e.message }; }
+        const g = t && regexGate(t, [['c' + col, sep, 'g']], retry);
+        if (g) return { error: g.error, guard: true };
         return { find: v => { const out = []; re.lastIndex = 0; let m;
             while ((m = re.exec(v))) { if (!m[0]) { re.lastIndex++; continue; } out.push([m.index, m.index + m[0].length]); }
             return out; } };
@@ -183,10 +186,10 @@ function splitRefresh(reanalyse) {
     const sep = document.getElementById('split-sep').value, isRe = document.getElementById('split-re').checked;
     const collapse = document.getElementById('split-collapse').checked, trim = document.getElementById('split-trim').checked;
     const stats = document.getElementById('split-stats'), go = document.getElementById('split-go'), nIn = document.getElementById('split-n');
-    const finder = sepFinder(sep, isRe);
+    const finder = sepFinder(sep, isRe, t, col, () => { if (document.getElementById('modal-split').style.display === 'block') splitRefresh(true); });
     const clear = msg => { stats.innerHTML = msg; document.getElementById('split-pv').innerHTML = ''; document.getElementById('split-nnote').textContent = ''; go.disabled = true; };
     if (!finder) return clear('Type a separator, or pick one above.');
-    if (finder.error) return clear(`<span class="warn">Invalid regex: ${esc(finder.error)}</span>`);
+    if (finder.error) return clear(`<span class="warn">${finder.guard ? 'Regex: ' : 'Invalid regex: '}${esc(finder.error)}</span>`);
 
     if (reanalyse || !splitState.dist) {
         const dist = new Map(); let filled = 0;
@@ -227,7 +230,7 @@ function splitRefresh(reanalyse) {
 function applySplit() {
     const t = T(); if (!t) return;
     const col = +document.getElementById('split-col').value;
-    const finder = sepFinder(document.getElementById('split-sep').value, document.getElementById('split-re').checked);
+    const finder = sepFinder(document.getElementById('split-sep').value, document.getElementById('split-re').checked, t, col);
     if (!finder || finder.error) return;
     const collapse = document.getElementById('split-collapse').checked, trim = document.getElementById('split-trim').checked;
     const keep = document.getElementById('split-keep').checked;

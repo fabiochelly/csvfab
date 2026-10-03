@@ -50,6 +50,8 @@ function paletteCommands() {
     add('View', 'Why does this row look wrong? — its bytes examined', () => { if (!rowCard.diag) rowCardDiag(true); toggleRowCard(true); }, '', loaded && !!sel);
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
+    add('File', 'Create a schema — the rules this file follows, as name.schema.json…', openSchemaCreate, '', loaded);
+    add('File', 'Validate with a schema — check this file against its rules…', openSchemaValidate, '', loaded);
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);
     add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — {Amount}.num() > 1000 && …'), toggleExprFilter, '', loaded);
     add('Rows', 'Group by… — count, sum, average per value, in a new tab', () => openGroupBy(), '', loaded);

@@ -2,6 +2,12 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.17.0 · 3 October 2026
+
+- **Validate a file against its rules** (☰ › Schema, or the command palette). *Create…* reads a file that is right and proposes the rules it already follows: column types, required and unique columns, lists of allowed values, code formats. Untick what the next files may break, and add your own with **+ rule**, filled in from the values: smallest and largest value, lengths, patterns drawn from the values' shapes (`\d{5}`, `[A-Z]{2}\d{3}`…), e-mail / URI / UUID, and text checks (no invisible characters, no double spaces, no garbled accents like `Ã©`, upper case or capitalised). Each rule says at once how many rows of the file break it. The schema is written beside the file as `name.schema.json`, in the [Table Schema](https://specs.frictionlessdata.io/table-schema/) standard, readable by other tools such as Frictionless. *Validate…* checks any later file with it: missing or unexpected columns, and each kind of error counted with examples; a click shows its rows, with the faulty cells marked and their tooltips saying why. `customers_2026-10-04.csv` finds `customers.schema.json` by itself.
+- **A regular expression can no longer freeze the window.** One with nested repeats, such as `(a+)+`, can take minutes on a single value. A regex typed in a filter, a find, a replace, a split or a formula is now first tried apart on the file's own values. It is refused, with an explanation, if it is too slow there.
+- **Saving is safer when another program writes the same file.** The file is checked once more just before it is replaced. If it changed after csvfab's last check, you are asked again whether to overwrite or reload, instead of the other program's version being lost. Two saves of one file never mix.
+
 ## 1.16.2 · 3 October 2026
 
 No change to the app itself: this version updates what comes with it.

@@ -244,8 +244,9 @@ function fxOut(v) {
 }
 
 /* Checked and rewritten (fxCompileSafe, 38-…), {Name} → $[i]: a name is matched exactly,
-   then ignoring case, accents and symbols. { fn, used } or { error, at }. */
-function compileFormula(t, src) {
+   then ignoring case, accents and symbols. { fn, used } or { error, at } — or { error, pending }
+   while its regexes are tried apart by the guard (40-…), which then calls retry. */
+function compileFormula(t, src, retry) {
     if (!src.trim()) return { error: '' };
     const slugs = t.headers.map(h => slugify(h)), used = [];
     let body;
@@ -259,6 +260,8 @@ function compileFormula(t, src) {
             return `$[${c}]`;
         }, ['row']);
     } catch (e) { return { error: e.message, at: e.at }; }
+    const g = regexGate(t, fxRegexSources(src).map(([s, f]) => ['*', s, f]), retry);
+    if (g) return { error: g.error, pending: g.pending };
     try { return { fn: new Function('$', 'row', ...Object.keys(FX), `"use strict"; return (${body}\n);`), used }; }
     catch (e) { return { error: e.message }; }
 }
@@ -317,7 +320,7 @@ function fxRefreshNow() {
     const src = document.getElementById('fx-expr').value, stats = document.getElementById('fx-stats'), pv = document.getElementById('fx-pv');
     const go = document.getElementById('fx-go');
     go.disabled = true;
-    const c = compileFormula(t, src);
+    const c = compileFormula(t, src, () => { if (document.getElementById('modal-formula').style.display === 'block') fxRefreshNow(); });
     if (c.error !== undefined) {
         stats.innerHTML = c.error ? `<span class="warn">${esc(c.error)}</span>` : 'Type a formula, or pick an example below.';
         pv.innerHTML = ''; return;

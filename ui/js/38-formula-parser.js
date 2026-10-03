@@ -52,6 +52,23 @@ class FxError extends Error {
     constructor(msg, at) { super(msg); this.at = at; }
 }
 
+/* The regexes a formula may run, for the regex guard (40-…): its /literals/, and its strings,
+   which extract(), replace() and matches() turn into patterns — [[source, flags]]. A string
+   that is not a valid pattern is left out (it can only be plain text). */
+function fxRegexSources(src) {
+    const out = [];
+    let toks;
+    try { toks = fxTokens(src); } catch (e) { return out; }
+    for (const t of toks) {
+        if (t.k === 're') { const j = t.v.lastIndexOf('/'); out.push([t.v.slice(1, j), t.v.slice(j + 1)]); }
+        else if (t.k === 'str') {
+            const v = t.v.slice(1, -1).replace(/\\(.)/g, '$1');
+            try { new RegExp(v); out.push([v, 'i']); } catch (e) { }
+        }
+    }
+    return out;
+}
+
 /* Tokens: { k: kind, v: text, at: offset }. Strings, numbers and regexes keep their exact
    source text, written back as it is — the lexer reads them by JavaScript's own rules, so
    what it calls one literal is one literal to V8 too. */

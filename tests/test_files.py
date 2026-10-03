@@ -72,7 +72,7 @@ class FilesTest(unittest.TestCase):
         os.utime(p, (1_700_000_000, 1_700_000_000.5))
         d = self.b.get("/api/stat" + q(path=p)).json()
         self.assertEqual(d, {"name": "s.csv", "path": os.path.realpath(p), "size": 5,
-                             "mtime": 1_700_000_000.5, "writable": True})
+                             "mtime": 1_700_000_000.5, "mtime_ns": "1700000000500000000", "writable": True})
         self.assertEqual(self.b.get("/api/stat" + q(path=self.b.tmp("none"))).status, 404)
 
     # --- PUT /api/file ---------------------------------------------------

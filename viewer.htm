@@ -331,6 +331,14 @@
     </div>
 </div>
 
+<div id="modal-schema" class="modal-box">
+    <h4 id="sc-title">Schema</h4>
+    <div class="stat-line" id="sc-sum" style="margin-top: 0;"></div>
+    <div class="pv-wrap pf-wrap"><table class="pv rv sc" id="sc-list"></table></div>
+    <div class="stat-line" id="sc-note"></div>
+    <div class="modal-actions" id="sc-actions" style="margin-top: 16px;"></div>
+</div>
+
 <div id="modal-anon" class="modal-box">
     <h4>Anonymise</h4>
     <span class="fld-label">A treatment per column, guessed from its title and values — change it where the guess is wrong. The same value always gives the same replacement, so duplicates stay duplicates and files still join.</span>
@@ -434,6 +442,13 @@
             </div>
             <div class="dd-item" onclick="closeDDs(); openProfile()" title="Every column's stats at a glance">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 15v-4M12 15V7M17 15v-6"></path></svg>File profile…</span>
+            </div>
+            <div class="dd-row">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"></path><polyline points="8.5 12 11 14.5 15.5 9.5"></polyline></svg>Schema</span>
+                <span class="dd-btns">
+                    <span class="dd-btn" onclick="closeDDs(); openSchemaCreate()" title="The rules this file follows, written beside it as name.schema.json (Table Schema)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="14 3 14 9 20 9"></polyline><line x1="12" y1="12" x2="12" y2="18"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>Create…</span>
+                    <span class="dd-btn" onclick="closeDDs(); openSchemaValidate()" title="Check this file against its schema, or any other"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>Validate…</span>
+                </span>
             </div>
             <div class="dd-sep"></div>
             <!-- Undo and Redo share one line, as Chrome groups Cut / Copy / Paste: a label, then
@@ -617,6 +632,7 @@
 </div>
 <div class="dd-menu" id="sb-menu"></div>
 <div class="dd-menu" id="row-menu"></div>
+<div class="dd-menu" id="sc-menu"></div>
 
 <!-- The app: ui/js/*.js, joined in name order by server.py into one script (/app.js), so
      the files behave exactly as the single script they were cut from (functions declared

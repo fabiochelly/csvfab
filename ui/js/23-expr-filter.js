@@ -13,8 +13,8 @@ const FX_VALUES = Object.values(FX);
 
 /* { test(row) → boolean, errors, first } or { error } */
 function exprRowTest(t, src) {
-    const c = compileFormula(t, src);
-    if (c.error !== undefined) return { error: c.error || 'empty expression' };
+    const c = compileFormula(t, src, () => { if (T() === t) applyFilters(); });
+    if (c.error !== undefined) return { error: c.error || 'empty expression', pending: c.pending };
     const run = { errors: 0, first: '' };
     run.test = row => {
         try { return !!c.fn(rowArgs(t, row, c.used), row.id, ...FX_VALUES); }   // only the columns named, read without splitting the record

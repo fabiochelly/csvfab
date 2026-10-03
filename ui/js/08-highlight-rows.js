@@ -39,9 +39,9 @@ function highlightCell(text, cIdx, hl, html) {
     const rep = (s, re, to) => html == null ? s.replace(re, to) : s.replace(/(^|>)([^<]+)/g, (m, a, run) => a + run.replace(re, to));
 
     let patterns = [];
-    const colVal = hl.reverse ? '' : hl.colFilters[cIdx];   // inverted filters: nothing of theirs to highlight
+    const colVal = hl.reverse || (hl.isRegex && !hl.reOk) ? '' : hl.colFilters[cIdx];   // inverted filters: nothing of theirs to highlight; a regex not through the guard (40-…) neither
     if (colVal) patterns.push(hl.isRegex ? colVal : termsPattern(colVal, hl.useSlug));
-    if (hl.globalQuery && !hl.reverse) patterns.push(hl.isRegex ? hl.globalQuery : termsPattern(hl.globalQuery, hl.useSlug));
+    if (hl.globalQuery && !hl.reverse && (!hl.isRegex || hl.reOk)) patterns.push(hl.isRegex ? hl.globalQuery : termsPattern(hl.globalQuery, hl.useSlug));
     patterns = patterns.filter(Boolean);
 
     if (patterns.length > 0) {
