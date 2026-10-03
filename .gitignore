@@ -8,6 +8,9 @@
 __pycache__/
 *.pyc
 
+# Benchmark files, generated (benchmark/gen.py), and the video made from them
+/benchmark/data/
+
 # Build outputs
 /dist/
 /packaging/aur/pkg/

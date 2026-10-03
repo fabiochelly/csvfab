@@ -107,11 +107,11 @@ def _mask(data, mask):
 
 
 class Chrome:
-    def __init__(self, url, binary=None):
+    def __init__(self, url, binary=None, args=()):
         self.profile = tempfile.mkdtemp(prefix="csvfab-cdp-")
         self.proc = subprocess.Popen(
             [binary or find_chromium(), "--headless=new", "--remote-debugging-port=0", f"--user-data-dir={self.profile}",
-             "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--password-store=basic", url],
+             "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--password-store=basic", *args, url],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         port_file = os.path.join(self.profile, "DevToolsActivePort")
         deadline = time.time() + 30

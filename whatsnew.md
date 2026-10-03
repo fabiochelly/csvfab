@@ -2,6 +2,11 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.16.0 · 3 October 2026
+
+- **Remove noise words** (☰ › Edit, or the command palette): give a list of words or phrases — `SARL`, `Monsieur`, `et Fils`… — and they are taken out of one column or of every column, in the rows shown. Whole words only, case and accents ignored (each can be turned off), and the gap each one leaves is tidied (doubled spaces, a comma or dash left dangling, empty brackets). Ready-made lists for legal forms, titles and French small words; a preview before anything changes; one undo for the lot.
+- **A public benchmark**: `python3 benchmark/run.py` generates customer exports of 100 000, 1 million and 5 million rows, opens, filters and sorts them in csvfab and in VisiData, checks every result, and prints the tables. On 5 million rows (770 MB), csvfab opens the file in 2.7 s (VisiData: 13 s), filters it in 1.1 s (5.6 s) and sorts it in 2.4 s (25 s), with 2.5× less memory; Excel and LibreOffice Calc stop at 1,048,576 rows. The method, every size and the figures published for other tools are in [benchmark/README.md](benchmark/README.md).
+
 ## 1.15.0 · 2 October 2026
 
 - **About csvfab…** in the ☰ menu and the command palette: the version, links to the website, the release notes and the issue tracker, the browser and system in use (handy for a bug report), the licence and the author.
