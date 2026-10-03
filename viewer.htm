@@ -144,6 +144,27 @@
     </div>
 </div>
 
+<div id="modal-noise" class="modal-box">
+    <h4>Remove noise words</h4>
+    <span class="fld-label">Words or phrases to remove — one per line, or separated by commas</span>
+    <textarea id="nz-words" class="bs-input" rows="4" spellcheck="false" placeholder="e.g.  SARL, Monsieur, et Fils" oninput="noiseRefreshSoon()" autocomplete="off"></textarea>
+    <div class="chips" id="nz-chips"></div>
+    <span class="fld-label">From</span>
+    <select id="nz-col" class="bs-input bs-select" style="width: 100%;" onchange="noiseRefresh()"></select>
+    <div class="opts">
+        <label class="col-label"><input type="checkbox" id="nz-whole" checked onchange="noiseRefresh()"> Whole words only — "SA" leaves "SARLAT" alone</label>
+        <label class="col-label"><input type="checkbox" id="nz-case" checked onchange="noiseRefresh()"> Ignore case</label>
+        <label class="col-label"><input type="checkbox" id="nz-acc" checked onchange="noiseRefresh()"> Ignore accents — "societe" removes "Société"</label>
+        <label class="col-label" title="Doubled spaces, a comma or dash left dangling, empty brackets — only where a word was removed"><input type="checkbox" id="nz-tidy" checked onchange="noiseRefresh()"> Tidy the gaps left behind</label>
+    </div>
+    <div class="stat-line" id="nz-stats"></div>
+    <div class="pv-wrap"><table class="pv" id="nz-pv"></table></div>
+    <div class="modal-actions" style="margin-top: 16px;">
+        <button class="btn btn-outline" onclick="closeAllModals()">Cancel</button>
+        <button class="btn" id="nz-go" onclick="applyNoise()">Remove</button>
+    </div>
+</div>
+
 <div id="modal-bulk" class="modal-box">
     <h4>Edit filtered rows</h4>
     <label class="fld-label" for="bulk-col">Column</label>
@@ -433,6 +454,9 @@
             </div>
             <div class="dd-item" onclick="closeDDs(); openClean()" title="Accents, invisible characters, spaces, empty rows">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9z"></path><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"></path></svg>Clean up…</span>
+            </div>
+            <div class="dd-item" onclick="closeDDs(); openNoise()" title="Take a list of words out of a column or of every column">
+                <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h7M4 17h16"></path><path d="M14 9.5l5 5M19 9.5l-5 5"></path></svg>Remove noise words…</span>
             </div>
             <div class="dd-item" onclick="closeDDs(); openAnon()" title="Replace personal data with consistent fakes">
                 <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"></path><path d="M9 10a3 3 0 1 0 6 0"></path><path d="M5 5l14 14"></path></svg>Anonymise…</span>

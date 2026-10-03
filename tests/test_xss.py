@@ -111,7 +111,8 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
   for (const [name, fn] of [['formula', () => openFormula()], ['split', () => openSplit(0)], ['merge', () => openMerge(0)], ['convert', () => openConvert(0)],
                             ['bulk', () => openBulk()], ['clean', () => openClean()], ['anonymise', () => openAnon()], ['dedupe', () => openDedupe()],
                             ['group by', () => { openGroupBy(); gbToggleCol(0, true); gbToggleCol(1, true); }], ['columns manager', () => openColManager()],
-                            ['save dialog', () => openSaveModal()], ['shortcuts', () => openKeys()], ['lookup', () => openLookup(0)]])
+                            ['save dialog', () => openSaveModal()], ['shortcuts', () => openKeys()], ['lookup', () => openLookup(0)],
+                            ['noise words', () => { openNoise(); input('nz-words', 'img, src, x'); noiseRefresh(); }]])
     await step(name, async () => { await fn(); await pause(250); closeAllModals(); });
   for (const k of ['d', 'e', 'h']) await step('status menu ' + k, async () => { openSbMenu({ ...ev, currentTarget: document.querySelector('.sb-pill') }, k); closeDDs(); });
   await step('row menu', async () => { openRowMenu({ ...ev, target: document.querySelector('.row-btn') || document.body }, t.allData[0].id); closeDDs(); });

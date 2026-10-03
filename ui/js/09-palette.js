@@ -56,6 +56,7 @@ function paletteCommands() {
     add('Edit', 'Anonymise… — names, e-mails, phones, postal codes', openAnon, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
     add('Edit', 'Clean up — spaces, invisible characters, garbled accents, empty rows…', openClean, '', loaded);
+    add('Edit', 'Remove noise words — a list of words taken out of a column or every column…', () => openNoise(), '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
     add('Edit', 'Fill empty cells from above', fillBlanks, '', loaded);
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);

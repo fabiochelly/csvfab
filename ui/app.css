@@ -377,7 +377,7 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
 .cp-tools .btn:first-child, .cp-tools .btn:nth-child(2) { padding: 4px 7px; }
-#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group { width: 560px; }
+#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group, #modal-noise { width: 560px; }
 #modal-review { width: 640px; }
 /* Profile and Anonymise: tall dialogs (their list is the point), a flex column whose list
    takes the room left — .modal-box's 80vh cap and .pv-wrap's 220 px cap both lifted. */
@@ -387,8 +387,8 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 #modal-anon { width: min(820px, calc(100vw - 40px)); height: 94vh; max-height: none; flex-direction: column; }
 #modal-anon[style*="block"] { display: flex !important; }
 #modal-anon .an-wrap { flex: 1; min-height: 160px; max-height: none; }
-#modal-split h4, #modal-merge h4, #modal-lookup h4, #modal-convert h4, #modal-formula h4, #modal-review h4, #modal-compare h4, #modal-profile h4, #modal-anon h4, #modal-group h4 { margin: 0 0 14px; }
-#modal-split .fld-label, #modal-merge .fld-label, #modal-lookup .fld-label, #modal-convert .fld-label, #modal-formula .fld-label, #modal-compare .fld-label, #modal-anon .fld-label, #modal-group .fld-label { display: block; font-size: 12px; color: var(--txt-mut); margin: 12px 0 5px; }
+#modal-split h4, #modal-merge h4, #modal-lookup h4, #modal-convert h4, #modal-formula h4, #modal-review h4, #modal-compare h4, #modal-profile h4, #modal-anon h4, #modal-group h4, #modal-noise h4 { margin: 0 0 14px; }
+#modal-split .fld-label, #modal-merge .fld-label, #modal-lookup .fld-label, #modal-convert .fld-label, #modal-formula .fld-label, #modal-compare .fld-label, #modal-anon .fld-label, #modal-group .fld-label, #modal-noise .fld-label { display: block; font-size: 12px; color: var(--txt-mut); margin: 12px 0 5px; }
 /* File profile: one line per column, a filled-share bar behind its name. */
 .pf-wrap { max-height: none; }   /* sized by the dialog's flex column, not by .pv-wrap's 220 px */
 .pv.pf td, .pv.pf th { max-width: 200px; }
@@ -932,6 +932,8 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .cv-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--txt-hi); }
 .cv-note { font-size: 12px; color: var(--txt-mut); margin-top: -4px; }
 #fx-expr { width: 100%; box-sizing: border-box; resize: vertical; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+#nz-words { width: 100%; box-sizing: border-box; resize: vertical; font-size: 13px; line-height: 1.5; }
+.pv mark.nz { text-decoration: line-through; }
 #fx-cols { max-height: 64px; overflow-y: auto; }
 .fx-note { margin-top: 6px; font-size: 12px; color: var(--txt-dim); }
 .fx-lbl { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
