@@ -69,6 +69,20 @@ Measured on Intel(R) Core(TM) Ultra X7 358H (16 threads, 31 GB RAM), Linux 7.2.5
 | Sort text | **1.8 s** | 11 s | 6.3× faster |
 | Peak memory | **2.4 GB** | 6.0 GB | 2.5× less memory |
 
+## Modern CSV
+
+Modern CSV 2.4.4, free version, on the same machine and the same files. It has no scripting interface, so each time runs from the click — *Open in Edit Mode* in the dialog it shows for a large file, or Data › Sort › *Sort Selected Column* — to the end of its work (its CPU idle again), every result checked on screen; median of 3 runs (sorts on 5 M rows: one run). Filtering rows is a feature of its Premium version.
+
+| | 1 M rows · csvfab | 1 M rows · Modern CSV | 5 M rows · csvfab | 5 M rows · Modern CSV |
+|---|---:|---:|---:|---:|
+| Open | **599 ms** | 1.5 s (read-only: 1.2 s) | **2.7 s** | 4.6 s (read-only: 3.1 s) |
+| Filter (column contains) | **204 ms** | Premium only | **1.1 s** | Premium only |
+| Sort numbers | **410 ms** | 9.4 s | **2.4 s** | 53 s |
+| Sort text | **287 ms** | 4.1 s | **1.8 s** | 24 s |
+| Peak memory | 1.1 GB | 1.2 GB | **2.4 GB** | 5.6 GB |
+
+Read-only, Modern CSV opens faster and keeps little in memory (0.4 GB for 5 M rows), but cannot sort or edit; the edit mode is the one comparable to csvfab, where every file is editable.
+
 ## Spreadsheets cannot open these files
 
 | | Rows per sheet | Source |
@@ -96,9 +110,8 @@ Collected from their sources on 2026-10-03, for an order of magnitude only: diff
 | Modern CSV | > 4 M rows | open, read-only · editable | 7.5 s · 28 s | vendor | [moderncsv.com, 2020](https://moderncsv.com/why-excel-sucks-and-modern-csv-is-awesome-at-least-for-csvs/) |
 | Tablecruncher 1.8 (Mac mini M2) | 2 GB, 16 M rows | open | 32 s | vendor | [README, 2025](https://github.com/Tablecruncher/tablecruncher) |
 | Tad (2019 MacBook Pro) | 230 MB, 450 k rows | open | < 5 s | vendor | [DuckDB docs, archived 2022](https://web.archive.org/web/20220807160349/https://duckdb.org/docs/guides/data_viewers/tad) |
-| EmEditor 22.5 (i9-11900K) | 123 MB, 700 k lines | open · sort | 0.19 s · 0.17 s | vendor | [PDF, 2023](https://download.emeditor.info/doc/working-with-csv.pdf) |
 
-EmEditor is a text editor with a CSV mode, and Windows-only; its open time is to the end of loading while the file can already be scrolled. No published import time was found for Google Sheets, nor any figure for Ron's Data Edit, CSVed, Delimit, Gigasheet or Row Zero. Pull requests adding a tool to `run.py` are welcome — it only needs a way to drive it from a script.
+No published import time was found for Google Sheets, nor any figure for Ron's Data Edit, CSVed, Delimit, Gigasheet or Row Zero. Pull requests adding a tool to `run.py` are welcome — it only needs a way to drive it from a script.
 
 ## The video
 

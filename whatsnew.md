@@ -2,6 +2,11 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.16.1 · 3 October 2026
+
+- **Sorting a text column of many different values is 2.6 to 3 times faster**: 12.8 million distinct values sort in 14 s instead of 42 s, 700 000 in 0.5 s instead of 1.4 s, an e-mail column of 5 million rows in 2.9 s instead of 4.0 s. The order is exactly the same as before (accents, numbers in the text and letter case are compared as in a dictionary); columns of names, cities or companies, which repeat their values, were already fast and are unchanged.
+- **The benchmark now includes Modern CSV** (2.4.4, free version), measured on the same machine and files: on 5 million rows it opens the file in 4.6 s in its edit mode (csvfab: 2.7 s) and sorts it in 24 to 53 s (csvfab: 1.8 to 2.4 s); filtering rows is a feature of its paid version. See [benchmark/README.md](benchmark/README.md).
+
 ## 1.16.0 · 3 October 2026
 
 - **Remove noise words** (☰ › Edit, or the command palette): give a list of words or phrases — `SARL`, `Monsieur`, `et Fils`… — and they are taken out of one column or of every column, in the rows shown. Whole words only, case and accents ignored (each can be turned off), and the gap each one leaves is tidied (doubled spaces, a comma or dash left dangling, empty brackets). Ready-made lists for legal forms, titles and French small words; a preview before anything changes; one undo for the lot.
