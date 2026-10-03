@@ -2,6 +2,13 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.16.2 · 3 October 2026
+
+No change to the app itself: this version updates what comes with it.
+- **A new demo video** ([1 minute on YouTube](https://youtu.be/DY6_fxie_vk)): it opens a 100 MB file first (650,000 rows, under half a second), then the 5-million-row one, so the big file's time is not mistaken for the usual one.
+- **The benchmark's generated files are fixed** (French cities such as *Le Havre* had been cut in two) and csvfab was measured again on them: on 5 million rows, open 2.7 s, filter 0.9 s, sort 1.5 to 2.5 s. VisiData and Modern CSV, unchanged since, keep the times measured on the previous files, which the README says.
+- The README has a subtitle: *Fabulously fast CSV editing.*
+
 ## 1.16.1 · 3 October 2026
 
 - **Sorting a text column of many different values is 2.6 to 3 times faster**: 12.8 million distinct values sort in 14 s instead of 42 s, 700 000 in 0.5 s instead of 1.4 s, an e-mail column of 5 million rows in 2.9 s instead of 4.0 s. The order is exactly the same as before (accents, numbers in the text and letter case are compared as in a dictionary); columns of names, cities or companies, which repeat their values, were already fast and are unchanged.
