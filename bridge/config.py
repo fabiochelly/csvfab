@@ -7,7 +7,7 @@ chaque milliseconde passée avant compte dans l'ouverture de la fenêtre.
 import os
 import sys
 
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 HOST = "127.0.0.1"
 WINDOWS = os.name == "nt"
 MACOS = sys.platform == "darwin"
