@@ -2,6 +2,13 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 1.18.0 · 3 October 2026
+
+- **Pivot table** (☰ › Rows, or the command palette). Pick a column for the rows and another for the columns, then show in each cell a number of rows, a sum, an average, the smallest or largest value, or a number of distinct values. Dates are grouped by month, quarter, year or day. You get totals, a colour scale, and a click on a title sorts the rows. The table is computed live on the rows shown: a million rows in under a second. Click any number to see, in the grid, the rows it counts. Copy the table into a spreadsheet, or open it as a new tab.
+- **Split into files** (☰ › Transform the file). One file per value of a column (per agency, per month…), each with the title line and every row copied byte for byte. The files go into a new folder beside the source, so nothing already on disk is ever overwritten.
+- **Combine files** (☰ › Transform the file). Open tabs are written one after the other into one new file. Columns are matched by their titles, whatever their order, case or accents, and even when the files use different delimiters or encodings. A preview shows where each column comes from and where it will be empty. Options: keep only the columns every file has, and add a column with each row's file name.
+- **A shorter ☰ menu:** Clean up, Remove noise words, Anonymise, Split and Combine now share one submenu, *Transform the file*.
+
 ## 1.17.0 · 3 October 2026
 
 - **Validate a file against its rules** (☰ › Schema, or the command palette). *Create…* reads a file that is right and proposes the rules it already follows: column types, required and unique columns, lists of allowed values, code formats. Untick what the next files may break, and add your own with **+ rule**, filled in from the values: smallest and largest value, lengths, patterns drawn from the values' shapes (`\d{5}`, `[A-Z]{2}\d{3}`…), e-mail / URI / UUID, and text checks (no invisible characters, no double spaces, no garbled accents like `Ã©`, upper case or capitalised). Each rule says at once how many rows of the file break it. The schema is written beside the file as `name.schema.json`, in the [Table Schema](https://specs.frictionlessdata.io/table-schema/) standard, readable by other tools such as Frictionless. *Validate…* checks any later file with it: missing or unexpected columns, and each kind of error counted with examples; a click shows its rows, with the faulty cells marked and their tooltips saying why. `customers_2026-10-04.csv` finds `customers.schema.json` by itself.

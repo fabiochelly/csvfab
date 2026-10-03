@@ -377,7 +377,11 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
 .cp-tools .btn:first-child, .cp-tools .btn:nth-child(2) { padding: 4px 7px; }
-#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group, #modal-noise { width: 560px; }
+#modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group, #modal-noise, #modal-splitf { width: 560px; }
+#modal-combine { width: 640px; }
+.pv.cb td { vertical-align: top; }
+.pv.cb .warn { color: var(--warn); }
+#cb-tabs label { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 #modal-review { width: 640px; }
 /* Profile and Anonymise: tall dialogs (their list is the point), a flex column whose list
    takes the room left — .modal-box's 80vh cap and .pv-wrap's 220 px cap both lifted. */
@@ -1086,3 +1090,30 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .dg-prev { margin: 5px 0 7px; font: 11.5px var(--mono); color: var(--txt); white-space: pre-wrap; overflow-wrap: anywhere; }
 .dg-prev i { color: var(--txt-faint); font-style: normal; margin: 0 3px; }
 .dg-rep .btn { font-size: 12px; padding: 2px 10px; }
+
+/* Pivot table (43-pivot.js): the controls on one wrapping line, the table filling the dialog
+   with its title row and first column held in place while it scrolls. */
+#modal-pivot { width: min(1200px, calc(100vw - 40px)); height: 90vh; max-height: none; flex-direction: column; }
+#modal-pivot[style*="block"] { display: flex !important; }
+#modal-pivot h4 { margin: 0 0 12px; }
+.pt-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.pt-ctl .fld-label { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+.pt-ctl select { width: auto; max-width: 220px; }
+.pt-ctl .btn { padding: 4px 10px; }
+.pt-wrap { flex: 1; min-height: 120px; max-height: none; overflow: auto; }
+.pv.pt { border-collapse: separate; border-spacing: 0; }
+.pv.pt th, .pv.pt td { white-space: nowrap; }
+.pv.pt th { position: static; top: auto; }          /* .pv sticks every th to the top: here only the title row does */
+.pv.pt td { font-family: var(--mono); font-variant-numeric: tabular-nums; cursor: pointer; }
+.pv.pt td.k, .pv.pt th.k { text-align: right; }
+.pv.pt tr:first-child th { position: sticky; top: 0; z-index: 2; background: var(--surf-2); cursor: pointer; }
+.pv.pt th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surf-2); text-align: left; cursor: pointer; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.pv.pt tr:first-child th:first-child { z-index: 3; }
+.pv.pt .pt-tot { font-weight: 600; }
+.pv.pt tr.pt-sum th, .pv.pt tr.pt-sum td { font-weight: 600; border-top: 2px solid var(--brd); position: sticky; bottom: 0; background: var(--surf-2); }
+.pv.pt tr.pt-sum th { z-index: 2; }
+.pv.pt td:hover { outline: 1px solid var(--prim); outline-offset: -1px; }
+
+/* The interface's line icons: their stroke set once here rather than repeated on each of the
+   41 <svg> of viewer.htm (4 KB of the page, sent at every load). */
+svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

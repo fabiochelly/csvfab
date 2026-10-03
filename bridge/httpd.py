@@ -40,6 +40,7 @@ ROUTES = {
     ("GET", "/api/stat"): ("files", "stat"),
     ("GET", "/api/file"): ("files", "read"),
     ("PUT", "/api/file"): ("files", "write"),
+    ("POST", "/api/mkdir"): ("files", "mkdir"),
 
     ("POST", "/api/xlsx"): ("convert", "csv_to_xlsx"),
     ("POST", "/api/sqlite"): ("convert", "csv_to_sqlite"),

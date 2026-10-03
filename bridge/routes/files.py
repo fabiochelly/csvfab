@@ -104,3 +104,22 @@ def write(req):
         raise HttpError(500, str(e))
     return {"ok": True, "bytes": n, "backup": os.path.basename(made) if made else None,
             "size": os.path.getsize(p)}
+
+
+def mkdir(req):
+    """Un dossier neuf, pour les fichiers d'un découpage : un seul niveau, dans un dossier
+    qui existe ; 409 s'il existe déjà (fichier ou dossier) — la page essaie alors un autre
+    nom plutôt que d'écrire parmi des fichiers qu'elle n'a pas faits."""
+    p = req.path_arg()
+    if not p:
+        raise HttpError(400, "chemin manquant")
+    d = os.path.dirname(p)
+    if not os.path.isdir(d):
+        raise HttpError(400, f"dossier inexistant : {d}")
+    try:
+        os.mkdir(p)
+    except FileExistsError:
+        raise HttpError(409, "existe déjà")
+    except OSError as e:
+        raise HttpError(500, str(e))
+    return {"ok": True, "path": p}

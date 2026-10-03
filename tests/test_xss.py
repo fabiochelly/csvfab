@@ -114,6 +114,8 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
                             ['save dialog', () => openSaveModal()], ['shortcuts', () => openKeys()], ['lookup', () => openLookup(0)],
                             ['noise words', () => { openNoise(); input('nz-words', 'img, src, x'); noiseRefresh(); }],
                             ['schema create', () => openSchemaCreate()],
+                            ['split into files', async () => { openSplitFiles(1); await pause(200); }],
+                            ['pivot table', async () => { openPivot(0); document.getElementById('pt-c').value = 1; pivotChange(); await pause(200); pivotSort(0); pivotDrill(0, 0); await pause(); render(); clearRowMark(); }],
                             ['schema report', async () => { await openSchemaValidate(); const s = await schemaInfer(t);
                                 s.fields.forEach(f => f.constraints = { enum: ["<img src=x onerror=__xss('enum')>"], pattern: "<b>x</b>" });
                                 await schemaRun(t, "<img src=x onerror=__xss('schema-name')>.json", JSON.stringify(s)); schemaShow(0); }]])
@@ -123,6 +125,8 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
   await step('edit + toast + review', async () => { setCells(t, [[t.allData[0], 1, "<img src=x onerror=__xss('edit')>"]], 'set'); await pause(100); await openReview(); await pause(400); closeAllModals(); });
   await step('second file, compare', async () => { await __fx.open(p2); activateTab(tab); await pause(); openCompare(); await pause(600);
     if (!document.querySelector('#modal-compare tr td')) throw new Error('no compare result shown'); compareMark(); await pause(); render(); closeAllModals(); });
+  await step('combine files', async () => { openCombine(); document.getElementById('cb-source').checked = true; await combineRefresh(); await pause(300);
+    if (!document.querySelector('#cb-pv tr td')) throw new Error('no combine preview shown'); closeAllModals(); combine = null; });
   await step('sheet picker', async () => {
     const names = ["<img src=x onerror=__xss('sheet')>", "\"><svg onload=__xss('sheet')>"];
     const p = pickSheet("<img src=x onerror=__xss('book')>.xlsx", names.map(n => ({ name: n, filled: true, hidden: false, dim: [3, 2] })));

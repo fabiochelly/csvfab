@@ -55,10 +55,13 @@ function paletteCommands() {
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);
     add('View', (document.getElementById('use-expr').checked ? 'Filter by text again (expression off)' : 'Filter by expression — {Amount}.num() > 1000 && …'), toggleExprFilter, '', loaded);
     add('Rows', 'Group by… — count, sum, average per value, in a new tab', () => openGroupBy(), '', loaded);
+    add('Rows', 'Pivot table — rows × columns, counts or sums, colour scale, click to see the rows…', () => openPivot(), '', loaded);
     add('Edit', 'Anonymise… — names, e-mails, phones, postal codes', openAnon, '', loaded);
     add('Edit', 'Edit filtered rows…', openBulk, '', loaded);
     add('Edit', 'Clean up — spaces, invisible characters, garbled accents, empty rows…', openClean, '', loaded);
     add('Edit', 'Remove noise words — a list of words taken out of a column or every column…', () => openNoise(), '', loaded);
+    add('File', 'Split into files — one per value of a column, in a new folder…', () => openSplitFiles(), '', loaded);
+    add('File', 'Combine files — open tabs into one new file, columns matched by title…', openCombine, '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
     add('Edit', 'Fill empty cells from above', fillBlanks, '', loaded);
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
@@ -106,6 +109,8 @@ function paletteCommands() {
         }
         add('Column', `Profile & filter by value: ${h}`, () => openColPanelFor(c));
         add('Column', `Group by: ${h}`, () => openGroupBy(c));
+        add('Column', `Pivot table by: ${h}`, () => openPivot(c));
+        add('Column', `Split into files by: ${h}`, () => openSplitFiles(c));
     });
     return C;
 }
