@@ -43,42 +43,44 @@ Measured on Intel(R) Core(TM) Ultra X7 358H (16 threads, 31 GB RAM), Linux 7.2.5
 
 | | csvfab | VisiData 3.4 | csvfab is |
 |---|---:|---:|---:|
-| Open | **146 ms** | 196 ms | 1.3× faster |
-| Filter (column contains) | **21 ms** | 103 ms | 5.0× faster |
+| Open | **168 ms** | 196 ms | 1.2× faster |
+| Filter (column contains) | **20 ms** | 103 ms | 5.0× faster |
 | Sort numbers | **52 ms** | 218 ms | 4.2× faster |
-| Sort text | **39 ms** | 131 ms | 3.4× faster |
-| Peak memory | **719 MB** | 206 MB | 3.5× more memory |
+| Sort text | **37 ms** | 131 ms | 3.5× faster |
+| Peak memory | **743 MB** | 206 MB | 3.6× more memory |
 
 **1 M rows × 15 columns · 153 MB**
 
 | | csvfab | VisiData 3.4 | csvfab is |
 |---|---:|---:|---:|
-| Open | **599 ms** | 2.2 s | 3.7× faster |
-| Filter (column contains) | **204 ms** | 1.0 s | 5.1× faster |
-| Sort numbers | **410 ms** | 4.0 s | 9.7× faster |
-| Sort text | **287 ms** | 2.1 s | 7.5× faster |
+| Open | **614 ms** | 2.2 s | 3.6× faster |
+| Filter (column contains) | **157 ms** | 1.0 s | 6.6× faster |
+| Sort numbers | **405 ms** | 4.0 s | 9.8× faster |
+| Sort text | **291 ms** | 2.1 s | 7.4× faster |
 | Peak memory | **1.1 GB** | 1.3 GB | 1.2× less memory |
 
-**5 M rows × 15 columns · 770 MB**
+**5 M rows × 15 columns · 771 MB**
 
 | | csvfab | VisiData 3.4 | csvfab is |
 |---|---:|---:|---:|
-| Open | **2.7 s** | 13 s | 4.9× faster |
-| Filter (column contains) | **1.1 s** | 5.6 s | 5.1× faster |
-| Sort numbers | **2.4 s** | 25 s | 10.6× faster |
-| Sort text | **1.8 s** | 11 s | 6.3× faster |
+| Open | **2.7 s** | 13 s | 5.0× faster |
+| Filter (column contains) | **913 ms** | 5.6 s | 6.1× faster |
+| Sort numbers | **2.5 s** | 25 s | 10.3× faster |
+| Sort text | **1.5 s** | 11 s | 7.4× faster |
 | Peak memory | **2.4 GB** | 6.0 GB | 2.5× less memory |
+
+csvfab was measured on version 2 of the generated files; VisiData and Modern CSV on version 1, before a fix to the data (French cities such as *Le Havre* had been cut in two): same sizes, the cities spread a little differently. Neither tool has changed since, so they were not measured again.
 
 ## Modern CSV
 
-Modern CSV 2.4.4, free version, on the same machine and the same files. It has no scripting interface, so each time runs from the click — *Open in Edit Mode* in the dialog it shows for a large file, or Data › Sort › *Sort Selected Column* — to the end of its work (its CPU idle again), every result checked on screen; median of 3 runs (sorts on 5 M rows: one run). Filtering rows is a feature of its Premium version.
+Modern CSV 2.4.4, free version, on the same machine and the same files (version 1, see above). It has no scripting interface, so each time runs from the click — *Open in Edit Mode* in the dialog it shows for a large file, or Data › Sort › *Sort Selected Column* — to the end of its work (its CPU idle again), every result checked on screen; median of 3 runs (sorts on 5 M rows: one run). Filtering rows is a feature of its Premium version.
 
 | | 1 M rows · csvfab | 1 M rows · Modern CSV | 5 M rows · csvfab | 5 M rows · Modern CSV |
 |---|---:|---:|---:|---:|
-| Open | **599 ms** | 1.5 s (read-only: 1.2 s) | **2.7 s** | 4.6 s (read-only: 3.1 s) |
-| Filter (column contains) | **204 ms** | Premium only | **1.1 s** | Premium only |
-| Sort numbers | **410 ms** | 9.4 s | **2.4 s** | 53 s |
-| Sort text | **287 ms** | 4.1 s | **1.8 s** | 24 s |
+| Open | **614 ms** | 1.5 s (read-only: 1.2 s) | **2.7 s** | 4.6 s (read-only: 3.1 s) |
+| Filter (column contains) | **157 ms** | Premium only | **913 ms** | Premium only |
+| Sort numbers | **405 ms** | 9.4 s | **2.5 s** | 53 s |
+| Sort text | **291 ms** | 4.1 s | **1.5 s** | 24 s |
 | Peak memory | 1.1 GB | 1.2 GB | **2.4 GB** | 5.6 GB |
 
 Read-only, Modern CSV opens faster and keeps little in memory (0.4 GB for 5 M rows), but cannot sort or edit; the edit mode is the one comparable to csvfab, where every file is editable.
@@ -115,7 +117,7 @@ No published import time was found for Google Sheets, nor any figure for Ron's D
 
 ## The video
 
-[Watch it on YouTube](https://youtu.be/4sEEdzOZrWk). `benchmark/video.py` films csvfab on the 5 M-row file — open, scroll, sort, filter — in a headless Chromium, frame by frame in real time, then shows the results above as bars that grow at the pace of the measured times. Every time on screen is measured while filming (the app's own) or read from `run.py`'s JSON.
+[Watch it on YouTube](https://youtu.be/DY6_fxie_vk). `benchmark/video.py` films csvfab on the 5 M-row file — open, scroll, sort, filter — in a headless Chromium, frame by frame in real time, then shows the results above as bars that grow at the pace of the measured times. Every time on screen is measured while filming (the app's own) or read from `run.py`'s JSON.
 
 ```sh
 python3 benchmark/run.py --json results.json

@@ -223,14 +223,23 @@ async function reveal(name) {           // la colonne visée amenée à l'écran
   for (let i = 1; i <= 20; i++) { container.scrollLeft = from + (to - from) * (1 - Math.pow(1 - i / 20, 3)); await paint(); }
 }
 
-window.__film = async (path, rows, size) => {
+window.__film = async (path, rows, size, small) => {
   window.__done = false;
   await sleep(700);
-  say(`${rows} rows · ${size}`, 'customers.csv — a typical customer export, 15 columns');
+  // A file of a common size first, so the big one's time is not taken for the usual one.
+  say(`First, ${small.size}`, `${small.rows} rows — a typical customer export, 15 columns`);
+  await sleep(2400);
+  let t0 = performance.now();
+  await addPathTabs([small.path]);
+  const s = tabs.find(x => x.path === small.path);
+  await tabRows(s); activateTab(s.id); await paint();
+  say(`Opened in <em>${secs(performance.now() - t0)}</em>`, `${num(s.allData.length)} rows`);
+  await sleep(2800);
+  say(`Now ${rows} rows · ${size}`, `the same export, ${small.ratio} times bigger`);
   await sleep(2600);
   say('Open', 'every row, not a preview');
   await sleep(900);
-  const t0 = performance.now();
+  t0 = performance.now();
   await addPathTabs([path]);
   const t = tabs.find(x => x.path === path);
   await tabRows(t); activateTab(t.id); await paint();
@@ -284,9 +293,9 @@ return true;
 """
 
 
-def film_app(chrome, film, path, rows, size, tail=0.4):
+def film_app(chrome, film, path, rows, size, small, tail=0.4):
     chrome.eval(SCRIPT)
-    chrome.call("Runtime.evaluate", expression=f"__film({json.dumps(path)}, {json.dumps(rows)}, {json.dumps(size)}).then(r => window.__res = r)")
+    chrome.call("Runtime.evaluate", expression=f"__film({json.dumps(path)}, {json.dumps(rows)}, {json.dumps(size)}, {json.dumps(small)}).then(r => window.__res = r)")
     last = None
     while True:
         img = shot(chrome)
@@ -340,6 +349,7 @@ def main():
     ap = argparse.ArgumentParser(description="Record the csvfab demo video.")
     ap.add_argument("--results", required=True, help="the JSON written by benchmark/run.py --json")
     ap.add_argument("--rows", type=int, default=5000000, help="rows of the file filmed (default: %(default)s)")
+    ap.add_argument("--small-rows", type=int, default=650000, help="rows of the file opened first, ~100 MB (default: %(default)s)")
     ap.add_argument("--data-dir", default=os.path.join(HERE, "data"))
     ap.add_argument("--out", default=os.path.join(HERE, "data", "csvfab-5m.mp4"))
     ap.add_argument("--thumbnail", default=os.path.join(HERE, "data", "csvfab-thumbnail.png"))
@@ -352,7 +362,11 @@ def main():
     entry = pick(results, a.rows)
     if not entry:
         sys.exit(f"No measure for {a.rows:,} rows in {a.results}.")
-    path = os.path.join(a.data_dir, entry["file"])
+    path = os.path.abspath(os.path.join(a.data_dir, entry["file"]))
+    small_path = os.path.abspath(os.path.join(a.data_dir, f"customers-{a.small_rows // 1000}k.csv"))
+    small_info = ensure(a.small_rows, small_path)
+    small = {"path": small_path, "rows": human_rows(a.small_rows), "size": human_size(small_info["bytes"]),
+             "ratio": f"{entry['bytes'] / small_info['bytes']:.1f}".rstrip("0").rstrip(".")}
     ensure(a.rows, path)
     rows, size = human_rows(a.rows), human_size(entry["bytes"])
     work = tempfile.mkdtemp(prefix="csvfab-video-")
@@ -369,7 +383,7 @@ def main():
             size_metrics(app, 1.5)
             app.wait_for("typeof addPathTabs === 'function' && document.readyState === 'complete'")
             time.sleep(2)
-            res = film_app(app, film, path, rows, size)
+            res = film_app(app, film, path, rows, size, small)
             print(f"filmed: open {res['open'] / 1000:.2f} s, {len(film.frames)} frames", file=sys.stderr)
         finally:
             app.close()
@@ -377,7 +391,8 @@ def main():
 
         m = results["machine"]
         foot = (f"Medians of {m['repeat']} runs on {m['cpu']}, {m['os'].split()[0]} — measured by benchmark/run.py, "
-                f"csvfab {m['csvfab']}, VisiData {entry['tools'].get('visidata', {}).get('version', '')}. "
+                f"csvfab {m['csvfab']}, VisiData {entry['tools'].get('visidata', {}).get('version', '')} "
+                "(on the previous version of the generated files). "
                 "Excel and LibreOffice Calc: documented sheet limit.")
         ops = race_ops(entry)
         slowest = max(b["s"] for o in ops for b in o["bars"] if "s" in b)

@@ -20,6 +20,7 @@ import random
 import sys
 
 SEED = 20261003
+VERSION = 2      # à changer avec les données produites : 2 = « Le Havre » en un seul nom de ville
 HEADER = ["id", "first_name", "last_name", "email", "phone", "company", "street", "postal_code", "city",
           "country", "signup_date", "last_order", "orders", "total_spent", "status"]
 
@@ -28,7 +29,7 @@ COUNTRIES = [
     ("France", 30,
      "Jean Marie Pierre Michel Nathalie Isabelle Sophie Nicolas Julien Camille Léa Chloé Hugo Lucas Inès Théo Émilie Céline Hélène Benoît François Gaëlle Loïc Zoé Maël".split(),
      "Martin Bernard Dubois Thomas Robert Richard Petit Durand Leroy Moreau Simon Laurent Lefèvre Michel Garcia David Bertrand Roux Vincent Fournier Morel Girard André Mercier Dupont Lambert Bonnet François Martinez Legrand Gauthier Rousseau Blanc Guérin Muller Henry Faure Chevalier Perrin Roussel".split(),
-     "Paris Lyon Marseille Toulouse Nice Nantes Strasbourg Montpellier Bordeaux Lille Rennes Reims Le Havre Saint-Étienne Toulon Grenoble Dijon Angers Nîmes Villeurbanne".split(" "),
+     "Paris|Lyon|Marseille|Toulouse|Nice|Nantes|Strasbourg|Montpellier|Bordeaux|Lille|Rennes|Reims|Le Havre|Saint-Étienne|Toulon|Grenoble|Dijon|Angers|Nîmes|Villeurbanne".split("|"),
      ["rue de la République", "avenue Jean Jaurès", "rue Victor Hugo", "boulevard Gambetta", "rue de la Paix", "place de l'Église", "chemin des Vignes", "allée des Tilleuls"],
      "+33 {a} {b:02d} {c:02d} {d:02d} {e:02d}", "{p:05d}"),
     ("United States", 25,
@@ -87,7 +88,7 @@ def generate(rows, path, seed=SEED, chunk=20000):
         if rnd.random() < 0.15:
             name = f"{rnd.choice(COUNTRIES[0][3])}, {rnd.choice(COUNTRIES[0][3])} & Associés"
         companies.append('"' + name + '"' if "," in name else name)
-    expect = {"rows": rows, "city_lyon": 0, "max_total_spent": 0.0}
+    expect = {"rows": rows, "city_lyon": 0, "max_total_spent": 0.0, "version": VERSION}
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(",".join(HEADER) + "\r\n")
         rid = 0
@@ -132,11 +133,11 @@ def generate(rows, path, seed=SEED, chunk=20000):
 
 
 def ensure(rows, path):
-    """Le fichier s'il est déjà là, de la bonne taille et de la même graine ; sinon généré."""
+    """Le fichier s'il est déjà là, de la bonne taille et de la même version ; sinon généré."""
     try:
         with open(path + ".json", encoding="utf-8") as f:
             expect = json.load(f)
-        if expect.get("rows") == rows and expect.get("bytes") == os.path.getsize(path):
+        if expect.get("rows") == rows and expect.get("version") == VERSION and expect.get("bytes") == os.path.getsize(path):
             return expect
     except (OSError, ValueError):
         pass
