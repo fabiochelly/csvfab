@@ -17,12 +17,19 @@
 | | csvfab | Modern CSV 2.4.4 | VisiData 3.4 | Excel, LibreOffice Calc |
 |---|---:|---:|---:|---|
 | Open | **2.7 s** | 4.6 s | 13 s | stop at 1,048,576 rows |
-| Filter a column | **0.9 s** | Premium version only | 5.6 s | |
+| Filter a column | **0.9 s** | N/A | 5.6 s | |
 | Sort numbers | **2.5 s** | 53 s | 25 s | |
 | Sort text | **1.5 s** | 24 s | 11 s | |
 | Peak memory | **2.4 GB** | 5.6 GB | 6.0 GB | |
 
-At 1 million rows (153 MB): open 0.6 s, filter 0.2 s, sort 0.3–0.4 s — 4 to 10 times VisiData's speed, and sorts 14 to 23 times faster than Modern CSV. Modern CSV in its edit mode (read-only, it opens the 5 M rows in 3.1 s but cannot sort them), its free version, on the same machine; it and VisiData were measured on the previous version of the generated files, before a small fix to the data ([details](benchmark/README.md#results)). Median of 3 runs on an Intel Core Ultra 7 laptop, Linux. **Measure it on your machine**: `python3 benchmark/run.py` generates the files, runs every tool and checks every result before it reports a time. [The method, every size, and published figures for other tools →](benchmark/README.md)
+At 1 million rows (153 MB), csvfab opens the file in 0.6 s, filters it in 0.2 s and sorts it in 0.3–0.4 s:
+
+- **4 to 10 times faster** than VisiData
+- **14 to 23 times faster** than Modern CSV to sort
+
+**How it was measured**: median of 3 runs on an Intel Core Ultra 7 laptop, Linux. Modern CSV is the free version, in edit mode (its read-only mode opens the file in 3.1 s but cannot sort).
+
+**Measure it on your machine**: `python3 benchmark/run.py` generates the files, runs every tool and checks every result before it reports a time. [The method, every size, and published figures for other tools →](benchmark/README.md)
 
 ## Features
 
