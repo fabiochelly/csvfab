@@ -113,7 +113,11 @@ window.__bp = (() => {
     const t = T(); setQuery(''); t.colFilters = {}; t.valFilters = {}; t.lastFilter = null;
     applyFilters(); container.scrollTop = 0; container.scrollLeft = 0; render();
   };
-  const filter = (q, o) => timed(() => { const t = T(); t.lastFilter = null; setQuery(q, o); applyFilters(); }, () => T().filteredData.length);
+  // A version that filters in workers (44-par-filter.js) answers later: wait for it.
+  const settled = async () => { if (typeof whenFiltered === 'function') await whenFiltered(); };
+  // …and forget its answers: typing asks a new query each time, a measure must not repeat one it kept.
+  const apply = async () => { if (typeof par !== 'undefined' && par) par.cache.clear(); applyFilters(); await settled(); };
+  const filter = (q, o) => timed(async () => { const t = T(); t.lastFilter = null; setQuery(q, o); await apply(); }, () => T().filteredData.length);
   const ops = {
     async boot() {
       const n = performance.getEntriesByType('navigation')[0];
@@ -137,12 +141,12 @@ window.__bp = (() => {
     },
     filter: ({ q, ...o }) => filter(q, o),
     async narrow({ q1, q2 }) {
-      const t = T(); t.lastFilter = null; setQuery(q1); applyFilters();
-      return timed(() => { setQuery(q2); applyFilters(); }, () => T().filteredData.length);
+      const t = T(); t.lastFilter = null; setQuery(q1); await apply();
+      return timed(async () => { setQuery(q2); await apply(); }, () => T().filteredData.length);
     },
-    colFilter: ({ col, q }) => timed(() => { const t = T(); t.lastFilter = null; setQuery(''); t.colFilters = { [col]: q }; applyFilters(); }, () => T().filteredData.length),
+    colFilter: ({ col, q }) => timed(async () => { const t = T(); t.lastFilter = null; setQuery(''); t.colFilters = { [col]: q }; await apply(); }, () => T().filteredData.length),
     async valueFilter({ col, values }) {
-      return timed(() => { const t = T(); t.lastFilter = null; t.valFilters = { [col]: new Set(values) }; applyFilters(); }, () => T().filteredData.length);
+      return timed(async () => { const t = T(); t.lastFilter = null; t.valFilters = { [col]: new Set(values) }; await apply(); }, () => T().filteredData.length);
     },
     async sort({ col }) {
       const r = await timed(() => sortBy(col, 1), () => cellStr(cellOf(T().allData[0], col)));
@@ -368,6 +372,8 @@ def main():
     ap.add_argument("--quick", action="store_true", help="moins d'essais, gros fichier de 100 000 lignes")
     ap.add_argument("--rows", type=int, help="lignes du gros fichier (défaut : 600 000, ~147 Mo)")
     ap.add_argument("--only", action="append", help="ne mesurer que les noms contenant ce texte (répétable)")
+    ap.add_argument("--all-cpus", action="store_true",
+                    help="ne pas épingler sur les cœurs rapides : les workers ont alors tous les cœurs, comme en usage")
     ap.add_argument("--save", help="écrire tous les échantillons dans ce fichier JSON")
     a = ap.parse_args()
     if not find_chromium():
@@ -395,7 +401,9 @@ def main():
             files.append((letter, label or f"{os.path.getsize(path) / 1e6:.0f}MB", path))
         # Tout sur les cœurs rapides (Chromium et serveurs héritent du masque) :
         # un processus posé sur un cœur efficace y reste, 10 à 27 % plus lent (bench.py).
-        pin(fast_cpus())
+        # Mais les filtres en parallèle n'y ont que 4 cœurs sur 16 : --all-cpus mesure leur gain réel.
+        if not a.all_cpus:
+            pin(fast_cpus())
         servers = [Bridge(ref).start(), Bridge(new).start()]
         browsers = [Browser(servers[0].origin + "/"), Browser(servers[1].origin + "/")]
         # Deux instances de Chromium ne vont pas exactement aussi vite (mesuré : une

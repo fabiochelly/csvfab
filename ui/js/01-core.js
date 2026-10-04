@@ -97,6 +97,7 @@ function activateTab(id) {
         renderHeader(); applyColStyles(); render();
         container.scrollTop = t.scrollTop; render();
         updateStats();
+        if (t.filterPending) applyFilters();   // left while the filter workers were answering (44-…)
     } else {
         renderHeader(); applyColStyles(); tbody.innerHTML = '';   // drop the previous tab's rows at once
         updateStats();
@@ -111,6 +112,7 @@ async function closeTab(id) {
     if (!t) return;
     if (isDirty(t) && !await uiConfirm(`"${t.name}" has ${t.modificationsLog.length} unsaved edits. Close anyway?`, { ok: 'Close without saving', danger: true })) return;
     const idx = tabs.indexOf(t);
+    if (t.base) parRelease(t.base);
     t.allData = []; t.filteredData = []; t.base = null;
     tabs.splice(idx, 1);
     if (activeTabId === id) {
@@ -122,7 +124,7 @@ async function closeTab(id) {
 }
 
 /* --- RAM management: release the least recently used clean tabs --- */
-function unloadTab(t) { t.allData = []; t.filteredData = []; t.base = null; t.loaded = false; }
+function unloadTab(t) { if (t.base) parRelease(t.base); t.allData = []; t.filteredData = []; t.base = null; t.loaded = false; }
 
 function evictIfNeeded() {
     const max = parseInt(document.getElementById('max-ram').value, 10);

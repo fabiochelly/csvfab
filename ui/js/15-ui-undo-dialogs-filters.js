@@ -241,9 +241,17 @@ function queryTerms(q) {
     return out;
 }
 function textFilterTest(t, sparse) {   // sparse: the rows to test are few among the file's (a narrowing search)
+    const spec = textFilterSpec(t);
+    return spec ? textRowTest(spec, t.base, sparse) : spec;
+}
+/* What the text filters ask, read from the tab: null when there is none, false
+   when an expression or a regex keeps the view (invalid, refused, or being
+   checked: applyFilters() is called back). The test itself is built from it by
+   textRowTest(), pure, so the filter workers (44-…) build the very same one. */
+function textFilterSpec(t) {
     let globalQuery = t.globalQuery;
-    const isRegex = t.useRegex, isReverse = t.useReverse, useSlug = t.useSlug;
-    const colInputs = Object.keys(t.colFilters).map(k => ({ idx: parseInt(k, 10), rawVal: t.colFilters[k] }));
+    const isRegex = t.useRegex;
+    const cols = Object.keys(t.colFilters).map(k => ({ idx: parseInt(k, 10), raw: t.colFilters[k] }));
     /* Expression mode: the search box is a formula (23-expr-filter.js), tested
        on top of the column filters; one that does not compile keeps the view. */
     let exprRun = null;
@@ -255,34 +263,41 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     }
     markExprBox(false);
     if (t.useExpr) globalQuery = '';
-    if (!globalQuery && !colInputs.length && !exprRun) return null;
+    if (!globalQuery && !cols.length && !exprRun) return null;
 
-    if (useSlug && !isRegex && globalQuery) globalQuery = removeAccents(globalQuery.toLowerCase());
-    else if (!isRegex && globalQuery) globalQuery = globalQuery.toLowerCase();
-
-    let globalRegex = null;
-    if (isRegex && globalQuery) { try { globalRegex = new RegExp(globalQuery, 'i'); } catch (e) { return false; } }
-
-    const globalTerms = !isRegex && globalQuery ? queryTerms(globalQuery) : [];
-    const compiledColFilters = colInputs.map(i => {
-        let re = null, val = i.rawVal;
-        if (useSlug && !isRegex) val = removeAccents(val.toLowerCase()); else if (!isRegex) val = val.toLowerCase();
-        if (isRegex) { try { re = new RegExp(i.rawVal, 'i'); } catch (e) { } }
-        return { idx: i.idx, val: val, re: re, raw: i.rawVal, terms: isRegex ? null : queryTerms(val) };
-    }).filter(f => isRegex || f.terms.length);   // spaces only: no filter
     /* A regex is tried apart first (40-…): one that backtracks without end would freeze the
        window, edits not saved included. The view stays while it is checked, then filters. */
     if (isRegex) {
-        const g = regexGate(t, [...(globalRegex ? [['g', globalQuery, 'i']] : []), ...compiledColFilters.filter(f => f.re).map(f => ['c' + f.idx, f.raw, 'i'])],
+        if (globalQuery) { try { new RegExp(globalQuery, 'i'); } catch (e) { return false; } }
+        const valid = f => { try { new RegExp(f.raw, 'i'); return true; } catch (e) { return false; } };
+        const g = regexGate(t, [...(globalQuery ? [['g', globalQuery, 'i']] : []), ...cols.filter(valid).map(f => ['c' + f.idx, f.raw, 'i'])],
             () => { if (T() === t) applyFilters(); });
         if (g) { t.reErr = g.error; return false; }
     }
+    return { g: globalQuery, cols, isRegex, isReverse: t.useReverse, useSlug: t.useSlug, expr: exprRun };
+}
+/* The row test of a spec, over a base (its delimiter, its column map). No tab, no DOM:
+   the filter workers run it on their own slice of the file. */
+function textRowTest(spec, base, sparse) {
+    let globalQuery = spec.g;
+    const { isRegex, isReverse, useSlug } = spec, exprRun = spec.expr || null;
+    if (useSlug && !isRegex && globalQuery) globalQuery = removeAccents(globalQuery.toLowerCase());
+    else if (!isRegex && globalQuery) globalQuery = globalQuery.toLowerCase();
+
+    const globalRegex = isRegex && globalQuery ? new RegExp(globalQuery, 'i') : null;
+    const globalTerms = !isRegex && globalQuery ? queryTerms(globalQuery) : [];
+    const compiledColFilters = spec.cols.map(i => {
+        let re = null, val = i.raw;
+        if (useSlug && !isRegex) val = removeAccents(val.toLowerCase()); else if (!isRegex) val = val.toLowerCase();
+        if (isRegex) { try { re = new RegExp(i.raw, 'i'); } catch (e) { } }
+        return { idx: i.idx, val: val, re: re, raw: i.raw, terms: isRegex ? null : queryTerms(val) };
+    }).filter(f => isRegex || f.terms.length);   // spaces only: no filter
 
     /* The record's own text first: a query without quote or delimiter (and,
        for the search across columns, without space, which joins the cells)
        that is not in it is in none of its cells — most rows are then
        rejected without being split into cells. */
-    const D = t.base && t.base.delim, lower = useSlug ? v => removeAccents(v.toLowerCase()) : v => v.toLowerCase();
+    const D = base && base.delim, lower = useSlug ? v => removeAccents(v.toLowerCase()) : v => v.toLowerCase();
     const plain = q => q && !q.includes('"') && !q.includes(D);
     const colTerms = compiledColFilters.flatMap(f => f.terms || []);
     let pre = !isRegex && D && globalTerms.every(q => plain(q) && !q.includes(' ')) && colTerms.every(plain)
@@ -292,7 +307,7 @@ function textFilterTest(t, sparse) {   // sparse: the rows to test are few among
     /* The other way round too, for the search across columns alone: such a
        query found in the record's text is inside one of its cells — unless
        the columns were re-mapped (a deleted column's text is still there). */
-    const sure = pre && !compiledColFilters.length && !exprRun && !t.base.cmap;
+    const sure = pre && !compiledColFilters.length && !exprRun && !base.cmap;
     let bk = -1, hits = null;               // the block of records last searched, and its matches
     return row => {
         if (pre && !row.d && row.b >= 0) {
@@ -333,9 +348,9 @@ function cellStr(v) { return v == null ? '' : String(v); }
    filters let through, so unticked ones stay listed. */
 function valueFilterTest(t, skipCol) {
     const fs = Object.keys(t.valFilters).map(Number).filter(c => c !== skipCol).map(c => [c, t.valFilters[c]]);
-    if (!fs.length) return null;
-    return row => { for (const [c, ex] of fs) if (ex.has(cellStr(cellOf(row, c)))) return false; return true; };
+    return fs.length ? valueRowTest(fs) : null;
 }
+function valueRowTest(fs) { return row => { for (const [c, ex] of fs) if (ex.has(cellStr(cellOf(row, c)))) return false; return true; }; }
 
 /* What the rows are: any edit, undo, re-read or re-order changes one of
    these (every edit pushes or pops a log entry; convertHeader changes the
@@ -377,30 +392,51 @@ function applyFilters() {
     clearTimeout(filterTimer);
     const t0 = performance.now();
     collectUIState(t);
-    if (!keepSel) sel = null;             // view indices are about to change
 
     /* Highlight context used by render() */
     t.hl = { globalQuery: t.useExpr ? '' : t.globalQuery, colFilters: t.colFilters, isRegex: t.useRegex, useSlug: t.useSlug, reverse: t.useReverse };   // an expression highlights nothing
     findHl(t);                            // the replace bar's find, highlighted apart (29-…)
 
-    let tt = textFilterTest(t);
+    const spec = textFilterSpec(t);
     t.hl.reOk = !t.reErr;                 // render() highlights with the regex only once it passed the guard
-    if (tt === false) { updateStats(); return; }   // an invalid regex or expression: the view stays, the status bar says why
-    const narrow = tt && narrowsLast(t);
-    if (narrow && t.filteredData.length * 8 < t.allData.length) tt = textFilterTest(t, true);   // few rows left: record by record
+    if (spec === false) { updateStats(); return; }   // an invalid regex or expression: the view stays, the status bar says why
+    let tt = spec && textRowTest(spec, t.base, false);
+    const narrow = tt && narrowsLast(t), few = narrow && t.filteredData.length * 8 < t.allData.length;
+    if (few) tt = textRowTest(spec, t.base, true);   // few rows left: record by record
     if (!narrow) dupGroups(t);
     const vt = valueFilterTest(t, -1), n = t.headers.length, irr = t.onlyIrregular, dg = t.onlyDups && t.dupMarks && t.dupMarks.group;
     const mk = t.rowMark && t.rowMark.only && t.rowMark.rows;
-    if (narrow) {
+    /* A big file: the text and value filters run in the workers (44-…). Their answer is awaited
+       only when the rows are those of the view shown, which then stays meanwhile. */
+    let bits = null;
+    if (!few && (tt || vt) && !(spec && spec.expr) && parUsable(t)) {
+        const q = parQuery(t, spec), base = t.base;
+        bits = parCached(base, q);
+        if (!bits && sameStamp(t.viewStamp, dataStamp(t))) {
+            t.filterPending = true;
+            parRequest(base, q, () => { if (T() === t && t.base === base) applyFilters(); });
+            setStats(`${t.name} | Filtering…`);
+            return;
+        }
+    }
+    if (!keepSel) sel = null;             // view indices are about to change
+    if (narrow && !bits) {
         const from = t.filteredData, keep = new Uint8Array(from.length);   // the rows shown are already through every other filter
         visitRows(t, from, (row, i) => { if (tt(row)) keep[i] = 1; });
         t.filteredData = from.filter((_, i) => keep[i]);
-    } else if (tt || vt || irr || dg || mk) {
-        const keep = new Uint8Array(t.allData.length);   // tested in file order (visitRows), kept in view order
-        visitRows(t, t.allData, (row, i) => { if ((!irr || row.len !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row)) && (!tt || tt(row)) && (!vt || vt(row))) keep[i] = 1; });
-        t.filteredData = t.allData.filter((_, i) => keep[i]);
+    } else if (bits || tt || vt || irr || dg || mk) {
+        const all = t.allData, keep = new Uint8Array(all.length);   // tested in file order (visitRows), kept in view order
+        const other = row => (!irr || row.len !== n) && (!dg || dg.has(row)) && (!mk || mk.has(row));
+        if (bits) {                       // the workers answered for the records; a row no longer its record is tested here
+            for (let i = 0; i < all.length; i++) {
+                const row = all[i];
+                if (other(row) && (row.d || row.b < 0 ? (!tt || tt(row)) && (!vt || vt(row)) : bits[row.b])) keep[i] = 1;
+            }
+        } else visitRows(t, all, (row, i) => { if (other(row) && (!tt || tt(row)) && (!vt || vt(row))) keep[i] = 1; });
+        t.filteredData = all.filter((_, i) => keep[i]);
         if (dg) t.filteredData.sort((a, b) => dg.get(a) - dg.get(b));   // groups side by side (a stable sort keeps file order within one)
     } else t.filteredData = t.allData;   /* no filter: reuse the same array, no copy in RAM */
+    t.viewStamp = dataStamp(t); t.filterPending = false;
     t.lastFilter = { stamp: dataStamp(t), sig: filterSig(t, -1), g: t.globalQuery, cols: { ...t.colFilters } };
     if (t.exprRun && t.exprRun.errors) t.exprErr = `${fmt(t.exprRun.errors)} rows raise an error and are hidden (${t.exprRun.first})`;
     t.exprRun = null;
