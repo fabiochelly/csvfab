@@ -213,7 +213,7 @@ async function loadBase(ab, o, onProgress) {
         enc: m.enc, bom: bom > 0, delim, eol, transcoded: m.enc.startsWith('utf-16'), lines: !!o.lines,
         orig: m.orig ? new Uint8Array(m.orig) : null, origAt: m.orig ? bom : 0,   // a UTF-16 file's own bytes (14-…, streamCSV)
         cmap: null, odd: new Map(), irr: null,
-        keys: new Int32Array(1024).fill(-1), vals: new Array(1024), blk: null, lastB: -2
+        keys: new Int32Array(1024).fill(-1), vals: new Array(1024), blk: null, lastB: -2, run: 0
     };
     base.dec = new TextDecoder(base.transcoded ? 'utf-8' : base.enc, { ignoreBOM: true });   // a U+FEFF inside a record is data
     if (m.odd.length) {
@@ -313,14 +313,17 @@ setTimeout(idxSweep, 10000);   // old entries go soon after start, out of the wa
    records one by one took 900 ms, the same bytes in one call 60. So a
    run of consecutive records (a scan, visitRows(), the rows on screen)
    is decoded by blocks of 1024 records and sliced; an isolated record
-   (a sorted view read in its own order) alone. */
+   (a sorted view read in its own order) alone. A run means three in a
+   row: in a sorted view two neighbours follow each other by chance now
+   and then, and each such pair decoded a whole block thrown away at the
+   next row (a text sort on 100 columns decoded 43 blocks for 5). */
 const BLK_BITS = 10;
 function recordText(base, b) {
     let blk = base.blk;
     if (!blk || blk.k !== b >> BLK_BITS) {
-        const seq = b === base.lastB + 1;
+        if (b !== base.lastB) base.run = b === base.lastB + 1 ? base.run + 1 : 0;   // cellOf() reads one record several times: still a run
         base.lastB = b;
-        if (!seq) return decodeOne(base, b);
+        if (base.run < 2) return decodeOne(base, b);
         blk = base.blk = loadBlock(base, b >> BLK_BITS);
     }
     base.lastB = b;

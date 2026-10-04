@@ -268,10 +268,12 @@ function columnKinds(t) {
     const c = t.kindsCache;
     if (t.lang) return [''];                  // a text file: lines, not numbers nor dates
     if (c && sameStamp(c.stamp, dataStamp(t))) return c.kinds;   // renderHeader() runs after sorts, filters, undos: same rows, same kinds
-    const rows = t.allData.slice(0, 400);
+    /* Each row split once, not once per column: after a sort the rows come from all over
+       the file, the row cache kept evicting them, and 100 columns cost 40 000 splits (~300 ms). */
+    const rows = t.allData.slice(0, 400).map(r => r.data);
     const kinds = t.headers.map((_, c) => {
         const k = { n: 0, d: 0, t: 0 }; let f = 0;
-        for (const r of rows) { const ty = cellType(r.data[c]); if (ty) { k[ty]++; f++; } }
+        for (const d of rows) { const ty = cellType(d[c]); if (ty) { k[ty]++; f++; } }
         return !f ? '' : k.n / f >= 0.9 ? 'n' : k.d / f >= 0.9 ? 'd' : 't';
     });
     t.kindsCache = { stamp: dataStamp(t), kinds };

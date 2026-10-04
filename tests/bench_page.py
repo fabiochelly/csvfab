@@ -185,12 +185,14 @@ window.__bp = (() => {
       resetView();
       return r;
     },
-    async jumps({ n }) {
+    async jumps({ n, sort }) {
       resetView();
+      if (sort != null) sortBy(sort, 1);   // a sorted view: its rows come from all over the file
       const span = container.scrollHeight - container.clientHeight;
       const r = await timed(() => {
         for (let i = 1; i <= n; i++) { container.scrollTop = Math.floor(span * ((i * 0.618034) % 1)); render(true); layout(); }
       }, () => document.querySelectorAll('#tbody .row').length);
+      if (sort != null) undo();
       resetView();
       return r;
     },
@@ -269,6 +271,7 @@ MEASURES = [
     ("scroll_down", "scroll", {"steps": 120, "dx": 0, "dy": 35 * 3}, "SBW"),
     ("scroll_sideways", "scroll", {"steps": 80, "dx": 120, "dy": 0}, "W"),
     ("scroll_jumps", "jumps", {"n": 40}, "SBW"),
+    ("scroll_jumps_sorted", "jumps", {"n": 40, "sort": 2}, "SBW"),
 ]
 
 
