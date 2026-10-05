@@ -102,6 +102,7 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 #view-container::-webkit-scrollbar-corner { background: var(--surf-2); }
 #scroll-strip { position: fixed; z-index: 1100; box-sizing: border-box; background: var(--surf-2); border-left: 1px solid var(--brd); cursor: pointer; user-select: none; touch-action: none; overflow: visible; }
 #scroll-strip .ss-marks { position: absolute; left: 0; top: 0; pointer-events: none; }
+#scroll-strip .ss-find { position: absolute; right: 0; top: 0; pointer-events: none; }   /* the find's matches, ticks on the right edge (stripFind) */
 #scroll-strip .ss-labels { position: absolute; inset: 0; pointer-events: none; font: 600 9px var(--ui); letter-spacing: -.02em; color: var(--txt-dim); }
 #scroll-strip .ss-labels span { position: absolute; left: 0; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: clip; line-height: 12px; margin-top: -6px; }
 #scroll-strip .ss-labels.sorted span { color: var(--txt-mut); }

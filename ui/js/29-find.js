@@ -15,7 +15,7 @@
    the rows shown or the data change (findKey).
 ----------------------------------------------------------------*/
 const FIND_LIST = 2e6;
-const find = { key: [], hlKey: '', list: null, n: 0, done: false, gen: 0, timer: 0 };
+const find = { key: [], hlKey: '', list: null, n: 0, done: false, gen: 0, timer: 0, hit: null, tab: null, rows: null, upto: 0 };
 
 /* What the bar asks for, or null (empty field) / {error} (a bad regex; guard: true when it is
    held by the regex guard, 40-…, as too slow or being checked). */
@@ -61,16 +61,17 @@ function findRefresh(t) {
     if (key.length !== find.key.length || key.some((x, i) => x !== find.key[i])) {
         find.key = key;
         clearTimeout(find.timer); find.gen++;
-        find.list = null; find.n = 0; find.done = false;
-        if (ok) findCount(t, S); else findPos(t);
+        find.list = null; find.n = 0; find.done = false; find.hit = null;
+        if (ok) findCount(t, S); else { findPos(t); stripFind(t); }
     } else findPos(t);
 }
 function findChanged() { clearTimeout(findChanged.timer); findChanged.timer = setTimeout(() => findRefresh(T()), 150); }
 
 /* Count the matches in the rows shown, a slice at a time, into a sorted list of row × width + column. */
 function findCount(t, S) {
-    const gen = ++find.gen, rows = t.filteredData, W = t.headers.length, list = [];
-    let i = 0, n = 0, capped = false;
+    const gen = ++find.gen, rows = t.filteredData, W = t.headers.length, list = [], hit = new Uint8Array(rows.length);
+    let i = 0, n = 0, capped = false, drawn = 0;
+    Object.assign(find, { hit, tab: t.id, rows, upto: 0 });   // the rows holding a match, for the scroll strip's ticks (28-…)
     const step = () => {
         if (gen !== find.gen || T() !== t) return;
         const t0 = performance.now();
@@ -81,11 +82,12 @@ function findCount(t, S) {
             for (const c of S.cols) {
                 const v = d[c];
                 if (v == null || v === '' || !S.test(String(v))) continue;
-                n++;
+                n++; hit[i] = 1;
                 if (list.length < FIND_LIST) list.push(i * W + c); else capped = true;
             }
         }
-        find.n = n;
+        find.n = n; find.upto = i;
+        if (i >= rows.length || performance.now() - drawn > 100) { drawn = performance.now(); stripFind(t); }   // the strip's ticks as the count goes
         if (i < rows.length) { find.timer = setTimeout(step, 0); findPos(t); return; }
         find.list = capped ? null : list; find.done = true; findPos(t);
     };

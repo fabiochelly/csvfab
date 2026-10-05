@@ -10,6 +10,8 @@
      the tip without scrolling);
    - marks along the track (a canvas): irregular rows, duplicate groups,
      marked rows (review, compare), the selection;
+   - the find's matches (29-…) as ticks along its right edge, as an
+     editor marks its search results in its scrollbar;
    - labels: sorted by a text column the initials, by a date the years,
      by a number the values (compact), else row numbers — the alphabet
      index of an address book, sampled every LABEL_STEP pixels.
@@ -26,7 +28,7 @@ function stripEl() {
     let el = document.getElementById('scroll-strip');
     if (el) return el;
     el = document.createElement('div'); el.id = 'scroll-strip';
-    el.innerHTML = '<canvas class="ss-marks"></canvas><div class="ss-labels"></div><div class="ss-sel"></div><div class="ss-thumb"></div><div class="ss-tip"></div>';
+    el.innerHTML = '<canvas class="ss-marks"></canvas><div class="ss-labels"></div><div class="ss-sel"></div><div class="ss-thumb"></div><div class="ss-tip"></div><canvas class="ss-find"></canvas>';
     el._s = { key: null, kind: '', col: -1, drag: false };
     document.body.appendChild(el);
     /* Pressed on the thumb: it is dragged from where it was grabbed, like a scrollbar's;
@@ -69,6 +71,7 @@ function stripLayout(t) {
     }
     el.style.display = '';
     stripUpdate(t);
+    stripFind(t);
     stripFollow();
     hstripLayout(t, rc);
 }
@@ -118,6 +121,52 @@ function stripUpdate(t, force) {
     stripMarks(t, g);
     stripLabels(t, g);
     stripSel(t);
+}
+/* The find's matches as ticks on the band's right edge, from find.hit (one byte per row
+   shown, 29-…), drawn as the count goes: each call adds the rows counted since the last
+   one (all of them again when the geometry or the palette changed). A pixel of the band
+   stands for many rows on a big file, and a frequent word would paint it solid: a pixel's
+   opacity follows its count against the busiest pixel's (square root, at least .45), so
+   the band shows where the matches gather, and a lone match is drawn 2 px tall. */
+function stripFind(t) {
+    const el = document.getElementById('scroll-strip'); if (!el) return;
+    const cv = el.children[5], s = el._s;
+    try { find; } catch (e) { return; }   // syncSpace() → here at boot, before 29-…'s top level declared it
+    if (!t || !find.hit || find.tab !== t.id || find.rows !== t.filteredData || el.style.display === 'none') {
+        if (s.fk) { s.fk = null; cv.width = 0; }
+        return;
+    }
+    const g = stripGeom(t), theme = currentTheme(), W = 4, dpr = window.devicePixelRatio || 1;
+    let k = s.fk;
+    if (!k || k.hit !== find.hit || k.H !== g.H || k.sh !== g.sh || k.th !== g.th || k.theme !== theme) {
+        k = s.fk = { hit: find.hit, H: g.H, sh: g.sh, th: g.th, theme, upto: 0, counts: new Uint32Array(Math.ceil(g.H) + 2), color: stripColor('--ok') };
+        cv.width = Math.round(W * dpr); cv.height = Math.round(g.H * dpr);
+        cv.style.width = W + 'px'; cv.style.height = g.H + 'px';
+    }
+    const hit = k.hit, scale = g.H / g.sh, to = find.upto, c = k.counts;
+    if (to === k.upto && k.drawn) return;
+    for (let i = k.upto; i < to; i++) if (hit[i]) c[Math.floor((g.th + i * ROW_H) * scale)]++;
+    k.upto = to;
+    let max = 0;
+    for (let y = 0; y < c.length; y++) if (c[y] > max) max = c[y];
+    /* One image put at once: a fillRect per pixel row, each with its own opacity, cost ~5 ms a draw. */
+    const ctx = cv.getContext('2d'), w = cv.width, h = cv.height, img = ctx.createImageData(w, h), px = img.data, rgb = k.rgb || (k.rgb = stripRgb(ctx, k.color));
+    for (let y = 0; y < c.length; y++) {
+        if (!c[y]) continue;
+        const a = Math.round(255 * (.45 + .55 * Math.sqrt(c[y] / max)));
+        const y0 = Math.floor(y * dpr), y1 = Math.min(h, Math.ceil((y + ((y && c[y - 1]) || c[y + 1] ? 1 : 2)) * dpr));
+        for (let yy = y0; yy < y1; yy++) for (let x = 0, o = yy * w * 4; x < w; x++, o += 4) {
+            if (px[o + 3] >= a) continue;          // a lone match's second row may overlap the next one: the stronger wins
+            px[o] = rgb[0]; px[o + 1] = rgb[1]; px[o + 2] = rgb[2]; px[o + 3] = a;
+        }
+    }
+    ctx.putImageData(img, 0, 0); k.drawn = true;
+}
+/* A CSS colour as [r, g, b], read back from the canvas (the palette may write it any way). */
+function stripRgb(ctx, color) {
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data; ctx.clearRect(0, 0, 1, 1); ctx.restore();
+    return [d[0], d[1], d[2]];
 }
 function stripColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888'; }
 function stripMarks(t, g) {
