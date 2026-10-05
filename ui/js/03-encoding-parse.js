@@ -121,7 +121,11 @@ async function parseTab(t) {
         if (t.path) t.name = (await srvStat(t.path)).name;
         const src = await tabBytes(t, active() ? setProgress : null); t.size = src.bytes.byteLength;
         t.stamp = await diskStamp(t, src.file);
-        if (t.stamp) t.stamp.fp = await fingerprint(src.bytes);   // before the bytes go to the worker
+        /* The digest copies the bytes as it is called, so they can go to the scan worker at once and
+           be hashed meanwhile (12–17 ms on 38 MB, which the scan used to wait for) — except for a big
+           file, whose fingerprint keys the reopen cache, looked up before any scan. */
+        const fpWait = t.stamp ? fingerprint(src.bytes) : null;
+        if (fpWait && src.bytes.byteLength >= IDX_MIN) t.stamp.fp = await fpWait;
         const phases = { transcode: 'Converting', scan: 'Reading' };
         let shown = '';
         /* A big file gets its scan kept for the next opening (21-…, REOPEN CACHE), keyed by what
@@ -133,6 +137,7 @@ async function parseTab(t) {
             if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
             setProgress(p);
         });
+        if (fpWait && !t.stamp.fp) t.stamp.fp = await fpWait;
     }
     catch (err) {                       // handle revoked, file moved or deleted
         t.loading = false; t.error = err;
@@ -177,7 +182,8 @@ async function parseTab(t) {
         if (!base.lines) convertHeader(t, wantsSynthetic(t, t.headerMode));
         renderHeader(); applyColStyles(); refreshParseOpts();
         applyFilters();                   // zeroes t.scrollTop: back to where the tab was, now that the extent is known
-        t.scrollTop = top; container.scrollTop = top; render();
+        t.scrollTop = top;
+        if (top) { container.scrollTop = top; render(); }   // a first opening is at the top, as applyFilters() just drew it
     }
     renderTabBar();
     settleWaiters(t, t.allData);          // before eviction, which may release this very tab again

@@ -247,10 +247,10 @@ class Browser:
 
 
 # --- les mesures ---------------------------------------------------------------
-# (nom, opération, arguments, fichiers) — S petit, B gros, W large.
+# (nom, opération, arguments, fichiers) — S petit, B gros, W large, U celui de --file.
 MEASURES = [
-    ("open_cold", "open", {"cold": True}, "SBW"),
-    ("open", "open", {}, "SBW"),
+    ("open_cold", "open", {"cold": True}, "SBWU"),
+    ("open", "open", {}, "SBWU"),
     ("filter_word", "filter", {"q": "lyon"}, "SBW"),
     ("filter_two_words", "filter", {"q": "devis urgent"}, "SB"),
     ("filter_none_found", "filter", {"q": "introuvable"}, "SB"),
@@ -272,9 +272,9 @@ MEASURES = [
     ("group_by", "groupBy", {"col": 8, "sum": 11}, "SB"),
     ("review", "review", {}, "SB"),
     ("save_untouched", "save", {}, "SB"),
-    ("scroll_down", "scroll", {"steps": 120, "dx": 0, "dy": 35 * 3}, "SBW"),
+    ("scroll_down", "scroll", {"steps": 120, "dx": 0, "dy": 35 * 3}, "SBWU"),
     ("scroll_sideways", "scroll", {"steps": 80, "dx": 120, "dy": 0}, "W"),
-    ("scroll_jumps", "jumps", {"n": 40}, "SBW"),
+    ("scroll_jumps", "jumps", {"n": 40}, "SBWU"),
     ("scroll_jumps_sorted", "jumps", {"n": 40, "sort": 2}, "SBW"),
 ]
 
@@ -372,6 +372,7 @@ def main():
     ap.add_argument("--quick", action="store_true", help="moins d'essais, gros fichier de 100 000 lignes")
     ap.add_argument("--rows", type=int, help="lignes du gros fichier (défaut : 600 000, ~147 Mo)")
     ap.add_argument("--only", action="append", help="ne mesurer que les noms contenant ce texte (répétable)")
+    ap.add_argument("--file", help="mesurer aussi l'ouverture et le défilement de ce fichier (lu, jamais écrit)")
     ap.add_argument("--all-cpus", action="store_true",
                     help="ne pas épingler sur les cœurs rapides : les workers ont alors tous les cœurs, comme en usage")
     ap.add_argument("--save", help="écrire tous les échantillons dans ce fichier JSON")
@@ -399,6 +400,8 @@ def main():
                 continue
             make_crm(path, n, wide)
             files.append((letter, label or f"{os.path.getsize(path) / 1e6:.0f}MB", path))
+        if a.file:
+            files.append(("U", os.path.basename(a.file).replace(" ", "_"), os.path.abspath(a.file)))
         # Tout sur les cœurs rapides (Chromium et serveurs héritent du masque) :
         # un processus posé sur un cœur efficace y reste, 10 à 27 % plus lent (bench.py).
         # Mais les filtres en parallèle n'y ont que 4 cœurs sur 16 : --all-cpus mesure leur gain réel.
