@@ -103,6 +103,9 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
   await step('row card search', async () => { rowCard.q = 'img'; rowCardFields(); rowCard.q = ''; });
   for (let c = 0; c < W; c++) await step('column panel ' + c, async () => { openColPanelFor(c); await pause(80); closeColPanel(); });
   await step('profile', async () => { await openProfile(); await pause(300); closeAllModals(); });
+  await step('file map', async () => { openFileMap(); while (!fmap.done) await pause(20);
+    const cv = document.getElementById('mp-cv').getBoundingClientRect();
+    document.getElementById('mp-cv').dispatchEvent(new MouseEvent('mousemove', { clientX: cv.left + 20, clientY: cv.top + 5, bubbles: true })); hover(); closeAllModals(); });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

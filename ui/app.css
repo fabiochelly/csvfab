@@ -1118,3 +1118,21 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 /* The interface's line icons: their stroke set once here rather than repeated on each of the
    41 <svg> of viewer.htm (4 KB of the page, sent at every load). */
 svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* --- File map (46-file-map.js): the rows shown as one picture --- */
+#modal-map { width: calc(100vw - 60px); height: calc(100vh - 60px); max-height: none; overflow: hidden; flex-direction: column; box-sizing: border-box; padding: 16px 20px 12px; }
+#modal-map[style*="block"] { display: flex !important; }
+#modal-map .mp-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+#modal-map h4 { margin: 0; }
+#modal-map .mp-legend { margin-left: auto; display: flex; align-items: center; gap: 4px 6px; flex-wrap: wrap; font-size: 12px; color: var(--txt-mut); }
+#modal-map .mp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-left: 8px; }
+#modal-map .k-n { background: var(--cyan-txt); } #modal-map .k-d { background: var(--violet-txt); } #modal-map .k-t { background: var(--txt-mut); }
+#modal-map .k-e { background: var(--surf-3); } #modal-map .k-x { background: var(--danger); } #modal-map .k-i { background: var(--warn); } #modal-map .k-m { background: var(--orange-txt); }
+#mp-cols { display: flex; height: 18px; overflow: hidden; font-size: 11px; color: var(--txt-mut); flex: none; }
+#mp-cols span { flex: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 3px; box-sizing: border-box; }
+#mp-body { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+#mp-cv { position: absolute; left: 46px; top: 0; cursor: crosshair; image-rendering: pixelated; }
+#mp-rows { position: absolute; left: 0; top: 0; width: 40px; bottom: 0; font: 600 10px var(--ui); color: var(--txt-dim); }
+#mp-rows span { position: absolute; right: 0; margin-top: -6px; line-height: 12px; }
+#mp-hl { position: absolute; display: none; pointer-events: none; outline: 1px solid var(--txt-hi); outline-offset: 0; }
+#mp-info { flex: none; margin-top: 8px; font-size: 12px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
