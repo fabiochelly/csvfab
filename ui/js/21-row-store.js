@@ -55,97 +55,124 @@ function csvScanWorker() {
                 u8 = out.subarray(0, w);
                 orig = buf;                    // the file's own bytes, sent back: a save copies untouched records from them
             } else if (bom) u8 = u8.subarray(bom);
-            const len = u8.length, Q = 34, D = delim, NL = nl;
-            const Big = len > 0xFFFFFFF0 ? Float64Array : Uint32Array;
-            let starts = new Big(Math.max(1024, Math.min(len / 32, 1 << 24) | 0)), n = 0;
-            /* For UTF-8, each record's offset in characters (UTF-16 units) too, so the
-               page can slice a decoded block without counting bytes again: adj =
-               characters − bytes, over the bytes before i. Each multi-byte sequence
-               met on the way is checked as the strict decoder would (overlongs,
-               surrogates, past U+10FFFF, cut short): auto detection falls back to
-               Windows-1252 on the first bad one, with no separate pass. */
-            const wantChars = outEnc === 'utf-8' || outEnc.startsWith('utf-16');
-            let chars = wantChars ? new Big(starts.length) : null, adj = 0, bad = false;
-            const seq = k => {                 // length of the valid sequence at k, or -1
-                const x = u8[k], y = u8[k + 1];
-                if (x < 0xC2 || x > 0xF4) return -1;
-                if (x < 0xE0) return (y & 0xC0) === 0x80 ? 2 : -1;
-                if (x < 0xF0) {
-                    if (x === 0xE0 ? (y < 0xA0 || y > 0xBF) : x === 0xED ? (y < 0x80 || y > 0x9F) : (y & 0xC0) !== 0x80) return -1;
-                    return (u8[k + 2] & 0xC0) === 0x80 ? 3 : -1;
-                }
-                if (x === 0xF0 ? (y < 0x90 || y > 0xBF) : x === 0xF4 ? (y < 0x80 || y > 0x8F) : (y & 0xC0) !== 0x80) return -1;
-                return (u8[k + 2] & 0xC0) === 0x80 && (u8[k + 3] & 0xC0) === 0x80 ? 4 : -1;
-            };
-            const walk = (a, b) => {           // a quoted record's bytes, jumped over by the field search
-                for (let k = a; k < b; k++) if (u8[k] >= 0x80) { const w = seq(k); if (w < 0) bad = true; else { adj -= w === 2 ? 1 : 2; k += w - 1; } }
-            };
-            let odd = new Uint32Array(1024), no = 0;
-            let width = -1, qerr = 0, i = 0, nn = -2, nd = -2, nq = lines ? -1 : -2;   // nq -1: no quote is ever looked for
-            while (i < len) {
-                const rs = i, adjAt = adj;
-                let fields = 1;
-                if (nn !== -1 && nn < i) nn = u8.indexOf(NL, i);
-                if (nq !== -1 && nq < i) nq = u8.indexOf(Q, i);
-                const eol = nn < 0 ? len : nn;
-                if (nq < 0 || nq >= eol) {        // no quote on this line, the usual case: count the delimiters, done
-                    if (chars) for (let k = i; k < eol; k++) {
-                        const x = u8[k];
-                        if (x === D) fields++;
-                        else if (x >= 0x80) {
-                            if (x >= 0xC2 && x < 0xE0 && (u8[k + 1] & 0xC0) === 0x80) { adj--; k++; }   // é, ç…: the common case, inline
-                            else { const w = seq(k); if (w < 0) bad = true; else { adj -= w === 2 ? 1 : 2; k += w - 1; } }
-                        }
-                    }
-                    else for (let k = i; k < eol; k++) if (u8[k] === D) fields++;
-                    i = eol;
-                } else for (;;) {
-                    if (u8[i] === Q) {
-                        let j = i + 1;
-                        for (;;) {
-                            const k = u8.indexOf(Q, j);
-                            if (k < 0) { i = len; qerr++; break; }          // never closed: the rest of the file
-                            if (u8[k + 1] === Q) { j = k + 2; continue; }
-                            let m = k + 1;
-                            while (m < len && (u8[m] === 32 || (u8[m] === 9 && D !== 9))) m++;
-                            const b = u8[m];
-                            if (m >= len || b === D || b === NL || (NL === 10 && b === 13 && u8[m + 1] === 10)) { i = m; break; }
-                            qerr++; j = k + 1;                               // a stray quote: kept, search on
-                        }
-                    } else {
-                        if (nn !== -1 && nn < i) nn = u8.indexOf(NL, i);
-                        if (nd !== -1 && nd < i) nd = u8.indexOf(D, i);
-                        i = nd >= 0 && (nn < 0 || nd < nn) ? nd : (nn < 0 ? len : nn);
-                    }
-                    if (i < len && u8[i] === D) { fields++; i++; if (i >= len) break; continue; }
-                    break;
-                }
-                const e = i;
-                if (chars && (nq >= 0 && nq < eol)) walk(rs, e);
-                if (i < len) i += (u8[i] === 13 && NL === 10 && u8[i + 1] === 10) ? 2 : 1;
-                let z = e; if (NL === 10 && z > rs && u8[z - 1] === 13) z--;
-                if (z === rs && !lines) continue;   // an empty line is no record (as Papa's skipEmptyLines); it stays in the previous record's span — in a text file it is a line like any other
-                if (n + 2 > starts.length) {
-                    const g = new Big(starts.length * 2); g.set(starts); starts = g;
-                    if (chars) { const h = new Big(starts.length); h.set(chars); chars = h; }
-                }
-                if (chars) chars[n] = rs + adjAt;
-                starts[n++] = rs;
-                if (width < 0) width = fields;
-                else if (fields !== width) {
-                    if (no + 2 > odd.length) { const g = new Uint32Array(odd.length * 2); g.set(odd); odd = g; }
-                    odd[no++] = n - 1; odd[no++] = fields;
-                }
-                if ((n & 0xFFFF) === 0) progress(i / len, 'scan');
-            }
-            starts[n] = len;
-            starts = starts.slice(0, n + 1); odd = odd.slice(0, no);
-            if (validate && bad) { outEnc = 'windows-1252'; chars = null; }       // not UTF-8: one byte, one character
-            if (chars) { chars[n] = len + adj; chars = adj ? chars.slice(0, n + 1) : null; }   // adj 0: ASCII throughout, characters = bytes
-            post({ done: true, buf: u8.buffer, off: u8.byteOffset, len, enc: outEnc, starts, chars, n, width: Math.max(width, 0), odd, qerr, orig },
-                [u8.buffer, starts.buffer, odd.buffer].concat(chars ? [chars.buffer] : [], orig ? [orig] : []));
+            const len = u8.length;
+            const r = csvScanCore(u8, { delim, nl, lines, wantChars: outEnc === 'utf-8' || outEnc.startsWith('utf-16'), big: len > 0xFFFFFFF0, progress: p => progress(p, 'scan') });
+            let chars = r.chars;
+            if (validate && r.bad) { outEnc = 'windows-1252'; chars = null; }       // not UTF-8: one byte, one character
+            if (chars && !r.adjEnd) chars = null;   // ASCII throughout: characters = bytes
+            post({ done: true, buf: u8.buffer, off: u8.byteOffset, len, enc: outEnc, starts: r.starts, chars, n: r.n, width: Math.max(r.width, 0), odd: r.odd, qerr: r.qerr, orig },
+                [u8.buffer, r.starts.buffer, r.odd.buffer].concat(chars ? [chars.buffer] : [], orig ? [orig] : []));
         } catch (err) { post({ error: String(err && err.message || err) }); }
     };
+}
+/* The scanner itself, on bytes u8 (pure: it runs in the scan worker, in the parallel scan's
+   workers — 45-… — and on the page for a file's first record). o: delim, nl (bytes), lines,
+   wantChars, big (offsets past 4 GB); for a slice of a file scanned in parallel also from (where
+   to start), mainEnd (records starting before it are the slice's own, the others overflow),
+   stop (no record starts from there), atEnd (false: u8 ends mid-file, so a record running into
+   its end may go on — fail if it is one of the slice's own), width (the file's, from its first
+   record), checkpoints (how many first records get their counters noted, for the stitching).
+   Out: starts / chars (n + 1 entries; chars = offset + adj, adj = characters − bytes so far),
+   odd (record, field count), qerr, bad (invalid UTF-8 sequences), width, adjEnd, and for a
+   slice nMain, qerrMain, badMain, ck ([record, qerr before, bad before]…), fail. */
+function csvScanCore(u8, o) {
+    const len = u8.length, Q = 34, D = o.delim, NL = o.nl, lines = !!o.lines;
+    const mainEnd = o.mainEnd == null ? Infinity : o.mainEnd, stop = o.stop == null ? Infinity : o.stop;
+    const atEnd = o.atEnd !== false, limit = o.limit || Infinity, M = o.checkpoints || 0, progress = o.progress;
+    const Big = o.big ? Float64Array : Uint32Array;
+    let starts = new Big(Math.max(1024, Math.min(len / 32, 1 << 24) | 0)), n = 0;
+    /* For UTF-8, each record's offset in characters (UTF-16 units) too, so the
+       page can slice a decoded block without counting bytes again: adj =
+       characters − bytes, over the bytes before i. Each multi-byte sequence
+       met on the way is checked as the strict decoder would (overlongs,
+       surrogates, past U+10FFFF, cut short): auto detection falls back to
+       Windows-1252 on the first bad one, with no separate pass. */
+    let chars = o.wantChars ? new Big(starts.length) : null, adj = 0, bad = 0;
+    const seq = k => {                 // length of the valid sequence at k, or -1
+        const x = u8[k], y = u8[k + 1];
+        if (x < 0xC2 || x > 0xF4) return -1;
+        if (x < 0xE0) return (y & 0xC0) === 0x80 ? 2 : -1;
+        if (x < 0xF0) {
+            if (x === 0xE0 ? (y < 0xA0 || y > 0xBF) : x === 0xED ? (y < 0x80 || y > 0x9F) : (y & 0xC0) !== 0x80) return -1;
+            return (u8[k + 2] & 0xC0) === 0x80 ? 3 : -1;
+        }
+        if (x === 0xF0 ? (y < 0x90 || y > 0xBF) : x === 0xF4 ? (y < 0x80 || y > 0x8F) : (y & 0xC0) !== 0x80) return -1;
+        return (u8[k + 2] & 0xC0) === 0x80 && (u8[k + 3] & 0xC0) === 0x80 ? 4 : -1;
+    };
+    const walk = (a, b) => {           // a quoted record's bytes, jumped over by the field search
+        for (let k = a; k < b; k++) if (u8[k] >= 0x80) { const w = seq(k); if (w < 0) bad++; else { adj -= w === 2 ? 1 : 2; k += w - 1; } }
+    };
+    let odd = new Uint32Array(1024), no = 0;
+    let width = o.width == null ? -1 : o.width, qerr = 0, i = o.from || 0, nn = -2, nd = -2, nq = lines ? -1 : -2;   // nq -1: no quote is ever looked for
+    let nMain = -1, qerrMain = 0, badMain = 0, fail = false;
+    const ck = [];
+    while (i < len) {
+        const rs = i, adjAt = adj, qAt = qerr, bAt = bad;
+        if (rs >= stop || n >= limit) break;
+        let fields = 1;
+        if (nn !== -1 && nn < i) nn = u8.indexOf(NL, i);
+        if (nq !== -1 && nq < i) nq = u8.indexOf(Q, i);
+        const eol = nn < 0 ? len : nn;
+        if (nq < 0 || nq >= eol) {        // no quote on this line, the usual case: count the delimiters, done
+            if (chars) for (let k = i; k < eol; k++) {
+                const x = u8[k];
+                if (x === D) fields++;
+                else if (x >= 0x80) {
+                    if (x >= 0xC2 && x < 0xE0 && (u8[k + 1] & 0xC0) === 0x80) { adj--; k++; }   // é, ç…: the common case, inline
+                    else { const w = seq(k); if (w < 0) bad++; else { adj -= w === 2 ? 1 : 2; k += w - 1; } }
+                }
+            }
+            else for (let k = i; k < eol; k++) if (u8[k] === D) fields++;
+            i = eol;
+        } else for (;;) {
+            if (u8[i] === Q) {
+                let j = i + 1;
+                for (;;) {
+                    const k = u8.indexOf(Q, j);
+                    if (k < 0) { i = len; qerr++; break; }          // never closed: the rest of the file
+                    if (u8[k + 1] === Q) { j = k + 2; continue; }
+                    let m = k + 1;
+                    while (m < len && (u8[m] === 32 || (u8[m] === 9 && D !== 9))) m++;
+                    const b = u8[m];
+                    if (m >= len || b === D || b === NL || (NL === 10 && b === 13 && u8[m + 1] === 10)) { i = m; break; }
+                    qerr++; j = k + 1;                               // a stray quote: kept, search on
+                }
+            } else {
+                if (nn !== -1 && nn < i) nn = u8.indexOf(NL, i);
+                if (nd !== -1 && nd < i) nd = u8.indexOf(D, i);
+                i = nd >= 0 && (nn < 0 || nd < nn) ? nd : (nn < 0 ? len : nn);
+            }
+            if (i < len && u8[i] === D) { fields++; i++; if (i >= len) break; continue; }
+            break;
+        }
+        const e = i;
+        /* A slice's end is not the file's: a record that runs into it (no line break, or a quote
+           still open) may go on in the next slice. One of the slice's own: the stitching gives up;
+           an overflow one: the overflow ends before it. */
+        if (!atEnd && e >= len) { adj = adjAt; qerr = qAt; bad = bAt; if (rs < mainEnd) fail = true; break; }
+        if (chars && (nq >= 0 && nq < eol)) walk(rs, e);
+        if (i < len) i += (u8[i] === 13 && NL === 10 && u8[i + 1] === 10) ? 2 : 1;
+        let z = e; if (NL === 10 && z > rs && u8[z - 1] === 13) z--;
+        if (z === rs && !lines) continue;   // an empty line is no record (as Papa's skipEmptyLines); it stays in the previous record's span — in a text file it is a line like any other
+        if (rs >= mainEnd && nMain < 0) { nMain = n; qerrMain = qAt; badMain = bAt; }
+        if (n < M || nMain >= 0) ck.push(n, qAt, bAt);
+        if (n + 2 > starts.length) {
+            const g = new Big(starts.length * 2); g.set(starts); starts = g;
+            if (chars) { const h = new Big(starts.length); h.set(chars); chars = h; }
+        }
+        if (chars) chars[n] = rs + adjAt;
+        starts[n++] = rs;
+        if (width < 0) width = fields;
+        else if (fields !== width) {
+            if (no + 2 > odd.length) { const g = new Uint32Array(odd.length * 2); g.set(odd); odd = g; }
+            odd[no++] = n - 1; odd[no++] = fields;
+        }
+        if (progress && (n & 0xFFFF) === 0) progress(i / len);
+    }
+    if (nMain < 0) { nMain = n; qerrMain = qerr; badMain = bad; }
+    starts[n] = len;
+    if (chars) chars[n] = len + adj;
+    return { starts: starts.slice(0, n + 1), chars: chars ? chars.slice(0, n + 1) : null, odd: odd.slice(0, no), n, width, qerr, bad, adjEnd: adj, nMain, qerrMain, badMain, ck, fail };
 }
 /* One worker is kept ready between files: starting one (thread + script)
    cost tens of milliseconds on each open, noticeable on a small file. A
@@ -153,7 +180,7 @@ function csvScanWorker() {
    own, dropped afterwards. */
 let scanWorkerUrl = null, idleWorker = null;
 function scanWorker() {
-    if (!scanWorkerUrl) scanWorkerUrl = URL.createObjectURL(new Blob([`(${csvScanWorker.toString()})()`], { type: 'text/javascript' }));
+    if (!scanWorkerUrl) scanWorkerUrl = URL.createObjectURL(new Blob([`${csvScanCore}\n(${csvScanWorker})()`], { type: 'text/javascript' }));
     const w = idleWorker || new Worker(scanWorkerUrl);
     idleWorker = null;
     return w;
@@ -203,7 +230,8 @@ async function loadBase(ab, o, onProgress) {
     /* A big file read before, unchanged (o.cache: its key, 03-…): the scan's result comes back from
        the reopen cache instead of a pass over every byte (REOPEN CACHE below). */
     const hit = o.cache && !enc.startsWith('utf-16') ? idxUse(await idxGet(o.cache.key), u8, bom) : null;
-    const m = hit || await runScan({ buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines }, onProgress);
+    const msg = { buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines };
+    const m = hit || await scanParallel(msg, onProgress) || await runScan(msg, onProgress);   // split over workers (45-…), else whole
     if (o.cache && !hit && !m.enc.startsWith('utf-16')) {
         const keep = { starts: m.starts, chars: m.chars, odd: m.odd, n: m.n, width: m.width, qerr: m.qerr, enc: m.enc };
         setTimeout(() => idxPut(o.cache.key, o.cache.name, keep), 0);   // after the tab shows; the arrays are copied when stored
