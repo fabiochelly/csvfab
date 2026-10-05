@@ -491,12 +491,12 @@ function updateCount(t) {
 function updateStats() {
     const t = T();
     updateCount(t);
-    if (!t || !t.loaded) document.getElementById('btn-extract').style.display = 'none';
+    if (!t || !t.loaded) document.getElementById('btn-extract').style.display = document.getElementById('btn-map').style.display = 'none';
     if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); rowCardSync(); }
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
-    document.getElementById('btn-extract').style.display = '';
+    document.getElementById('btn-extract').style.display = document.getElementById('btn-map').style.display = '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.lang ? '' : t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     const ex = (t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '') + (t.reErr ? ` | regex: ${t.reErr}` : '');

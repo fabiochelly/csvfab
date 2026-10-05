@@ -582,6 +582,10 @@
     </div>
 
     <div style="margin-left: auto; display: flex; gap: 10px;">
+        <button class="btn btn-outline" id="btn-map" onclick="openFileMap()" style="display:none;" title="The whole file as one picture (Ctrl+M)">
+            <svg class="ic" viewBox="0 0 24 24" style="width: 16px; height: 16px;"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"></path><path d="M9 3v15M15 6v15"></path></svg>
+            Map
+        </button>
         <button class="btn btn-outline" id="btn-extract" onclick="extractFiltered()" style="display:none;" title="The rows shown, to a new file">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;"><mask id="extract-cut"><rect x="-1" y="-1" width="26" height="26" fill="#fff" stroke="none"></rect><path d="M10.5 18v-5C10.5 3 16.5 7 21.5 12" stroke="#000" stroke-width="6"></path><polyline points="20.5 8 21.5 12 17.5 13" stroke="#000" stroke-width="6"></polyline></mask><g mask="url(#extract-cut)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6z"></path><polyline points="14 2 14 6 18 6"></polyline></g><path d="M10.5 18v-5C10.5 3 16.5 7 21.5 12"></path><polyline points="20.5 8 21.5 12 17.5 13"></polyline></svg>
             Extract
