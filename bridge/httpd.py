@@ -112,19 +112,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Réponse revalidée à chaque chargement (no-cache + ETag, 304 si inchangée)
         au lieu de no-store : Chromium ne garde le code compilé d'un script (son
         cache de code V8) que si le script lui-même est dans son cache HTTP. Réservé
-        aux fichiers de l'app, sans jeton ; la page elle-même reste en no-store."""
+        aux fichiers de l'app, sans jeton ; la page elle-même reste en no-store.
+
+        Demandée sous sa version courante (?v=etag, l'adresse que la page sert, cf.
+        assets.page) : gardable un an, immuable — Chromium la reprend de son cache sans
+        rien demander. La revalidation coûtait un aller-retour par fichier à chaque
+        chargement, sur le chemin du lancement (~5 à 13 ms, au repos)."""
         tag = f'"{etag}"'
+        cache = "public, max-age=31536000, immutable" if self.arg("v") == etag else "no-cache"
         if self.headers.get("If-None-Match") == tag:
             self.send_response(304)
             self.send_header("ETag", tag)
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", cache)
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", cache)
         self.send_header("ETag", tag)
         self.end_headers()
         if self.command != "HEAD":

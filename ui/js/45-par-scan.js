@@ -243,3 +243,7 @@ function scanStitch(res, jobs, len, enc, validate, wantChars, width) {
     if (chars) chars[n] = len + adjTotal;
     return { starts, chars, odd, n, width: Math.max(width, 0), qerr, enc: outEnc };
 }
+
+/* A file the launcher queued is coming (viewer.htm named it and asked for its bytes): its scan's
+   workers start now, while this script ends and the page settles, not once its tab is made. */
+if (window.CSVFAB_FILE && window.CSVFAB_QUEUED && window.CSVFAB_QUEUED.stat) scanAhead(window.CSVFAB_QUEUED.stat.size || 0);

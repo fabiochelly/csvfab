@@ -16,6 +16,11 @@ if (SRV) {
        once — it used to wait for the next of the 1.5 s polls. Not awaited:
        parsing a big file must not delay the next poll. */
     const drain = async () => {
+        /* The first answer was asked for by viewer.htm, before this script loaded (and the bytes of
+           the first file queued, taken by addTabs()). */
+        const first = window.CSVFAB_EARLY && await window.CSVFAB_EARLY;
+        earlyFile = window.CSVFAB_FILE || null;
+        if (first && first.paths && first.paths.length) addPathTabs(first.paths, first.stats); else dropEarlyFile();
         for (;;) {
             try {
                 const r = await srvFetch('/api/pending?wait=8');

@@ -1,6 +1,8 @@
 """Le serveur vu de l'extérieur : jeton, Origin, page, script, fichiers statiques, routes."""
 
 import os
+import re
+import json
 import unittest
 
 from tests.support import ROOT, Bridge, q, read_version
@@ -94,6 +96,41 @@ class HttpTest(unittest.TestCase):
                 csp = r.header("Content-Security-Policy")
                 for d in ("connect-src 'self'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'"):
                     self.assertIn(d, csp)
+
+    def test_page_asks_for_versioned_assets(self):
+        # Les fichiers de l'en-tête sous leur version : ainsi demandés, immuables (aucun aller-retour au
+        # chargement suivant) ; sans version, ou sous une autre, revalidés comme avant.
+        html = self.b.get("/", token=False).text
+        for name in ("app.js", "papaparse.min.js", "ui/themes.css", "ui/app.css", "icons/csvfab.svg"):
+            with self.subTest(name=name):
+                m = re.search(r'(?:src|href)="' + re.escape(name) + r'\?v=([^"]+)"', html)
+                self.assertTrue(m, name)
+                r = self.b.get(f"/{name}?v={m.group(1)}", token=False)
+                self.assertEqual(r.status, 200)
+                self.assertEqual(r.header("Cache-Control"), "public, max-age=31536000, immutable")
+                self.assertEqual(r.header("ETag"), f'"{m.group(1)}"')
+                self.assertEqual(self.b.get(f"/{name}?v=old", token=False).header("Cache-Control"), "no-cache")
+                self.assertEqual(self.b.get(f"/{name}", token=False).header("Cache-Control"), "no-cache")
+
+    def test_page_names_the_queued_file(self):
+        # Le fichier mis en file est nommé dans l'en-tête de la page (qui en demande aussitôt les
+        # octets), sans quitter la file ; un chemin ne peut pas refermer la balise <script>.
+        self.b.drain()
+        self.assertIn("window.CSVFAB_QUEUED = null", self.b.get("/", token=False).text)
+        d = self.b.tmp("x</script><script>alert(1)</script>")
+        os.makedirs(d, exist_ok=True)
+        f = os.path.join(d, "a.csv")
+        with open(f, "wb") as h:
+            h.write(b"a;b\n1;2\n")
+        self.b.post("/api/open", json.dumps({"paths": [f]}).encode())
+        html = self.b.get("/", token=False).text
+        self.assertEqual(html.count("</script>"), self.b.get("/", token=False).text.count("</script>"))
+        m = re.search(r"window\.CSVFAB_QUEUED = (\{.*?\});", html)
+        self.assertTrue(m)
+        self.assertNotIn("</", m.group(1))
+        self.assertEqual(json.loads(m.group(1)), {"path": os.path.realpath(f), "stat": {"name": "a.csv", "size": 8}})
+        self.assertEqual(self.b.drain(), [os.path.realpath(f)])
+        self.assertIn("window.CSVFAB_QUEUED = null", self.b.get("/", token=False).text)
 
     # --- /app.js ---------------------------------------------------------
     def test_app_js_joins_ui_js_in_name_order(self):

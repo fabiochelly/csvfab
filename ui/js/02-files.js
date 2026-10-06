@@ -129,6 +129,14 @@ async function tabBytes(t, onProgress, feed) {
     return { bytes: await file.arrayBuffer(), file };
 }
 
+/* The bytes viewer.htm asked for at load ({path, req}), until addTabs() takes them; dropped
+   (the response cancelled) if that file did not open as the first new tab. */
+let earlyFile = null;
+function dropEarlyFile() {
+    if (earlyFile) earlyFile.req.then(r => r.body && r.body.cancel(), () => { });
+    earlyFile = null;
+}
+
 async function hasPerm(handle, mode) {
     if (!handle || !handle.queryPermission) return true;
     return await handle.queryPermission({ mode }) === 'granted';
@@ -159,9 +167,13 @@ function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandl
         if (!first) first = t;
     });
     /* A bridge tab's bytes are asked for now, before the tab is drawn: the request no longer
-       waits for that drawing (2–7 ms), it travels meanwhile. tabBytes() takes it. The scan's
-       workers start as early (45-…). */
-    if (first.path) first.early = srvFetch(srvFileUrl(first.path));
+       waits for that drawing (2–7 ms), it travels meanwhile. tabBytes() takes it — or the one
+       viewer.htm already sent for the file the launcher queued (earlyFile). The scan's workers
+       start as early (45-…). */
+    if (first.path) {
+        first.early = earlyFile && earlyFile.path === first.path ? earlyFile.req : srvFetch(srvFileUrl(first.path));
+        if (earlyFile && earlyFile.path === first.path) earlyFile = null;
+    }
     scanAhead(first.size || 0);
     renderTabBar();
     activateTab(first.id);                // only this one gets parsed now
@@ -200,6 +212,7 @@ async function addPathTabs(paths, stats) {
         }
     }
     addTabs(entries);
+    dropEarlyFile();                      // not taken by addTabs(): not opened as the first new tab
 }
 
 async function addHandles(handles, dirHandle) {

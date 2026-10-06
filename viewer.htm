@@ -3,6 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <title>csvfab</title>
+    <!-- The session token stays in this page, never in a script file: a hostile page could
+         include a script from 127.0.0.1 and read its globals, but cannot read this HTML. -->
+    <script>window.CSVFAB_TOKEN = '__CSVE_TOKEN__';
+        /* The files the launcher queued (csvfab x.csv) are asked for from here, first thing in the
+           page, rather than once app.js has run (~40 ms later): the long poll's first answer, and the
+           bytes of the first file, which the server names here (CSVFAB_QUEUED, without taking it off
+           the queue). drain() and addTabs() (04-, 02-…) take both. Not a workbook, JSON or database:
+           those are converted first (27-…). */
+        window.CSVFAB_QUEUED = null;
+        (function (h, q) {
+            if (!window.fetch) return;
+            window.CSVFAB_EARLY = fetch('/api/pending?wait=0', { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+            if (q && q.stat && !/\.(xlsx|xlsm|json|jsonl|ndjson|sqlite|sqlite3|db|db3)$/i.test(q.path))
+                window.CSVFAB_FILE = { path: q.path, req: fetch('/api/file?path=' + encodeURIComponent(q.path), { headers: h }) };
+        })({ 'X-Csv-Token': window.CSVFAB_TOKEN }, window.CSVFAB_QUEUED);</script>
     <!-- The theme is applied before the first paint, so the other one never flashes — and
          its background with it, set on <html> right here: the window's first frames, before
          the stylesheets arrive, are the theme's colour rather than the browser's default.
@@ -18,9 +33,6 @@
     <script>window.Papa || document.write('<scr'+'ipt src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"><\/scr'+'ipt>');</script>
     <link rel="stylesheet" href="ui/themes.css">
     <link rel="stylesheet" href="ui/app.css">
-    <!-- The session token stays in this page, never in a script file: a hostile page could
-         include a script from 127.0.0.1 and read its globals, but cannot read this HTML. -->
-    <script>window.CSVFAB_TOKEN = '__CSVE_TOKEN__';</script>
 </head>
 <body>
 

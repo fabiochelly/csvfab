@@ -1,6 +1,9 @@
 """La page, le script de l'app et ses fichiers statiques (sans jeton)."""
 
+import json
 import os
+import re
+import time
 
 from .. import config
 from ..httpd import HttpError
@@ -43,22 +46,66 @@ CSP = "; ".join([
 _app_js = None          # (signature des sources, corps, etag)
 
 
+# Les fichiers que la page charge en tête, appelés sous leur version (?v=) : servis
+# alors comme immuables (httpd.send_cached), ils ne coûtent plus d'aller-retour.
+VERSIONED = re.compile(r'((?:src|href)=")(app\.js|papaparse\.min\.js|ui/[\w-]+\.css|icons/csvfab\.svg)(")')
+
+
+_vers = (0.0, None)      # (instant, versions) : relues au plus une fois par seconde
+
+
+def _versions():
+    """Les versions des fichiers de l'en-tête. Les recalculer (~50 stat) coûtait 0,07 ms à chaque
+    page : gardées une seconde. Une page servie entre-temps avec une version dépassée reste juste —
+    send_cached ne rend immuable que la version courante, l'autre est revalidée comme avant."""
+    global _vers
+    now = time.monotonic()
+    if _vers[1] is None or now - _vers[0] > 1.0:
+        _vers = (now, {n: _version(n) for n in ("app.js", "papaparse.min.js", "ui/themes.css", "ui/app.css", "icons/csvfab.svg")})
+    return _vers[1]
+
+
+def _version(name):
+    if name == "app.js":
+        return _app_js_now()[2]
+    st = os.stat(os.path.join(config.APP_DIR, name))
+    return f"{st.st_mtime_ns:x}-{st.st_size:x}"
+
+
 def page(req):
-    """viewer.htm, jeton injecté dans le marqueur du script. Gardée prête à
-    l'envoi tant que le fichier ne change pas (date, taille) : ni relecture, ni
-    décodage, ni remplacement, ni encodage de ses ~45 Ko à chaque chargement."""
+    """viewer.htm, jeton injecté dans le marqueur du script, et chaque fichier de
+    l'app qu'elle charge appelé sous sa version. Gardée prête à l'envoi tant que
+    rien de cela ne change : ni relecture, ni décodage, ni remplacement, ni
+    encodage de ses ~45 Ko à chaque chargement."""
     global _page
     try:
         st = os.stat(VIEWER)
-        sig = (st.st_mtime_ns, st.st_size, req.server.token)
+        vers = _versions()
+        sig = (st.st_mtime_ns, st.st_size, req.server.token, tuple(vers.values()))
         cached = _page
         if cached is None or cached[0] != sig:
             with open(VIEWER, "r", encoding="utf-8") as f:
                 html = f.read()
+
+            def versioned(m):
+                v = vers.get(m.group(2)) or _version(m.group(2))
+                return f"{m.group(1)}{m.group(2)}?v={v}{m.group(3)}"
+            html = VERSIONED.sub(versioned, html)
             cached = _page = (sig, html.replace("__CSVE_TOKEN__", req.server.token).encode("utf-8"))
     except OSError as e:
         raise HttpError(500, f"viewer.htm illisible : {e}", text=True)
-    req.send(200, cached[1], "text/html; charset=utf-8", {"Content-Security-Policy": CSP})
+    body = cached[1]
+    queued = req.server.session.queued()
+    if queued:
+        # Le fichier que le lanceur a mis en file, nommé dans la page pour que son en-tête en
+        # demande les octets aussitôt (~40 ms avant que app.js ait tourné et sondé). La file
+        # n'est pas vidée : /api/pending rend ces chemins comme avant. Du JSON dans un <script> :
+        # « < » échappé, un chemin ne peut pas fermer la balise.
+        from .windows import _stat
+        p = queued[0]
+        info = json.dumps({"path": p, "stat": _stat(p)}).replace("<", "\\u003c")   # ensure_ascii : ni U+2028 ni U+2029 bruts
+        body = body.replace(b"window.CSVFAB_QUEUED = null", b"window.CSVFAB_QUEUED = " + info.encode("utf-8"), 1)
+    req.send(200, body, "text/html; charset=utf-8", {"Content-Security-Policy": CSP})
 
 
 def app_js(req):
@@ -72,6 +119,12 @@ def app_js(req):
     dates, tailles) : relire et hacher ~450 Ko à chaque chargement coûtait ~2 ms,
     un stat par fichier coûte quelques µs — et modifier un fichier reste visible
     au rechargement suivant."""
+    cached = _app_js_now()
+    req.send_cached(cached[1], "text/javascript; charset=utf-8", cached[2])
+
+
+def _app_js_now():
+    """(signature des sources, corps, etag) de /app.js, réassemblé s'il le faut."""
     global _app_js
     try:
         names = sorted(f for f in os.listdir(JS_DIR) if f.endswith(".js"))
@@ -90,7 +143,7 @@ def app_js(req):
             cached = _app_js = (sig, body, hashlib.sha1(body).hexdigest()[:20])
     except OSError as e:
         raise HttpError(500, f"ui/js illisible : {e}", text=True)
-    req.send_cached(cached[1], "text/javascript; charset=utf-8", cached[2])
+    return cached
 
 
 def static(req):

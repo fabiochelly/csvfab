@@ -37,6 +37,11 @@ class Session:
         with self._cond:
             return self._polling > 0 or (self._seen_once and self.clock() - self._last_seen < POLL_ALIVE)
 
+    def queued(self):
+        """Les chemins en attente, sans les retirer de la file (la page les inscrit dans son en-tête)."""
+        with self._cond:
+            return list(self._queue)
+
     def polling(self):
         with self._cond:
             return self._polling
