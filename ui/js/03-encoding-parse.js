@@ -201,9 +201,12 @@ async function parseTab(t) {
 
 /* What drawing the file does not need, once it is drawn: the fingerprint of the bytes as read
    (checkDisk's proof that a same-size file with another date is still ours) and the
-   garbled-accents hint (the first 16 MB are plenty to notice it) — 2–6 ms on a 2–24 MB file,
-   plus the hashing above. After the next frame; a hidden window has none, hence the timer too.
-   checkDisk() runs it at once if a save comes first (t.afterShown), then waits for t.fpWait. */
+   garbled-accents hint (the first 16 MB are plenty to notice it). After the next frame; a hidden
+   window has none, hence the timer too. Both run in a worker (checkOff): on the page they held it
+   right after the first frame — crypto.subtle.digest hashes on the calling thread, and the hint
+   decodes up to 16 MB: 6 ms for 2.4 MB, ~30 ms for 24 MB, measured from a fresh page. The page only
+   copies the bytes. checkDisk() runs it at once if a save comes first (t.afterShown), then waits
+   for t.fpWait. */
 function afterShown(t, base) {
     let done = false;
     const go = t.afterShown = () => {
@@ -211,12 +214,50 @@ function afterShown(t, base) {
         done = true;
         if (t.afterShown === go) t.afterShown = null;
         if (t.base !== base) return;      // read again, or released, meanwhile
-        t.mojibake = base.n > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, Math.min(base.u8.length, 16 << 20))));
-        const stamp = t.stamp;
-        if (stamp && !stamp.fp) t.fpWait = fingerprint(fileBytes(base)).then(fp => { if (t.stamp === stamp) stamp.fp = fp; }, () => { });
+        const stamp = t.stamp, fb = fileBytes(base), mlen = base.n > 0 ? Math.min(base.u8.length, 16 << 20) : 0;
+        const hashIt = !!stamp && !stamp.fp && fb.length <= 64 << 20;   // past 64 MB it was taken before the scan
+        const log = t.modificationsLog, n0 = log.length, last0 = log[n0 - 1];
+        const apply = (moji, fp) => {
+            /* An edit since (a clean-up repairing the accents) would make the hint stale: kept as it is. */
+            if (t.base === base && log === t.modificationsLog && log.length === n0 && log[n0 - 1] === last0) { t.mojibake = moji; if (T() === t) updateMojiChip(t); }
+            if (fp && t.stamp === stamp) stamp.fp = fp;
+        };
+        const here = () => {              // no worker, or it failed: as it was done before
+            apply(mlen > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, mlen))), null);
+            if (stamp && !stamp.fp) return fingerprint(fb).then(fp => apply(t.mojibake, fp), () => { });
+        };
+        if (typeof Worker !== 'function') { t.fpWait = here() || null; return; }
+        /* One copy when the scanned bytes are the file's own (not UTF-16): the hint reads its part. */
+        const one = hashIt && !base.orig, at = one ? base.u8.byteOffset - fb.byteOffset : 0;
+        const hash = hashIt ? fb.slice().buffer : null, moji = one ? null : base.u8.slice(0, mlen).buffer;
+        t.fpWait = checkOff({ hash, moji, from: at, to: at + mlen, enc: base.transcoded ? 'utf-8' : base.enc }, [hash, moji].filter(Boolean))
+            .then(r => r.error ? here() : apply(!!r.moji, r.fp || null), () => here());
     };
     requestAnimationFrame(() => setTimeout(go, 0));
     setTimeout(go, 250);
+}
+/* The worker of afterShown(), kept once started; its answers matched to their request by id. */
+let checkW = null, checkSeq = 0;
+const checkWait = new Map();
+function checkOff(msg, transfer) {
+    if (!checkW) {
+        const src = `let mojiRe = null; const sbTables = {}; const utf8Strict = new TextDecoder('utf-8', { fatal: true });\n${sbTable}\n${mojibakeRe}\n${unmoji}\n${hasMojibake}\n(${checkWorker})()`;
+        checkW = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+        checkW.onmessage = e => { const f = checkWait.get(e.data.id); checkWait.delete(e.data.id); if (f) f.res(e.data); };
+        checkW.onerror = () => { for (const f of checkWait.values()) f.rej(new Error('check worker')); checkWait.clear(); checkW.terminate(); checkW = null; };
+    }
+    return new Promise((res, rej) => { const id = ++checkSeq; checkWait.set(id, { res, rej }); checkW.postMessage({ ...msg, id }, transfer); });
+}
+function checkWorker() {
+    onmessage = async e => {
+        const { id, hash, moji, from, to, enc } = e.data, out = { id };
+        try {
+            const m = moji ? new Uint8Array(moji) : new Uint8Array(hash);
+            if (to > from) out.moji = hasMojibake(new TextDecoder(enc, { ignoreBOM: true }).decode(m.subarray(from, to)));
+            if (hash) out.fp = [...new Uint8Array(await crypto.subtle.digest('SHA-256', hash))].map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (err) { out.error = String(err && err.message || err); }
+        postMessage(out);
+    };
 }
 
 /* --- Progress helpers --- */

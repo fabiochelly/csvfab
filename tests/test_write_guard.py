@@ -192,6 +192,25 @@ class WriteGuardPageTest(unittest.TestCase):
             self.assertEqual(out[1:4], out[4:7], name)
             self.assertEqual(out[7], name)
 
+    def test_garbled_accents_hint_shows_by_itself(self):
+        # Le contrôle des accents abîmés tourne après l'affichage (dans un worker) : sa pastille doit
+        # apparaître d'elle-même, sans attendre un filtre ou un changement d'onglet ; et rester
+        # cachée pour un fichier sain.
+        for name, data, want in (("moji.csv", "nom;ville\r\nÃ‰lodie;NÃ®mes\r\n".encode("utf-8"), True),
+                                 ("sain.csv", "nom;ville\r\nÉlodie;Nîmes\r\n".encode("utf-8"), False)):
+            p = self.b.tmp(name)
+            with open(p, "wb") as f:
+                f.write(data)
+            out = self.chrome.eval(f"""(async () => {{
+                await addPathTabs([{p!r}]);
+                const t = tabs.find(x => x.path === {p!r});
+                await tabRows(t);
+                for (let i = 0; i < 100 && !t.stamp.fp; i++) await new Promise(r => setTimeout(r, 20));
+                await new Promise(r => setTimeout(r, 50));
+                return [t.mojibake, document.getElementById('moji-chip').style.display !== 'none'];
+            }})()""")
+            self.assertEqual(out, [want, want], name)
+
     def test_save_right_after_opening_knows_its_own_file(self):
         # Enregistré avant que l'empreinte différée ait tourné, un fichier dont seule la date a
         # changé (un client de synchro la réécrit) est toujours reconnu : checkDisk la prend alors.
