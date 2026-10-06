@@ -3,8 +3,8 @@
 # macos/build-app.sh (an AppleScript applet: nothing downloaded as an app, so no
 # Gatekeeper quarantine). The formula of the same name is the command line alone.
 cask "csvfab" do
-  version "1.19.0"
-  sha256 "e8b0a04fda05ae6065cea26f6eb5456c6ed275ba3ac85494a94617d3b879f7b7"
+  version "1.19.1"
+  sha256 "3f6aeb3212d361f0b5a6c4e4ed18ebe077e86f7f596b76603aad8e152b3f150a"
 
   url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v#{version}.tar.gz"
   name "csvfab"
