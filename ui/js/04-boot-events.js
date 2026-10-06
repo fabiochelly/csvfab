@@ -21,7 +21,7 @@ if (SRV) {
                 const r = await srvFetch('/api/pending?wait=8');
                 if (!r.ok) throw new Error(r.status);
                 const j = await r.json();
-                if (j.paths && j.paths.length) addPathTabs(j.paths);
+                if (j.paths && j.paths.length) addPathTabs(j.paths, j.stats);
             } catch (e) { await new Promise(res => setTimeout(res, 1500)); }   // server stopped or restarting
         }
     };

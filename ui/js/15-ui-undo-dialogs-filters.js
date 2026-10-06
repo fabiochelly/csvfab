@@ -518,11 +518,15 @@ window.onresize = resizeContainer;
    moment. A window launched from the file manager is born small and then
    tiled to full size by the compositor, so without this the first slice
    (a dozen rows) stayed alone until the user scrolled. The observer also
-   covers the toolbar wrapping and the replace bar opening. */
-let resizeFrame = 0;
+   covers the toolbar wrapping and the replace bar opening. A new size is
+   met the way a scroll is (renderOnScroll): the rows drawn stay, the ones
+   now in view are added — a full redraw here came right after every file
+   was shown (its scrollbars appear with its rows: 24 px less of width and
+   height), ~10 ms for what the grow had just drawn. Any render meanwhile
+   drew at the new size, and cancels it (12-…). */
 new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
-    resizeFrame = requestAnimationFrame(() => render());   // not render itself: the frame time would pass as its lean flag
+    resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; renderOnScroll(); });
 }).observe(container);
 function debounce(f, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; }
 

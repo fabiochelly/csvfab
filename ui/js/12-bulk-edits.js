@@ -577,6 +577,11 @@ function renderOnScroll() {
 function render(lean) {
     const t = T();
     drawn = null;
+    /* Drawn at the size the container has now: a redraw the resize observer asked for (15-…) is
+       done. Left pending, it ran in the next frame — when a file had just been read, the frame
+       meant to show its lean window (the tab bar appearing resizes the grid while the file is
+       read): a full redraw there, ~10 ms, then its paint. */
+    if (resizeFrame) { cancelAnimationFrame(resizeFrame); resizeFrame = 0; }
     clearTimeout(jumpTimer); jumpTimer = 0;   // a redraw for any reason: nothing left to catch up
     syncLayer();
     tbody.classList.toggle('tx', !!(t && t.lang));   // a text file: lines striped, no rules between them (33-…)
@@ -596,7 +601,7 @@ function render(lean) {
    window first (the viewport and a quarter of a screen around it, as a scroll jump draws), then,
    after that frame, the rest grown the way a scroll step grows it (renderOnScroll). A full
    window is ~4 times the cells of a lean one, and their layout is most of a redraw. */
-let growFrame = 0;
+let growFrame = 0, resizeFrame = 0;   // resizeFrame: a redraw the resize observer asked for (15-…)
 function renderFirst() {
     render(true);
     cancelAnimationFrame(growFrame);

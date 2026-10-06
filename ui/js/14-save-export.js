@@ -477,10 +477,19 @@ async function refreshStamp(t) {
     if (t.stamp) { try { t.stamp.fp = await fingerprint(await tabFile(t)); } catch (e) { } }
 }
 /* SHA-256 of the bytes — of their first, middle and last MB past 64 MB, which
-   is plenty to tell our own write from someone else's same-size edit. */
-async function fingerprint(blob) {                 // a Blob / File, an ArrayBuffer or a byte view
-    const buf = !(blob instanceof Blob), n = buf ? blob.byteLength : blob.size, M = 1 << 20;
-    const part = n <= 64 * M ? blob : new Blob([blob.slice(0, M), blob.slice(Math.floor(n / 2) - M / 2, Math.floor(n / 2) + M / 2), blob.slice(n - M)]);
+   is plenty to tell our own write from someone else's same-size edit. sampled:
+   those three MB whatever the size (the reopen cache's key, 03-…). */
+async function fingerprint(blob, sampled) {        // a Blob / File, an ArrayBuffer or a byte view
+    const buf = !(blob instanceof Blob), n = buf ? blob.byteLength : blob.size, M = 1 << 20, h = Math.floor(n / 2) - M / 2;
+    let part = blob;
+    if (n > 64 * M || (sampled && n > 3 * M)) {
+        if (!buf) part = new Blob([blob.slice(0, M), blob.slice(h, h + M), blob.slice(n - M)]);
+        else {                                     // bytes in hand: copied side by side (through a Blob: 9 ms instead of 3)
+            const u = blob instanceof ArrayBuffer ? new Uint8Array(blob) : new Uint8Array(blob.buffer, blob.byteOffset, n);
+            part = new Uint8Array(3 * M);
+            part.set(u.subarray(0, M)); part.set(u.subarray(h, h + M), M); part.set(u.subarray(n - M), 2 * M);
+        }
+    }
     const d = await crypto.subtle.digest('SHA-256', part instanceof Blob ? await part.arrayBuffer() : part);
     return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }

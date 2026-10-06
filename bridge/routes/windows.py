@@ -32,9 +32,21 @@ def pending(req):
     if paths is None:
         return
     try:
-        req.json(200, {"paths": paths})
+        req.json(200, {"paths": paths, "stats": [_stat(p) for p in paths]})
     except (BrokenPipeError, ConnectionResetError):
         pass
+
+
+def _stat(p):
+    """Ce que la page demandait aussitôt par /api/stat pour ouvrir le chemin (nom, taille) :
+    un aller-retour de moins, ~4 ms, avant la lecture du fichier. None : pas un fichier — la
+    page redemande alors, et dit pourquoi comme avant."""
+    try:
+        if os.path.isfile(p):
+            return {"name": os.path.basename(p), "size": os.path.getsize(p)}
+    except OSError:
+        pass
+    return None
 
 
 def _paths(req):

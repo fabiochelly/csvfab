@@ -1,5 +1,6 @@
 """La file des chemins à ouvrir, le sondage long et le signal « une fenêtre vit »."""
 
+import json
 import os
 import socket
 import threading
@@ -39,8 +40,19 @@ class SessionTest(unittest.TestCase):
     def test_pending_waits_then_answers_empty(self):
         t0 = time.time()
         r = self.b.get("/api/pending?wait=0.5")
-        self.assertEqual(r.json(), {"paths": []})
+        self.assertEqual(r.json(), {"paths": [], "stats": []})
         self.assertGreaterEqual(time.time() - t0, 0.45)
+
+    def test_pending_says_name_and_size(self):
+        # Ce que la page demandait aussitôt par /api/stat : nom et taille, None pour ce qui n'est pas un fichier.
+        f = self.b.tmp("a b.csv")
+        with open(f, "wb") as h:
+            h.write(b"x;y\n1;2\n")
+        gone = self.b.tmp("absent.csv")
+        self.b.post("/api/open", json.dumps({"paths": [f, gone]}).encode())
+        j = self.b.get("/api/pending?wait=0").json()
+        self.assertEqual(j["paths"], [os.path.realpath(f), os.path.realpath(gone)])
+        self.assertEqual(j["stats"], [{"name": "a b.csv", "size": 8}, None])
 
     def test_pending_wait_is_capped(self):
         # ?wait= est borné à POLL_MAX (10 s) ; une valeur illisible vaut 0.

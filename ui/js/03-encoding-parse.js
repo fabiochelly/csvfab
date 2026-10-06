@@ -118,21 +118,31 @@ async function parseTab(t) {
        than streaming them anywhere: the raw bytes are what we keep. */
     let base;
     try {
-        const src = await tabBytes(t, active() ? setProgress : null); t.size = src.bytes.byteLength;
+        scanAhead(t.size || 0);           // the scan's workers start while the bytes travel (45-…)
+        /* A big bridge file is scanned as it arrives, its slices leaving as their bytes come in (45-…, scanStream). */
+        const how = { encoding: t.encoding, delimiter: t.delimiter, lines: t.delimiter === '\n' };
+        const feed = t.path && t.size >= SCAN_PAR.min ? byteFeed() : null, stream = feed && scanStream(feed, how);
+        let src = null;
+        try { src = await tabBytes(t, active() ? setProgress : null, feed); }
+        finally { if (feed) feed.end(src && feed.u8 && src.bytes === feed.u8.buffer); }
+        t.size = src.bytes.byteLength;
         if (t.path) t.name = src.stat ? src.stat.name : (await srvStat(t.path)).name;
         t.stamp = await diskStamp(t, src.file, src.stat);
         /* The fingerprint is not taken here, ahead of the scan: crypto.subtle.digest hashes on the
            calling thread before it returns (Chromium, measured: 1.7 ms for 2 MB, 15 ms for 24 MB),
            so "hashed meanwhile" was a wait. afterShown() takes it from the bytes kept — except for a
-           big file, whose fingerprint keys the reopen cache, looked up before any scan. */
-        if (t.stamp && src.bytes.byteLength >= IDX_MIN) t.stamp.fp = await fingerprint(src.bytes);
+           big file, whose fingerprint keys the reopen cache, looked up before any scan: of its first,
+           middle and last MB only (~2 ms), which past 64 MB is the fingerprint itself. Up to 64 MB it
+           was the whole file here, ~25 ms before the scan; the full one now waits for afterShown(). */
+        const len = src.bytes.byteLength, fp = t.stamp && len >= IDX_MIN ? await fingerprint(src.bytes, true) : null;
+        if (fp && len > 64 << 20) t.stamp.fp = fp;
         const phases = { transcode: 'Converting', scan: 'Reading' };
         let shown = '';
         /* A big file gets its scan kept for the next opening (21-…, REOPEN CACHE), keyed by what
            would make it wrong: the bytes (size, date, fingerprint) and how they are read. */
-        const cache = src.bytes.byteLength >= IDX_MIN && t.stamp && t.stamp.fp
-            ? { key: [src.bytes.byteLength, t.stamp.mtime, t.stamp.fp, t.encoding || '', t.delimiter || '', t.delimiter === '\n' ? 'lines' : ''].join('|'), name: t.name } : null;
-        base = await loadBase(src.bytes, { encoding: t.encoding, delimiter: t.delimiter, lines: t.delimiter === '\n', cache }, (p, ph) => {
+        const cache = fp
+            ? { key: [len, t.stamp.mtime, fp, t.encoding || '', t.delimiter || '', t.delimiter === '\n' ? 'lines' : ''].join('|'), name: t.name } : null;
+        base = await loadBase(src.bytes, { ...how, cache, stream }, (p, ph) => {
             if (!active()) return;
             if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
             setProgress(p);

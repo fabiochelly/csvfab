@@ -25,6 +25,7 @@ const SCAN_PAR = {
     over: 1 << 20,          // bytes of the next slice copied with a slice, for its overflow and its last record
     scanOver: 64 << 10,     // how far past its end a slice's overflow looks for record starts
     checkpoints: 1024,      // first records of a slice where the stitching may join it
+    head: 1 << 20,          // bytes of a file still arriving its first record is looked for in (else: all of them)
     workers: Math.max(2, Math.min(16, (navigator.hardwareConcurrency || 4) - 2)),
 };
 let scanPool = null;        // workers kept between files: starting them costs more than a small scan
@@ -37,6 +38,16 @@ function scanParWorkers(k) {
     while (scanPool.length < k) scanPool.push(new Worker(scanParUrl));
     return scanPool.slice(0, k);
 }
+/* The workers a file of `size` bytes will scan in, started while its bytes travel (parseTab, 03-…):
+   started when the scan begins, they made a first file wait for them — measured from a fresh page,
+   5–13 ms for the single worker (the one kept is only started 1.5 s after load), ~30 ms for the
+   split scan's. Once started they are kept, as before. */
+function scanAhead(size) {
+    if (typeof Worker !== 'function') return;
+    if (size < SCAN_PAR.min) { if (!idleWorker) idleWorker = scanWorker(); return; }
+    const per = Math.max(SCAN_PAR.slice || Math.ceil(size / SCAN_PAR.workers), SCAN_PAR.slice ? 1 : SCAN_PAR.minSlice);
+    if (!scanBusy) scanParWorkers(Math.min(Math.ceil(size / per), SCAN_PAR.workers));
+}
 function scanParWorker() {
     onmessage = e => {
         const { id, buf, o } = e.data;
@@ -48,55 +59,132 @@ function scanParWorker() {
 }
 
 /* The scan's result for msg (as runScan() gives it), or null when the file is not worth
-   splitting or the stitching gave up — the caller then scans it whole. The buffer stays the
-   caller's: only copies of its slices go to the workers. */
-async function scanParallel(msg, onProgress) {
+   splitting, false when the stitching (or a worker) gave up — the caller then scans it whole.
+   The buffer stays the caller's: only copies of its slices go to the workers. feed: the bytes
+   are still arriving (scanStream below) — each step waits for the ones it reads, and a slice
+   leaves as soon as its own are in, rather than after the file's last byte. */
+async function scanParallel(msg, onProgress, feed) {
     const { buf, enc, validate, delim, nl, bom, lines } = msg;
     scanParWhy = '';
     if (enc.startsWith('utf-16') || typeof Worker !== 'function') return (scanParWhy = 'utf-16'), null;
     const u8 = new Uint8Array(buf).subarray(bom), len = u8.length;
     if (len < SCAN_PAR.min) return (scanParWhy = 'small'), null;
+    if (scanBusy) return (scanParWhy = 'busy'), null;
+    const have = feed ? n => feed.until(bom + Math.min(n, len)) : null;   // the first n bytes of u8 are in
+    const got = () => (feed ? feed.seen - bom : len);
     const NL = nl, wantChars = enc === 'utf-8', base = { delim, nl, lines, wantChars };
-    const head = csvScanCore(u8, { ...base, wantChars: false, limit: 1 });   // the file's width: its first record's field count
-    if (!head.n) return (scanParWhy = 'empty'), null;
-    const per = Math.max(SCAN_PAR.slice || Math.ceil(len / SCAN_PAR.workers), SCAN_PAR.slice ? 1 : SCAN_PAR.minSlice);
-    /* The cuts are line starts, the first one at or after every per bytes: a line longer than a
-       slice merges the slices it spans, instead of leaving one with no place to start. */
-    const cuts = [0];
-    for (let p = per; p < len; p += per) {
-        const from = u8.indexOf(NL, p - 1) + 1;
-        if (from <= 0 || from >= len) break;
-        if (from > cuts[cuts.length - 1]) cuts.push(from);
-    }
-    cuts.push(len);
-    const jobs = [];
-    for (let k = 0; k + 1 < cuts.length; k++) {
-        const from = cuts[k], next = cuts[k + 1], end = Math.min(len, next + SCAN_PAR.over);
-        jobs.push({ from, end, o: { ...base, width: head.width, mainEnd: next - from, stop: Math.min(end, next + SCAN_PAR.scanOver) - from, atEnd: end === len, checkpoints: SCAN_PAR.checkpoints } });
-    }
-    if (jobs.length < 2 || scanBusy) return (scanParWhy = scanBusy ? 'busy' : 'one slice'), null;
     scanBusy = true;
-    const ws = scanParWorkers(Math.min(jobs.length, SCAN_PAR.workers));
-    const res = await new Promise(resolve => {
-        const out = new Array(jobs.length);
-        let next = 0, left = jobs.length, failed = false;
-        const give = w => {
-            if (next >= jobs.length || failed) return;
-            const k = next++, j = jobs[k], copy = u8.slice(j.from, j.end);
-            w.onmessage = e => {
-                if (e.data.error) { failed = true; scanParWhy = e.data.error; return resolve(null); }
-                out[k] = e.data.r;
-                left--;
-                if (onProgress) onProgress(1 - left / jobs.length);
-                if (!left) resolve(out); else give(w);
+    try {
+        /* The file's width: its first record's field count — on the first MB if it holds that record. */
+        let head = null;
+        if (have) {
+            const k = Math.min(len, SCAN_PAR.head);
+            await have(k);
+            head = csvScanCore(u8.subarray(0, k), { ...base, wantChars: false, limit: 1, atEnd: k === len });
+            if (head.fail || !head.n) { await have(len); head = null; }
+        }
+        if (!head) head = csvScanCore(u8, { ...base, wantChars: false, limit: 1 });
+        if (!head.n) return (scanParWhy = 'empty'), null;
+        const per = Math.max(SCAN_PAR.slice || Math.ceil(len / SCAN_PAR.workers), SCAN_PAR.slice ? 1 : SCAN_PAR.minSlice);
+        const ws = scanParWorkers(Math.min(Math.ceil(len / per), SCAN_PAR.workers));
+        const jobs = [], seq = ++scanJobs;
+        const res = await new Promise(resolve => {
+            const out = [], idle = [];
+            let next = 0, done = 0, planned = false, failed = false;
+            const fail = why => { if (!failed) { failed = true; if (why) scanParWhy = why; resolve(false); } };
+            const give = w => {
+                if (failed) return;
+                if (next >= jobs.length) { if (!planned) idle.push(w); return; }
+                const k = next++, j = jobs[k];
+                const send = () => {
+                    if (failed) return;
+                    const copy = u8.slice(j.from, j.end);
+                    w.onmessage = e => {
+                        if (e.data.id !== seq + ':' + k) return;          // a job of a scan given up (its worker was busy)
+                        if (e.data.error) return fail(e.data.error);
+                        out[k] = e.data.r; done++;
+                        if (onProgress && planned) onProgress(done / jobs.length);
+                        if (planned && done === jobs.length) resolve(out); else give(w);
+                    };
+                    w.onerror = () => fail('a worker failed');
+                    w.postMessage({ id: seq + ':' + k, buf: copy.buffer, o: j.o }, [copy.buffer]);
+                };
+                if (have) have(j.end).then(send, () => fail('the read failed')); else send();
             };
-            w.onerror = () => { failed = true; resolve(null); };
-            w.postMessage({ id: k, buf: copy.buffer, o: j.o }, [copy.buffer]);
-        };
-        ws.forEach(give);
-    }).finally(() => { scanBusy = false; });
-    const st = res && scanStitch(res, jobs, len, enc, validate, wantChars, head.width);
-    return st && { ...st, buf, off: new Uint8Array(buf).byteOffset + bom, len, orig: null };
+            const addJob = (from, next) => {
+                const end = Math.min(len, next + SCAN_PAR.over);
+                jobs.push({ from, end, o: { ...base, width: head.width, mainEnd: next - from, stop: Math.min(end, next + SCAN_PAR.scanOver) - from, atEnd: end === len, checkpoints: SCAN_PAR.checkpoints } });
+                if (have && idle.length) give(idle.shift());       // arriving: a slice leaves as soon as it is known
+            };
+            /* The cuts are line starts, the first one at or after every per bytes: a line longer than a
+               slice merges the slices it spans, instead of leaving one with no place to start. */
+            const plan = async () => {
+                let prev = 0;
+                for (let p = per; p < len; p += per) {
+                    let from = 0;
+                    for (let at = p - 1; ;) {                     // the first line break from p - 1, once its bytes are in
+                        const n = got(), k = (n >= len ? u8 : u8.subarray(0, n)).indexOf(NL, at);
+                        if (k >= 0) { from = k + 1; break; }
+                        if (n >= len) break;
+                        at = Math.max(at, n);
+                        await have(n + 1);
+                    }
+                    if (from <= 0 || from >= len) break;
+                    if (from > prev) { addJob(prev, from); prev = from; }
+                }
+                addJob(prev, len);
+                planned = true;
+                if (jobs.length < 2) return fail('one slice');
+                if (!have) ws.forEach(give);                     // whole: every slice known before any leaves, as before
+                else { while (idle.length && next < jobs.length) give(idle.shift()); idle.length = 0; }
+                if (done === jobs.length) resolve(out);
+            };
+            if (have) ws.forEach(give);                          // they wait, idle, for the first slices
+            plan().catch(() => fail('the read failed'));
+        });
+        if (!res) return false;
+        const st = scanStitch(res, jobs, len, enc, validate, wantChars, head.width);
+        return st ? { ...st, buf, off: new Uint8Array(buf).byteOffset + bom, len, orig: null } : false;
+    } finally { scanBusy = false; }
+}
+let scanJobs = 0;
+
+/* A response read into its buffer as it arrives (tabBytes, 02-…), watched from elsewhere: the bytes
+   so far, and until(n), a wait for the first n — rejected if the read fails or comes up short. */
+function byteFeed() {
+    let waits = [];
+    const f = {
+        u8: null, len: 0, seen: 0, ended: false, ok: false, stat: null,
+        start(u8, stat) { f.u8 = u8; f.len = u8.length; f.stat = stat; wake(); },
+        got(n) { f.seen = n; wake(); },
+        end(ok) { if (f.ended) return; f.ended = true; f.ok = !!ok && !!f.u8 && f.seen === f.len; wake(); },
+        until(n) { return new Promise((res, rej) => { const w = () => test(n, res, rej); if (!w()) waits.push(w); }); },
+    };
+    const test = (n, res, rej) => {
+        if (f.ended && !f.ok) { rej(new Error('read failed')); return true; }
+        if (f.u8 && f.seen >= Math.min(n, f.len)) { res(); return true; }
+        return false;
+    };
+    const wake = () => { if (waits.length) waits = waits.filter(w => !w()); };
+    return f;
+}
+
+/* The split scan of a bridge file while it is read (parseTab, 03-…): planned from its first bytes as
+   loadBase() plans it (scanPlan), its slices scanned as they arrive. Measured (147 MB, no reopen cache, opening to
+   the first frame): 513 → 488 ms. For loadBase's
+   o.stream: { buf, plan, m } — m the scan, false if it gave up — or null when not for this file:
+   small, UTF-16, another split scan running, or a big file the reopen cache may already hold
+   (same size and date: no scan at all is likelier than this one). */
+async function scanStream(feed, o) {
+    try {
+        await feed.until(PLAN_BYTES);
+        if (feed.len < SCAN_PAR.min || scanBusy) return null;
+        if (feed.len >= IDX_MIN && (!feed.stat || await idxMaybe(feed.len, feed.stat.mtime))) return null;
+        const plan = scanPlan(feed.u8.subarray(0, feed.seen), o), buf = feed.u8.buffer;
+        if (plan.enc.startsWith('utf-16')) return null;
+        const m = await scanParallel(scanMsg(buf, plan, o), null, feed);
+        return m === null ? null : { buf, plan, m };
+    } catch (e) { return null; }
 }
 
 /* The slices' results joined into the file's, or null if a slice cannot be joined to the next. */

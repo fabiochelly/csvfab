@@ -99,22 +99,28 @@ async function tabFile(t, onProgress) {
    there is one, for its modification time). A bridge response is read
    straight into a buffer of its Content-Length: no Blob, no second copy.
    It also says what /api/stat would (stat: name, size, mtime) — of the file
-   as it was opened for this read — sparing two round trips per opening. */
-async function tabBytes(t, onProgress) {
+   as it was opened for this read — sparing two round trips per opening.
+   feed: a byteFeed() (45-…) shown the buffer as it fills, for a scan that
+   starts before the last byte; the caller ends it. */
+async function tabBytes(t, onProgress, feed) {
     if (t.path) {
-        const r = await srvFetch(srvFileUrl(t.path));
+        const req = t.early || srvFetch(srvFileUrl(t.path));   // t.early: already asked for by addTabs()
+        t.early = null;
+        const r = await req;
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const h = r.headers, mt = h.get('X-File-Mtime');
         const stat = mt == null ? null : { name: decodeURIComponent(h.get('X-File-Name') || ''), size: Number(h.get('X-File-Size')), mtime: Number(mt), mtime_ns: h.get('X-File-Mtime-Ns') };
         const total = Number(r.headers.get('Content-Length') || 0);
         if (!total || !r.body) return { bytes: await r.arrayBuffer(), file: null, stat };
         const out = new Uint8Array(total), reader = r.body.getReader();
+        if (feed) feed.start(out, stat);
         let seen = 0;
         for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             if (seen + value.length > total) throw new Error('the file grew while it was read');
             out.set(value, seen); seen += value.length;
+            if (feed) feed.got(seen);
             if (onProgress) onProgress(seen / total);
         }
         return { bytes: seen === total ? out.buffer : out.buffer.slice(0, seen), file: null, stat };
@@ -152,6 +158,11 @@ function addTabs(entries) {   // entries: [{name, size, file?, handle?, dirHandl
         tabs.push(t);
         if (!first) first = t;
     });
+    /* A bridge tab's bytes are asked for now, before the tab is drawn: the request no longer
+       waits for that drawing (2–7 ms), it travels meanwhile. tabBytes() takes it. The scan's
+       workers start as early (45-…). */
+    if (first.path) first.early = srvFetch(srvFileUrl(first.path));
+    scanAhead(first.size || 0);
     renderTabBar();
     activateTab(first.id);                // only this one gets parsed now
     recordRecent(entries);
@@ -169,16 +180,20 @@ async function processFiles(fileList) {   // read-only path: <input type=file>, 
 }
 
 /* Paths queued by the launcher. An already-open path is focused rather than
-   opened twice, so re-launching the same file from yazi just switches tab. */
-async function addPathTabs(paths) {
+   opened twice, so re-launching the same file from yazi just switches tab.
+   stats: what the long poll already said of each path (name, size; null when
+   it is not a file), sparing a round trip to /api/stat before the read. */
+async function addPathTabs(paths, stats) {
     const entries = [];
-    for (let p of paths) {
+    for (let i = 0; i < paths.length; i++) {
+        let p = paths[i];
         const raw = await importAsText(baseName(p)); if (raw === null) continue;
         if (importKind(baseName(p)) && !raw) { p = await importPath(p); if (!p) continue; }   // a workbook or JSON: the CSV written beside it
         const known = tabs.find(t => t.path === p);
         if (known) { activateTab(known.id); continue; }
         try {
-            const st = await srvStat(p);
+            const given = stats && p === paths[i] && stats[i];
+            const st = given || await srvStat(p);
             entries.push({ path: p, name: st.name, size: st.size });
         } catch (err) {
             setStats(`Cannot open ${p} — ${err.message || err}`);

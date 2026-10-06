@@ -25,7 +25,11 @@ from tests.cdp import Chrome, find_chromium
 from tests.support import Bridge
 
 BOTH = r"""
-window.__scan = async (path, slice, lines) => {
+// chunk: the bytes handed over as they would arrive from the server (scanParallel's feed), in pieces
+// of 1 to chunk bytes with pauses between them — pseudo-random from a fixed seed, so a failure replays.
+// tight: a slice copied with few bytes past its own (4 slices), the first record looked for in 300 —
+// or, the files being small, every slice of an arriving file would wait for its last byte.
+window.__scan = async (path, slice, lines, chunk, tight) => {
   const ab = await (await srvFetch(srvFileUrl(path))).arrayBuffer();
   const u8 = new Uint8Array(ab), sn = sniffEncoding(u8.subarray(0, 4096)), enc = sn.enc;
   const bom = sn.bom ? (enc === 'utf-8' ? 3 : 2) : 0;
@@ -33,8 +37,29 @@ window.__scan = async (path, slice, lines) => {
   const msg = buf => ({ buf, enc, validate: enc === 'utf-8' && !sn.bom, delim: lines ? -1 : f.delim.charCodeAt(0), nl: f.eol === '\r' ? 13 : 10, bom, lines });
   const keep = { ...SCAN_PAR };
   Object.assign(SCAN_PAR, { min: 0, slice });   // tiny slices, the rest as in use
+  if (tight) Object.assign(SCAN_PAR, { over: 4 * slice, scanOver: 4 * slice, head: 300 });
   let p;
-  try { p = await scanParallel(msg(ab), null); } finally { Object.assign(SCAN_PAR, keep); }
+  try {
+    if (!chunk) p = await scanParallel(msg(ab), null);
+    else {
+      const dst = new Uint8Array(ab.byteLength), feed = byteFeed();
+      const junk = new TextEncoder().encode('"\n;x"\r\n""a;\n');   // what is not there yet must never be read: quotes and breaks, not zeros
+      for (let i = 0; i < dst.length; i++) dst[i] = junk[i % junk.length];
+      let seed = ab.byteLength * 31 + slice + chunk;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296;
+      const pump = (async () => {
+        feed.start(dst, null);
+        for (let i = 0, k = 0; i < u8.length; k++) {
+          const n = 1 + Math.floor(rnd() * chunk);
+          dst.set(u8.subarray(i, i + n), i); i = Math.min(u8.length, i + n); feed.got(i);
+          if (k % 50 === 49) await new Promise(r => setTimeout(r, 0)); else await null;
+        }
+        feed.end(true);
+      })();
+      p = await scanParallel(msg(dst.buffer), null, feed);
+      await pump;
+    }
+  } finally { Object.assign(SCAN_PAR, keep); }
   const s = await runScan(msg(ab.slice(0)), null);
   if (!p) return { fallback: true, why: scanParWhy };
   const arr = x => x ? Array.from(x) : null, out = {};
@@ -113,14 +138,14 @@ class ParScanTest(unittest.TestCase):
 
     why = []
 
-    def check(self, paths, slices, lines=False):
+    def check(self, paths, slices, lines=False, chunk=0, tight=False):
         done = fell = 0
         for p in paths:
             size = os.path.getsize(p)
             for sl in slices:
                 if size // sl > 3000 or size < 2 * sl:
                     continue
-                r = self.chrome.eval(f"__scan({p!r}, {sl}, {str(lines).lower()})", timeout=120)
+                r = self.chrome.eval(f"__scan({p!r}, {sl}, {str(lines).lower()}, {chunk}, {str(tight).lower()})", timeout=120)
                 if r["fallback"]:
                     fell += 1
                     self.why.append((os.path.basename(p), sl, r["why"]))
@@ -150,6 +175,42 @@ class ParScanTest(unittest.TestCase):
     def test_one_invalid_byte(self):
         done, fell = self.check([self.one_bad], [256, 4096, 65536])
         self.assertEqual((done, fell), (3, 0))
+
+    def test_bytes_still_arriving(self):
+        # Le scan lancé pendant la lecture (scanStream) : les tranches partent à mesure que leurs
+        # octets arrivent, par morceaux de taille et de rythme quelconques — même résultat.
+        # Les mêmes tranches qu'à octets tous là (tight des deux côtés) : autant de coutures réussies,
+        # et chacune donne le résultat du scan entier. Le tampon tient d'abord des guillemets et des
+        # sauts de ligne là où rien n'est encore arrivé : une tranche partie trop tôt les lirait.
+        whole = self.check(self.random[:6], [257, 1024, 4096], tight=True)
+        for chunk in (7, 300, 5000):
+            self.assertEqual(self.check(self.random[:6], [257, 1024, 4096], chunk=chunk, tight=True), whole, f"morceaux de {chunk} o")
+        for chunk in (1000, 70000):
+            done, fell = self.check([self.crm, self.one_bad], [4096, 65536], chunk=chunk, tight=True)
+            self.assertEqual(fell, 0, self.why[-3:])
+        self.assertEqual(self.check(self.corpus, [16, 64, 257, 1024, 4096], chunk=50, tight=True),
+                         self.check(self.corpus, [16, 64, 257, 1024, 4096], tight=True))
+
+    def test_open_streamed(self):
+        # Une vraie ouverture d'un fichier de plus de SCAN_PAR.min par le pont : scanné pendant sa
+        # lecture, et la base obtenue est celle du scan entier des mêmes octets.
+        big = os.path.join(self.dir, "big.csv")
+        make_crm(big, 40000)
+        self.assertGreater(os.path.getsize(big), 8 << 20)
+        r = self.chrome.eval(f"""(async () => {{
+  const calls = [], sp = window.scanParallel;
+  window.scanParallel = async (...a) => {{ const m = await sp(...a); calls.push([!!a[2], m === null ? 'null' : m === false ? 'false' : 'ok']); return m; }};
+  try {{ await addPathTabs([{big!r}]); const t = tabs.find(x => x.path === {big!r}); await tabRows(t); }}
+  finally {{ window.scanParallel = sp; }}
+  const B = T().base, ab = fileBytes(B).slice().buffer;
+  const s = await runScan({{ buf: ab, enc: 'utf-8', validate: true, delim: 59, nl: 10, bom: 0, lines: false }}, null);
+  const same = k => JSON.stringify(Array.from(B[k] || [])) === JSON.stringify(Array.from(s[k] || []));
+  return {{ calls, starts: same('starts'), chars: same('chars'), n: B.n === s.n, width: B.width === s.width, qerr: B.qerr === s.qerr, enc: B.enc === s.enc, rows: T().allData.length }};
+}})()""", timeout=120)
+        self.assertEqual(r["calls"][0], [True, "ok"], r)
+        for k in ("starts", "chars", "n", "width", "qerr", "enc"):
+            self.assertTrue(r[k], (k, r))
+        self.assertEqual(r["rows"], 40000)
 
 
 if __name__ == "__main__":

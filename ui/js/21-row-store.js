@@ -219,19 +219,37 @@ function textEol(u8, bom) {
     return { delim: '\n', eol: cr >= 0 && h[cr + 1] === 10 ? '\r\n' : cr >= 0 && lf < 0 ? '\r' : '\n' };
 }
 
-/* Bytes → base. The ArrayBuffer is handed over to the worker (not copied)
-   and comes back as the base's bytes: the caller must not use it after. */
-async function loadBase(ab, o, onProgress) {
-    const u8 = new Uint8Array(ab);
+/* How bytes are read — encoding, BOM, delimiter, line break — from their first PLAN_BYTES at most
+   (o: the tab's choices), so a file still arriving is planned as the whole of it would be (45-…).
+   The scan's message for that plan, on the buffer ab. */
+const PLAN_BYTES = 4096 + (64 << 10);
+function scanPlan(u8, o) {
     const sn = sniffEncoding(u8.subarray(0, 4096));
     const enc = o.encoding || sn.enc;
     const bom = sn.bom && sn.enc === enc ? (enc === 'utf-8' ? 3 : 2) : 0;
     const { delim, eol } = o.lines ? textEol(u8, bom) : o.delim ? { delim: o.delim, eol: o.eol || '\n' } : sniffFormat(u8, enc, bom, o.delimiter);
+    return { enc, bom, delim, eol, validate: !o.encoding && enc === 'utf-8' && !sn.bom };
+}
+function scanMsg(ab, p, o) {
+    return { buf: ab, enc: p.enc, validate: p.validate, delim: o.lines ? -1 : p.delim.charCodeAt(0), nl: p.eol === '\r' ? 13 : 10, bom: p.bom, lines: !!o.lines };
+}
+
+/* Bytes → base. The ArrayBuffer is handed over to the worker (not copied)
+   and comes back as the base's bytes: the caller must not use it after.
+   o.stream: the split scan already run while the bytes arrived (scanStream, 45-…). */
+async function loadBase(ab, o, onProgress) {
+    const u8 = new Uint8Array(ab);
+    const plan = scanPlan(u8, o), { enc, bom, delim, eol } = plan;
     /* A big file read before, unchanged (o.cache: its key, 03-…): the scan's result comes back from
        the reopen cache instead of a pass over every byte (REOPEN CACHE below). */
     const hit = o.cache && !enc.startsWith('utf-16') ? idxUse(await idxGet(o.cache.key), u8, bom) : null;
-    const msg = { buf: ab, enc, validate: !o.encoding && enc === 'utf-8' && !sn.bom, delim: o.lines ? -1 : delim.charCodeAt(0), nl: eol === '\r' ? 13 : 10, bom, lines: !!o.lines };
-    const m = hit || await scanParallel(msg, onProgress) || await runScan(msg, onProgress);   // split over workers (45-…), else whole
+    const msg = scanMsg(ab, plan, o);
+    /* The stream's answer counts only for these very bytes read the same way (it planned from the
+       same first bytes: always so, checked all the same); false: it tried and gave up — the same
+       split would give up again, the scan is then whole. */
+    const st = !hit && o.stream ? await o.stream : null;
+    const same = st && st.buf === ab && ['enc', 'bom', 'delim', 'eol', 'validate'].every(k => st.plan[k] === plan[k]);
+    const m = hit || (same && st.m) || (same && st.m === false ? null : await scanParallel(msg, onProgress)) || await runScan(msg, onProgress);   // split over workers (45-…), else whole
     if (o.cache && !hit && !m.enc.startsWith('utf-16')) {
         const keep = { starts: m.starts, chars: m.chars, odd: m.odd, n: m.n, width: m.width, qerr: m.qerr, enc: m.enc };
         setTimeout(() => idxPut(o.cache.key, o.cache.name, keep), 0);   // after the tab shows; the arrays are copied when stored
@@ -261,8 +279,8 @@ async function loadBase(ab, o, onProgress) {
    for a file of IDX_MIN bytes or more it is kept in IndexedDB
    (csvfab-index: 'data' the arrays, 'meta' {at, bytes, name} so the
    sweep reads no array), keyed by size, mtime, fingerprint (03-…:
-   SHA-256 of the bytes, or of their first, middle and last MB past
-   64 MB) and the reading options — any change, and the key no longer
+   SHA-256 of the file's first, middle and last MB) and the reading
+   options — any change, and the key no longer
    matches. Reopening the same file then skips the scan. Checked before
    use (idxUse: same length, offsets in order at both ends); a cache that
    does not fit is ignored. UTF-16 files are not cached: their scan works
@@ -300,6 +318,18 @@ async function idxPut(key, name, m) {
         tx.objectStore('meta').put({ at: Date.now(), bytes, name }, key);
         tx.oncomplete = () => idxSweep();
     } catch (e) { /* quota, private mode: a cache, nothing lost */ }
+}
+/* Whether an entry may be this file's: one of the same size and date, whatever its fingerprint
+   (the key's next part) — asked before the bytes are all in, when the fingerprint is not known. */
+async function idxMaybe(size, mtime) {
+    const db = await idxDb(); if (!db) return false;
+    const pre = [size, mtime, ''].join('|');
+    return new Promise(res => {
+        try {
+            const q = db.transaction('meta').objectStore('meta').count(IDBKeyRange.bound(pre, pre + '\uffff'));
+            q.onsuccess = () => res(q.result > 0); q.onerror = () => res(true);
+        } catch (e) { res(true); }
+    });
 }
 /* A cached scan, shaped as the worker's answer for these bytes — or null when it cannot be theirs. */
 function idxUse(v, u8, bom) {
