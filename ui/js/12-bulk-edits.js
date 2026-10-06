@@ -592,6 +592,17 @@ function render(lean) {
     syncSpace(t);
 }
 
+/* A redraw the user waits on — a file just read, a tab switched to, a filter typed: the lean
+   window first (the viewport and a quarter of a screen around it, as a scroll jump draws), then,
+   after that frame, the rest grown the way a scroll step grows it (renderOnScroll). A full
+   window is ~4 times the cells of a lean one, and their layout is most of a redraw. */
+let growFrame = 0;
+function renderFirst() {
+    render(true);
+    cancelAnimationFrame(growFrame);
+    growFrame = requestAnimationFrame(() => setTimeout(() => renderOnScroll(), 0));
+}
+
 /* Column widths: a visible column without one gets the larger of its header
    cell's natural width (the header is a table laid out on its own, so that is
    its own need) and the widest value of the first rows in view — in the cells'
@@ -607,14 +618,14 @@ function pinColWidths(t) {
     const cells = thead.rows[0] && thead.rows[0].cells;
     if (!idxColW) idxColW = (cells && Math.ceil(cells[0].getBoundingClientRect().width)) || 90;
     if (!missing.length) return;
-    if (t.lang) { t.colWidths[0] = textColWidth(t); applyColStyles(); return; }   // a text file: one wide column (33-…)
+    if (t.lang) { t.colWidths[0] = textColWidth(t); applyColStyles(true); return; }   // a text file: one wide column (33-…)
     const [v0] = viewRows(t), rows = t.filteredData.slice(v0, v0 + 80);
     missing.forEach(i => {
         let w = cells && cells[i + 1] ? cells[i + 1].getBoundingClientRect().width : 0;
         for (const r of rows) w = Math.max(w, textWidth(cellStr(r.data[i])) + 21);   // padding 10 + 10, border 1
         t.colWidths[i] = Math.min(Math.max(Math.ceil(w), 60), 480);
     });
-    applyColStyles();
+    applyColStyles(true);                 // render() calls syncSpace once the rows are in
 }
 
 /* Fit columns to their content — a double-click on a title's resize handle

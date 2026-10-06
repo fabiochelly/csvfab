@@ -435,9 +435,9 @@ async function srvWrite(t, path, doBackup, delim, rows, enc, expect) {
    someone else wrote the file meanwhile (another program, a sync
    client): saving would silently throw their version away.
 ----------------------------------------------------------------*/
-async function diskStamp(t, file) {
+async function diskStamp(t, file, stat) {   // stat: what the read already said (tabBytes), else asked
     try {
-        if (t.path) { const st = await srvStat(t.path); return { size: st.size, mtime: st.mtime, mtime_ns: st.mtime_ns }; }
+        if (t.path) { const st = stat || await srvStat(t.path); return { size: st.size, mtime: st.mtime, mtime_ns: st.mtime_ns }; }
         if (t.handle) { const f = file && file.lastModified ? file : await t.handle.getFile(); return { size: f.size, mtime: f.lastModified / 1000 }; }
     } catch (e) { }
     return null;                          // a read-only copy: nothing to compare
@@ -447,6 +447,8 @@ async function diskStamp(t, file) {
 async function checkDisk(t) {
     t.checked = null;
     if (!t.stamp) return true;
+    if (t.afterShown) t.afterShown();     // a save right after opening: the fingerprint now (03-…)
+    if (t.fpWait) await t.fpWait;
     const now = await diskStamp(t);
     if (!now) {
         return await uiConfirm(`"${t.name}" can no longer be found where it was opened.\n\nIt may have been moved, renamed or deleted. Saving writes it back there.`, { ok: 'Save anyway' });
@@ -476,10 +478,10 @@ async function refreshStamp(t) {
 }
 /* SHA-256 of the bytes — of their first, middle and last MB past 64 MB, which
    is plenty to tell our own write from someone else's same-size edit. */
-async function fingerprint(blob) {                 // a Blob / File, or an ArrayBuffer
-    const buf = blob instanceof ArrayBuffer, n = buf ? blob.byteLength : blob.size, M = 1 << 20;
+async function fingerprint(blob) {                 // a Blob / File, an ArrayBuffer or a byte view
+    const buf = !(blob instanceof Blob), n = buf ? blob.byteLength : blob.size, M = 1 << 20;
     const part = n <= 64 * M ? blob : new Blob([blob.slice(0, M), blob.slice(Math.floor(n / 2) - M / 2, Math.floor(n / 2) + M / 2), blob.slice(n - M)]);
-    const d = await crypto.subtle.digest('SHA-256', part instanceof ArrayBuffer ? part : await part.arrayBuffer());
+    const d = await crypto.subtle.digest('SHA-256', part instanceof Blob ? await part.arrayBuffer() : part);
     return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 

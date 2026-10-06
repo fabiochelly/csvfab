@@ -39,6 +39,18 @@ class FilesTest(unittest.TestCase):
         self.assertEqual(r.header("Content-Length"), str(len(data)))
         self.assertEqual(r.header("Cache-Control"), "no-store")
 
+    def test_read_says_what_stat_says(self):
+        # La page ne demande plus /api/stat avant et après la lecture : la réponse le dit,
+        # avec les mêmes valeurs (la date telle que JSON l'écrit, le nom encodé pour un en-tête).
+        p = self.write("Élodie & co 2024.csv", b"a;b\n")
+        st = self.b.get("/api/stat" + q(path=p)).json()
+        r = self.b.get("/api/file" + q(path=p))
+        from urllib.parse import unquote
+        self.assertEqual(unquote(r.header("X-File-Name")), st["name"])
+        self.assertEqual(float(r.header("X-File-Mtime")), st["mtime"])
+        self.assertEqual(r.header("X-File-Mtime"), repr(st["mtime"]))
+        self.assertEqual(r.header("X-File-Mtime-Ns"), st["mtime_ns"])
+
     def test_read_from_offset(self):
         p = self.write("log.txt", b"line1\nline2\n")
         r = self.b.get("/api/file" + q(path=p, **{"from": 6}))

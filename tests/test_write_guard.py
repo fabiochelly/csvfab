@@ -10,6 +10,7 @@ fichier se suivent sans se croiser (bridge/routes/files.py, bridge/fsio.py).
 La partie page est sautée sans Chromium.
 """
 
+import hashlib
 import http.client
 import json
 import os
@@ -167,3 +168,62 @@ class WriteGuardPageTest(unittest.TestCase):
         self.assertEqual(len(baks), 1, "la version de l'autre programme est gardée en .bak")
         with open(os.path.join(os.path.dirname(p), baks[0]), "rb") as f:
             self.assertEqual(f.read(), b"nom;ville\r\nMartin;Lyon\r\n")
+
+    def test_fingerprint_taken_after_showing_is_the_files(self):
+        # Le SHA-256 n'est plus pris avant le scan (crypto.subtle.digest bloque le fil principal)
+        # mais une fois l'onglet affiché, sur les octets gardés (03-…, afterShown) : ceux du
+        # fichier, BOM compris, et ses octets d'origine pour l'UTF-16, transcodé pour la lecture.
+        # La date vient de la réponse de lecture (X-File-Mtime*), plus d'un /api/stat.
+        files = {"fp-bom.csv": "\ufeffnom;ville\r\nÉlodie;Nîmes\r\n".encode("utf-8"),
+                 "fp-u16.csv": "nom;ville\r\nÉlodie;Nîmes\r\n".encode("utf-16"),
+                 "fp-plain.csv": b"a;b\n1;2\n"}
+        for name, data in files.items():
+            p = self.b.tmp(name)
+            with open(p, "wb") as f:
+                f.write(data)
+            tab = self.chrome.eval(f"__fx.open({p!r})")
+            out = self.chrome.eval(f"""(async () => {{
+                const t = __fx.tab({tab});
+                for (let i = 0; i < 100 && !t.stamp.fp; i++) await new Promise(r => setTimeout(r, 20));
+                const st = await srvStat(t.path);
+                return [t.stamp.fp, t.stamp.size, t.stamp.mtime, t.stamp.mtime_ns, st.size, st.mtime, st.mtime_ns, t.name];
+            }})()""")
+            self.assertEqual(out[0], hashlib.sha256(data).hexdigest(), name)
+            self.assertEqual(out[1:4], out[4:7], name)
+            self.assertEqual(out[7], name)
+
+    def test_save_right_after_opening_knows_its_own_file(self):
+        # Enregistré avant que l'empreinte différée ait tourné, un fichier dont seule la date a
+        # changé (un client de synchro la réécrit) est toujours reconnu : checkDisk la prend alors.
+        # Sans image (requestAnimationFrame neutralisé, comme dans une fenêtre cachée), seul le
+        # minuteur de 250 ms la prendrait — après la vérification.
+        p = self.b.tmp("quick.csv")
+        with open(p, "wb") as f:
+            f.write(b"nom;ville\r\nDupont;Paris\r\n")
+        out = self.chrome.eval(f"""(async () => {{
+            const old = tabs.find(x => x.path === {p!r}); if (old) {{ tabs.splice(tabs.indexOf(old), 1); activeTabId = null; }}
+            const raf = window.requestAnimationFrame;
+            window.requestAnimationFrame = () => 0;
+            await addPathTabs([{p!r}]);
+            const t = tabs.find(x => x.path === {p!r});
+            await tabRows(t);
+            const early = !t.stamp.fp;        // l'empreinte n'est pas encore prise
+            t.stamp.mtime -= 10;              // la date a changé, pas le contenu
+            setCells(t, [[t.allData[0], 0, 'Durand']], 'test');
+            let asked = false;
+            const watch = (async () => {{
+                for (let i = 0; i < 60; i++) {{
+                    await new Promise(r => setTimeout(r, 50));
+                    const no = [...document.querySelectorAll('#dlg button')].find(b => /cancel/i.test(b.textContent));
+                    if (no) {{ asked = true; no.click(); return; }}
+                }}
+            }})();
+            const ok = await saveInPlace();
+            window.requestAnimationFrame = raf;
+            return {{ early, ok, asked }};
+        }})()""", timeout=30)
+        self.assertTrue(out["early"], "l'empreinte était déjà prise : le cas n'est pas exercé")
+        self.assertFalse(out["asked"])
+        self.assertTrue(out["ok"])
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), b"nom;ville\r\nDurand;Paris\r\n")

@@ -1,6 +1,7 @@
 """Lire, décrire et réécrire un fichier par son chemin (les onglets ouverts depuis la ligne de commande)."""
 
 import os
+from urllib.parse import quote
 
 from .. import fsio
 from ..httpd import HttpError
@@ -29,12 +30,19 @@ def read(req):
         start = 0
     try:
         with open(p, "rb") as f:
-            size = os.fstat(f.fileno()).st_size
+            st = os.fstat(f.fileno())
+            size = st.st_size
             start = min(start, size)
             req.send_response(200)
             req.send_header("Content-Type", "text/csv; charset=utf-8")
             req.send_header("Content-Length", str(size - start))
             req.send_header("X-File-Size", str(size))
+            # Ce que /api/stat dirait, mais du fichier ouvert : la page n'a plus à le
+            # demander avant et après la lecture (deux allers-retours de ~2 ms), et la
+            # date est celle des octets envoyés, pas celle d'un instant plus tard.
+            req.send_header("X-File-Mtime", repr(st.st_mtime))
+            req.send_header("X-File-Mtime-Ns", str(st.st_mtime_ns))
+            req.send_header("X-File-Name", quote(os.path.basename(p), safe=""))
             req.send_header("Cache-Control", "no-store")
             req.end_headers()
             if req.command != "HEAD" and size > start:

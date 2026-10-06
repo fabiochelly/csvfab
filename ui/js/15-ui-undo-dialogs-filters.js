@@ -441,7 +441,7 @@ function applyFilters() {
     if (t.exprRun && t.exprRun.errors) t.exprErr = `${fmt(t.exprRun.errors)} rows raise an error and are hidden (${t.exprRun.first})`;
     t.exprRun = null;
 
-    container.scrollTop = 0; t.scrollTop = 0; render();
+    container.scrollTop = 0; t.scrollTop = 0; renderFirst();
     updateStats();
     lastFilterMs = performance.now() - t0;
 }

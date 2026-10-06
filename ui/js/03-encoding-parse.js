@@ -118,14 +118,14 @@ async function parseTab(t) {
        than streaming them anywhere: the raw bytes are what we keep. */
     let base;
     try {
-        if (t.path) t.name = (await srvStat(t.path)).name;
         const src = await tabBytes(t, active() ? setProgress : null); t.size = src.bytes.byteLength;
-        t.stamp = await diskStamp(t, src.file);
-        /* The digest copies the bytes as it is called, so they can go to the scan worker at once and
-           be hashed meanwhile (12–17 ms on 38 MB, which the scan used to wait for) — except for a big
-           file, whose fingerprint keys the reopen cache, looked up before any scan. */
-        const fpWait = t.stamp ? fingerprint(src.bytes) : null;
-        if (fpWait && src.bytes.byteLength >= IDX_MIN) t.stamp.fp = await fpWait;
+        if (t.path) t.name = src.stat ? src.stat.name : (await srvStat(t.path)).name;
+        t.stamp = await diskStamp(t, src.file, src.stat);
+        /* The fingerprint is not taken here, ahead of the scan: crypto.subtle.digest hashes on the
+           calling thread before it returns (Chromium, measured: 1.7 ms for 2 MB, 15 ms for 24 MB),
+           so "hashed meanwhile" was a wait. afterShown() takes it from the bytes kept — except for a
+           big file, whose fingerprint keys the reopen cache, looked up before any scan. */
+        if (t.stamp && src.bytes.byteLength >= IDX_MIN) t.stamp.fp = await fingerprint(src.bytes);
         const phases = { transcode: 'Converting', scan: 'Reading' };
         let shown = '';
         /* A big file gets its scan kept for the next opening (21-…, REOPEN CACHE), keyed by what
@@ -137,7 +137,6 @@ async function parseTab(t) {
             if (ph !== shown) { shown = ph; setStats(`${phases[ph] || 'Reading'} ${t.name}…`); startProgress(); }
             setProgress(p);
         });
-        if (fpWait && !t.stamp.fp) t.stamp.fp = await fpWait;
     }
     catch (err) {                       // handle revoked, file moved or deleted
         t.loading = false; t.error = err;
@@ -152,8 +151,7 @@ async function parseTab(t) {
        original shape instead of imposing ";" + LF. */
     t.detectedDelim = base.delim; t.detectedEol = base.eol;
     t.quoteErrors = base.qerr;
-    /* The garbled-accents hint: the first 16 MB are plenty to notice it. */
-    t.mojibake = base.n > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, Math.min(base.u8.length, 16 << 20))));
+    t.mojibake = false;                   // afterShown()
     /* Raw text (33-…): one column, titled by the language, every line a row — line 1 included. */
     t.lang = base.lines ? langOf(t.name) : null;
     if (base.lines) { t.syntheticHeader = true; t.headers = [t.lang.label]; }
@@ -186,8 +184,29 @@ async function parseTab(t) {
         if (top) { container.scrollTop = top; render(); }   // a first opening is at the top, as applyFilters() just drew it
     }
     renderTabBar();
+    afterShown(t, base);
     settleWaiters(t, t.allData);          // before eviction, which may release this very tab again
     evictIfNeeded();
+}
+
+/* What drawing the file does not need, once it is drawn: the fingerprint of the bytes as read
+   (checkDisk's proof that a same-size file with another date is still ours) and the
+   garbled-accents hint (the first 16 MB are plenty to notice it) — 2–6 ms on a 2–24 MB file,
+   plus the hashing above. After the next frame; a hidden window has none, hence the timer too.
+   checkDisk() runs it at once if a save comes first (t.afterShown), then waits for t.fpWait. */
+function afterShown(t, base) {
+    let done = false;
+    const go = t.afterShown = () => {
+        if (done) return;
+        done = true;
+        if (t.afterShown === go) t.afterShown = null;
+        if (t.base !== base) return;      // read again, or released, meanwhile
+        t.mojibake = base.n > 0 && hasMojibake(base.dec.decode(base.u8.subarray(0, Math.min(base.u8.length, 16 << 20))));
+        const stamp = t.stamp;
+        if (stamp && !stamp.fp) t.fpWait = fingerprint(fileBytes(base)).then(fp => { if (t.stamp === stamp) stamp.fp = fp; }, () => { });
+    };
+    requestAnimationFrame(() => setTimeout(go, 0));
+    setTimeout(go, 250);
 }
 
 /* --- Progress helpers --- */

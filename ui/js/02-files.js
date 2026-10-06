@@ -97,13 +97,17 @@ async function tabFile(t, onProgress) {
 
 /* The same bytes as one ArrayBuffer, for the row store (and the File when
    there is one, for its modification time). A bridge response is read
-   straight into a buffer of its Content-Length: no Blob, no second copy. */
+   straight into a buffer of its Content-Length: no Blob, no second copy.
+   It also says what /api/stat would (stat: name, size, mtime) — of the file
+   as it was opened for this read — sparing two round trips per opening. */
 async function tabBytes(t, onProgress) {
     if (t.path) {
         const r = await srvFetch(srvFileUrl(t.path));
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const h = r.headers, mt = h.get('X-File-Mtime');
+        const stat = mt == null ? null : { name: decodeURIComponent(h.get('X-File-Name') || ''), size: Number(h.get('X-File-Size')), mtime: Number(mt), mtime_ns: h.get('X-File-Mtime-Ns') };
         const total = Number(r.headers.get('Content-Length') || 0);
-        if (!total || !r.body) return { bytes: await r.arrayBuffer(), file: null };
+        if (!total || !r.body) return { bytes: await r.arrayBuffer(), file: null, stat };
         const out = new Uint8Array(total), reader = r.body.getReader();
         let seen = 0;
         for (;;) {
@@ -113,7 +117,7 @@ async function tabBytes(t, onProgress) {
             out.set(value, seen); seen += value.length;
             if (onProgress) onProgress(seen / total);
         }
-        return { bytes: seen === total ? out.buffer : out.buffer.slice(0, seen), file: null };
+        return { bytes: seen === total ? out.buffer : out.buffer.slice(0, seen), file: null, stat };
     }
     const file = t.handle ? await t.handle.getFile() : t.file;
     return { bytes: await file.arrayBuffer(), file };

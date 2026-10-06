@@ -181,4 +181,6 @@ function resizeContainer() {
     card.style.top = top + 'px'; card.style.bottom = bottom + 'px';
     syncSpace(T());                       // the grid layer and the scroll extent follow the viewport
 }
-new ResizeObserver(resizeContainer).observe(document.getElementById('chrome'));   // the toolbar may wrap
+const chromeObserver = new ResizeObserver(resizeContainer);
+chromeObserver.observe(document.getElementById('chrome'));      // the toolbar may wrap
+chromeObserver.observe(document.getElementById('statusbar'));   // …and the status bar

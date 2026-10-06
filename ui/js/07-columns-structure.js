@@ -485,7 +485,7 @@ function handleColCheck(e, idx) {
 }
 
 /* Single style tag holding hidden columns + column widths of the ACTIVE tab (.grid: the table and the scroll preview's) */
-function applyColStyles() {
+function applyColStyles(inRender) {     // inRender: render() places the grid itself right after (syncSpace)
     const t = T();
     let css = '';
     if (t) {
@@ -517,7 +517,7 @@ function applyColStyles() {
     document.body.classList.toggle('frozen', !!(t && t.frozen));   // the ☰ menu's Freeze / Unfreeze label
     let styleTag = document.getElementById('tab-cols-style');
     if (!styleTag) { styleTag = document.createElement('style'); styleTag.id = 'tab-cols-style'; document.head.appendChild(styleTag); }
-    if (styleTag.textContent !== css) { styleTag.textContent = css; syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
+    if (styleTag.textContent !== css) { styleTag.textContent = css; if (!inRender) syncSpace(t); }   // unchanged (most calls): no restyle of the whole table
 }
 
 /* Freeze the first visible column: it stays at the left, after the row numbers, when the

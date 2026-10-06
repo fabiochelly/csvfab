@@ -53,9 +53,20 @@ function newTab(src) {
     };
 }
 
+/* Once, before the next frame: renderTabBar() runs several times while a file opens, and each
+   resizeContainer() read sizes, so laid the grid out again (5–9 ms each time once its rows were
+   in) — the frame lays it out once. A change of the chrome's or the status bar's height is seen
+   by their observer anyway (04-…), and the container's by the one that redraws the rows (15-…).
+   Here, not in 04-…: renderTabBar() runs at boot from 03-…'s top level (a let there would not
+   be initialised yet). */
+let resizeQueued = 0;
+function resizeSoon() {
+    if (!resizeQueued) resizeQueued = requestAnimationFrame(() => { resizeQueued = 0; resizeContainer(); });
+}
+
 function renderTabBar() {
     const bar = document.getElementById('tabs');
-    bar.innerHTML = tabs.map(t => {
+    const html = tabs.map(t => {
         const cls = t.id === activeTabId ? 'active' : (t.loading ? 'loading' : (t.loaded ? '' : 'unloaded'));
         const meta = t.loading ? 'loading…' : (t.rowCount ? fmt(t.rowCount) : '');
         /* The full path on disk first (a bridge tab's; a picked file's path is never given to the page). */
@@ -70,6 +81,7 @@ function renderTabBar() {
             <span class="t-x" onclick="event.stopPropagation(); closeTab(${t.id})" title="Close tab">×</span>
         </div>`;
     }).join('');
+    if (html !== bar._html) bar.innerHTML = bar._html = html;   // called several times per opening, mostly unchanged
 
     const loaded = tabs.filter(t => t.loaded);
     const bytes = loaded.reduce((s, t) => s + t.size, 0);
@@ -77,7 +89,7 @@ function renderTabBar() {
         ? `${loaded.length}/${tabs.length} in RAM ≈ ${(bytes / 1048576).toFixed(1)} MB ·` : '';
     emptyState.style.display = tabs.length ? 'none' : 'block';
     document.getElementById('grid-layer').style.display = tabs.length ? '' : 'none';
-    resizeContainer();
+    resizeSoon();
 }
 
 function activateTab(id) {
@@ -94,8 +106,13 @@ function activateTab(id) {
     renderTabBar();
 
     if (t.loaded) {
-        renderHeader(); applyColStyles(); render();
-        container.scrollTop = t.scrollTop; render();
+        /* Drawn once, where the tab was: its scroll extent first (syncSpace, with the previous
+           tab's rows gone — the previous extent could clamp the position), then its scroll, then
+           the rows. It used to draw at the previous tab's position, scroll and draw again:
+           two full redraws, ~11 ms of the ~36 a switch took. */
+        renderHeader(); applyColStyles();
+        tbody.innerHTML = ''; drawn = null; syncSpace(t);
+        container.scrollTop = t.scrollTop; renderFirst();
         updateStats();
         if (t.filterPending) applyFilters();   // left while the filter workers were answering (44-…)
     } else {
