@@ -125,6 +125,44 @@ class LauncherUnitTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.l.spawn(["csvfab-no-such-program-xyz"])
 
+    @unittest.skipIf(os.name == "nt", "liens symboliques")
+    def test_browser_dir_follows_the_link(self):
+        # Le dossier d'installation est celui de resources.pak, au bout du lien.
+        from bridge.prewarm import browser_dir
+        inst = os.path.join(self.dir, "opt", "fakechrome")
+        os.makedirs(inst)
+        exe = os.path.join(inst, "fakechrome")
+        open(exe, "w").close()
+        link = os.path.join(self.dir, "fakechrome")
+        os.symlink(exe, link)
+        self.assertIsNone(browser_dir(link))                     # pas de resources.pak
+        open(os.path.join(inst, "resources.pak"), "w").close()
+        self.assertEqual(browser_dir(link), os.path.realpath(inst))
+        self.assertIsNone(browser_dir(None))                     # navigateur introuvable
+
+    @unittest.skipUnless(hasattr(os, "RWF_NOWAIT"), "Linux")
+    def test_warm_does_not_fork_when_cached(self):
+        # Fichiers tout juste écrits, donc en cache : la sonde ne doit rien relire.
+        from bridge.prewarm import warm
+        inst = os.path.join(self.dir, "inst")
+        os.makedirs(inst)
+        with open(os.path.join(inst, "browser"), "wb") as f:
+            f.write(b"\0" * (1 << 20))
+        open(os.path.join(inst, "resources.pak"), "w").close()
+        with unittest.mock.patch.object(os, "fork", side_effect=AssertionError("fork")):
+            warm(os.path.join(inst, "browser"))
+            warm(os.path.join(self.dir, "nowhere", "browser"))   # introuvable : rien
+            warm(None)
+
+    def test_prewarm_is_not_loaded_before_a_window(self):
+        # Importé seulement à l'ouverture d'une fenêtre : csvfab --version ne le
+        # charge pas. Dans un processus neuf, les autres tests l'ayant importé ici.
+        code = ("import importlib.util, sys; s = importlib.util.spec_from_file_location('l', %r); "
+                "importlib.util.module_from_spec(s); s.loader.exec_module(importlib.util.module_from_spec(s)); "
+                "print('bridge.prewarm' in sys.modules)") % LAUNCHER
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "False", r.stderr)
+
 
 class LauncherCliTest(unittest.TestCase):
     def test_version(self):

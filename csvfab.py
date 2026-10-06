@@ -299,6 +299,11 @@ def open_window():
         if which("uwsm-app"):
             args = ["uwsm-app", "--"] + args
     spawn(args)
+    # Premier lancement depuis le démarrage : ses fichiers relus en parallèle.
+    # Après le spawn, donc hors du chemin qui mène à Chromium (l'import et la
+    # sonde, ~0,5 ms) ; le lanceur ne fait plus ensuite qu'attendre le serveur.
+    from bridge.prewarm import warm
+    warm(browser if os.sep in browser else which(browser))
 
 
 def main(paths):
