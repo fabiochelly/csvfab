@@ -19,9 +19,10 @@
    different, at worst no faster.
 ----------------------------------------------------------------*/
 const SCAN_PAR = {
-    min: 8 << 20,           // bytes of file from which the scan is split
+    min: 2 << 20,           // bytes of file from which the scan is split
     slice: 0,               // bytes per slice (0: one slice per worker)
     minSlice: 2 << 20,      // …but no smaller than this
+    smallSlice: 512 << 10,  // …or this, below 8 MB (2.4 MB in ~5 slices: −9 ms, all cores; 1.2 MB: no gain)
     over: 1 << 20,          // bytes of the next slice copied with a slice, for its overflow and its last record
     scanOver: 64 << 10,     // how far past its end a slice's overflow looks for record starts
     checkpoints: 1024,      // first records of a slice where the stitching may join it
@@ -45,8 +46,13 @@ function scanParWorkers(k) {
 function scanAhead(size) {
     if (typeof Worker !== 'function') return;
     if (size < SCAN_PAR.min) { if (!idleWorker) idleWorker = scanWorker(); return; }
-    const per = Math.max(SCAN_PAR.slice || Math.ceil(size / SCAN_PAR.workers), SCAN_PAR.slice ? 1 : SCAN_PAR.minSlice);
+    const per = scanPer(size);
     if (!scanBusy) scanParWorkers(Math.min(Math.ceil(size / per), SCAN_PAR.workers));
+}
+/* Bytes per slice for a file of len bytes. */
+function scanPer(len) {
+    if (SCAN_PAR.slice) return SCAN_PAR.slice;
+    return Math.max(Math.ceil(len / SCAN_PAR.workers), len < 8 << 20 ? SCAN_PAR.smallSlice : SCAN_PAR.minSlice);
 }
 function scanParWorker() {
     onmessage = e => {
@@ -85,7 +91,7 @@ async function scanParallel(msg, onProgress, feed) {
         }
         if (!head) head = csvScanCore(u8, { ...base, wantChars: false, limit: 1 });
         if (!head.n) return (scanParWhy = 'empty'), null;
-        const per = Math.max(SCAN_PAR.slice || Math.ceil(len / SCAN_PAR.workers), SCAN_PAR.slice ? 1 : SCAN_PAR.minSlice);
+        const per = scanPer(len);
         const ws = scanParWorkers(Math.min(Math.ceil(len / per), SCAN_PAR.workers));
         const jobs = [], seq = ++scanJobs;
         const res = await new Promise(resolve => {
