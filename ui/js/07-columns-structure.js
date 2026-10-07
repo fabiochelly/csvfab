@@ -211,8 +211,9 @@ function splitRefresh(reanalyse) {
     stats.innerHTML = filled
         ? `${fmt(filled)} non-empty cells: ${parts.join(' · ')}` + (max === 1 ? '<br><span class="warn">The separator appears in no cell.</span>' : '')
         : '<span class="warn">This column is empty.</span>';
-    const over = [...dist].filter(([k]) => k > n).reduce((a, [, c]) => a + c, 0);
-    document.getElementById('split-nnote').innerHTML = over ? `<span class="warn">${fmt(over)} cells have more parts: the rest stays joined in column ${n}.</span>` : '';
+    const over = [...dist].filter(([k]) => k > n).reduce((a, [, c]) => a + c, 0), typed = parseInt(nIn.value, 10);
+    document.getElementById('split-nnote').innerHTML = typed < 2 ? `<span class="warn">A split makes 2 columns at least (before and after the separator): ${n} will be created.</span>`
+        : over ? `<span class="warn">${fmt(over)} cells have more parts: the rest stays joined in column ${n}.</span>` : '';
 
     /* Names: keep what the user typed, default to "<column> 1…n". */
     for (let i = 0; i < n; i++) if (splitState.names[i] == null || splitState.names[i].auto) splitState.names[i] = { v: `${h} ${i + 1}`, auto: true };
@@ -230,15 +231,23 @@ function splitRefresh(reanalyse) {
 function applySplit() {
     const t = T(); if (!t) return;
     const col = +document.getElementById('split-col').value;
-    const finder = sepFinder(document.getElementById('split-sep').value, document.getElementById('split-re').checked, t, col);
-    if (!finder || finder.error) return;
+    /* A regex still being checked by the guard (40-…): split once its verdict is in, rather
+       than return with nothing said (the button seemed dead); refused: said in the dialog. */
+    const finder = sepFinder(document.getElementById('split-sep').value, document.getElementById('split-re').checked, t, col,
+        () => { if (document.getElementById('modal-split').style.display === 'block') applySplit(); });
+    if (!finder) return;
+    if (finder.error) { document.getElementById('split-stats').innerHTML = `<span class="warn">${finder.guard ? 'Regex: ' : 'Invalid regex: '}${esc(finder.error)}</span>`; return; }
     const collapse = document.getElementById('split-collapse').checked, trim = document.getElementById('split-trim').checked;
     const keep = document.getElementById('split-keep').checked;
     const n = Math.min(50, Math.max(2, parseInt(document.getElementById('split-n').value, 10) || 2));
-    const names = splitState.names.slice(0, n).map((x, i) => (x.v || '').trim() || `${t.headers[col]} ${i + 1}`);
-    closeAllModals();
+    /* A name for every new column, whatever the preview managed to fill: the rows get n
+       fields, so the header must get n titles — with fewer, every column after this one
+       was shifted under the wrong title (and saved so). */
+    const names = Array.from({ length: n }, (_, i) => ((splitState.names[i] && splitState.names[i].v) || '').trim() || `${t.headers[col]} ${i + 1}`);
     const add = n - (keep ? 0 : 1);        // columns gained
     const headers = [...t.headers.slice(0, col + 1 - (keep ? 0 : 1)), ...names, ...t.headers.slice(col + 1)];
+    if (headers.length !== t.headers.length + add) return uiAlert('The split could not be prepared: nothing was changed.');
+    closeAllModals();
     restructure(t, headers, d => {
         const v = cellStr(d[col]), row = pad(d, col + 1);
         return [...row.slice(0, keep ? col + 1 : col), ...cutAt(v, sepAt(finder, v, collapse), n, trim), ...row.slice(col + 1)];

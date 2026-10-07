@@ -73,5 +73,30 @@ class LayoutTest(unittest.TestCase):
         self.check(400, "reveal")
 
 
+    # Un fichier court dans une fenêtre basse : arrivée en bas pas à pas, la fenêtre de
+    # lignes dessinées ne pouvait plus avancer d'un pas entier (ROW_STEP) et les dernières
+    # lignes restaient vides, le fond rayé à leur place (bug du 2026-10-07, 31 lignes).
+    def test_all_rows_drawn_at_the_end(self):
+        p = self.wide_file("court.csv", 31)
+        r = self.chrome.eval(r"""(async (path) => {
+          const pause = ms => new Promise(r => setTimeout(r, ms));
+          await __fx.open(path); await pause(200);
+          const vc = document.getElementById('view-container'), out = [];
+          vc.style.height = '420px'; render(); await pause(100);
+          for (let y = 0; y <= vc.scrollHeight; y += 60) { vc.scrollTop = y; renderOnScroll(); }
+          await pause(100);
+          const [v0, v1] = viewRows(T()), have = new Set([...document.querySelectorAll('#tbody .row')].map(x => +x.dataset.idx));
+          for (let i = v0; i <= Math.min(v1, T().filteredData.length - 1); i++) if (!have.has(i)) out.push(i);
+          /* Un saut puis de petits pas, sur un écran court : la fenêtre maigre doit couvrir l'écran. */
+          vc.scrollTop = 0; render(true); await pause(50);
+          for (let y = 0; y < 200; y += 25) { vc.scrollTop = y; renderOnScroll(); }
+          const [w0, w1] = viewRows(T()), have2 = new Set([...document.querySelectorAll('#tbody .row')].map(x => +x.dataset.idx));
+          for (let i = w0; i <= Math.min(w1, T().filteredData.length - 1); i++) if (!have2.has(i)) out.push('saut ' + i);
+          vc.style.height = ''; resizeContainer();
+          return out;
+        })""" + f"({p!r})")
+        self.assertEqual(r, [], "lignes à l'écran mais pas dessinées")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -396,10 +396,11 @@ function viewCols(L) {
 function drawWindow(t, lean) {
     const n = t.filteredData.length, [v0, v1] = viewRows(t), L = colLayout(t);
     const page = lean ? Math.ceil((v1 - v0 + 1) / 4) : v1 - v0 + 1;
-    const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: 0, c1: -1, L };
+    const w = { r0: Math.max(0, v0 - page), r1: Math.min(n, v1 + page + 1) - 1, c0: 0, c1: -1, L, v0, v1: Math.min(v1, n - 1), k0: 0, k1: -1 };
     if (!L || !L.vis.length) return w;
     const m = lean ? container.clientWidth / 4 : container.clientWidth;
     const [k0, k1] = viewCols(L), a = container.scrollLeft - m, b = container.scrollLeft + container.clientWidth + m;
+    w.k0 = Math.max(k0, L.F); w.k1 = k1;
     let c0 = k0; while (c0 > 0 && L.x[c0] > a) c0--;
     let c1 = k1; while (c1 < L.vis.length - 1 && L.x[c1 + 1] < b) c1++;
     w.c0 = Math.max(c0, L.F); w.c1 = c1;      // the frozen columns are drawn apart (rowsHtml)
@@ -546,8 +547,12 @@ function renderOnScroll() {
     const L = colLayout(t);
     if (!L || L.vis.join(',') + '|' + L.F !== drawn.vis) return render();   // columns shown or hidden since: draw anew
     const w = drawWindow(t);
-    const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP;
-    const colsMove = Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP;
+    /* Moved by steps — or as soon as the viewport is no longer all drawn: near the file's end
+       the window's edge can only move by what is left (n − 1 − r1 < ROW_STEP), and a lean
+       window on a short screen grows by less than a step; either left rows undrawn on screen,
+       the striped background in their place (the last 3 rows of a 31-row file, 2026-10-07). */
+    const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP || w.v0 < drawn.r0 || w.v1 > drawn.r1;
+    const colsMove = Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP || w.k0 < drawn.c0 || w.k1 > drawn.c1;
     if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) {   // a jump: nothing to keep, a lean redraw
         const now = performance.now();
         if (lastJumpMs > JUMP_BUDGET && now - lastJumpAt < lastJumpMs) {

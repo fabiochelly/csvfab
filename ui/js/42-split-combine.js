@@ -26,12 +26,12 @@ function splitDialog() { modalOnce('modal-splitf', `<div id="modal-splitf" class
     <span class="fld-label" id="sf-where"></span>
     <div class="row2" style="margin-top: 8px;">
         <label class="fld-label" for="sf-col" style="margin: 0;">One file per value of</label>
-        <select id="sf-col" class="bs-input bs-select" onchange="splitRefresh()"></select>
+        <select id="sf-col" class="bs-input bs-select" onchange="splitFilesRefresh()"></select>
     </div>
     <div class="opts">
-        <label class="col-label"><input type="radio" name="sf-match" value="exact" checked onchange="splitRefresh()"> Exact values</label>
-        <label class="col-label"><input type="radio" name="sf-match" value="loose" onchange="splitRefresh()"> Ignoring case and surrounding spaces</label>
-        <label class="col-label" title="No accents, case or symbols"><input type="radio" name="sf-match" value="slug" onchange="splitRefresh()"> Slugified</label>
+        <label class="col-label"><input type="radio" name="sf-match" value="exact" checked onchange="splitFilesRefresh()"> Exact values</label>
+        <label class="col-label"><input type="radio" name="sf-match" value="loose" onchange="splitFilesRefresh()"> Ignoring case and surrounding spaces</label>
+        <label class="col-label" title="No accents, case or symbols"><input type="radio" name="sf-match" value="slug" onchange="splitFilesRefresh()"> Slugified</label>
     </div>
     <div class="stat-line" id="sf-stats"></div>
     <div class="pv-wrap"><table class="pv" id="sf-pv"></table></div>
@@ -84,7 +84,7 @@ function openSplitFiles(col) {
         : 'In a new folder of the folder you pick, one file per value — the rows shown, with the title line.';
     document.getElementById('modal-bg').style.display = 'block';
     document.getElementById('modal-splitf').style.display = 'block';
-    splitRefresh();
+    splitFilesRefresh();
 }
 /* A column of categories: the first with 2 to 50 values over the first rows. */
 function splitGuess(t) {
@@ -99,7 +99,7 @@ function splitGuess(t) {
 function splitNorm() { return LK_NORM[document.querySelector('input[name="sf-match"]:checked').value]; }
 
 /* groups: [{ value, rows, name }] in order of first appearance; counted in slices, the newest run wins. */
-async function splitRefresh() {
+async function splitFilesRefresh() {
     const S = splitF; if (!S) return;
     const t = S.t, col = +document.getElementById('sf-col').value, norm = splitNorm(), run = S.run = {};
     const stats = document.getElementById('sf-stats'), go = document.getElementById('sf-go');
