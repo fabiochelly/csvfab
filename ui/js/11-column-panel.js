@@ -97,11 +97,23 @@ function openColPanel(e, col) {
     const panel = document.getElementById('col-panel');
     panel.innerHTML = `
         <div class="cp-tools">
-            <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col - 1})" ${col === 0 ? 'disabled' : ''} title="Move left">◀</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); moveColumn(${col}, ${col + 1})" ${col === t.headers.length - 1 ? 'disabled' : ''} title="Move right">▶</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openSplit(${col})">Split</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openMerge(${col})">Merge</button>
-            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Dates, numbers, phones">Convert</button>
+            <span class="cp-grp">
+                <button class="btn btn-outline ico" onclick="closeColPanel(); moveColumn(${col}, ${col - 1})" ${col === 0 ? 'disabled' : ''} title="Move left"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+                <button class="btn btn-outline ico" onclick="closeColPanel(); moveColumn(${col}, ${col + 1})" ${col === t.headers.length - 1 ? 'disabled' : ''} title="Move right"><svg class="ic" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+            </span>
+            <span class="cp-grp">
+                <button class="btn btn-outline ico" onclick="closeColPanel(); openSplit(${col})" title="Split"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 8l-4 4 4 4M4 12h5"/><path d="M16 8l4 4-4 4M20 12h-5"/></svg></button>
+                <button class="btn btn-outline ico" onclick="closeColPanel(); openMerge(${col})" title="Merge"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M5 8l4 4-4 4M3 12h6"/><path d="M19 8l-4 4 4 4M21 12h-6"/></svg></button>
+            </span>
+            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Dates, numbers, phones into one format">Format</button>
+            <span class="cp-grp cp-add">
+                <button class="btn btn-outline ico" onclick="this.parentElement.classList.toggle('open')" title="Insert a column">+</button>
+                <button class="btn btn-outline ico del" onclick="closeColPanel(); deleteColumn(${col})" title="Delete this column">−</button>
+                <span class="cp-add-menu">
+                    <span class="dd-item" onclick="closeColPanel(); addColumn(${col - 1})">Insert a column before</span>
+                    <span class="dd-item" onclick="closeColPanel(); addColumn(${col})">Insert a column after</span>
+                </span>
+            </span>
             ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})">Bars</button>` : ''}
         </div>
         <div class="dd-sep"></div>

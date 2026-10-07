@@ -106,6 +106,11 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
   await step('file map', async () => { openFileMap(); while (!fmap.done) await pause(20);
     const cv = document.getElementById('mp-cv').getBoundingClientRect();
     document.getElementById('mp-cv').dispatchEvent(new MouseEvent('mousemove', { clientX: cv.left + 20, clientY: cv.top + 5, bubbles: true })); hover(); closeAllModals(); });
+  await step('column charts', async () => { for (let k = 0; k < 200 && (spkJob || !t.spk); k++) await pause(20);
+    for (const box of document.querySelectorAll('.spk')) { const r = box.getBoundingClientRect();
+      box.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 3, clientY: r.top + 6, bubbles: true })); }
+    const c = t.spk.cols.findIndex(x => x.k === 't' && x.segs.length);
+    if (c >= 0) { spkFilter(t, c, { seg: 0 }); await pause(300); spkFilter(t, c, { seg: 0 }); await pause(100); } });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

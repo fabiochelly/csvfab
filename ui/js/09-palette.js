@@ -51,6 +51,7 @@ function paletteCommands() {
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
     add('View', 'File map — the whole file as one picture', openFileMap, 'Ctrl+M', loaded);
+    add('View', spkOn() ? 'Hide the column charts' : 'Column charts — each column\'s values drawn under its title', toggleSparklines, spkOn() ? '✓' : '');
     add('File', 'Create a schema — the rules this file follows, as name.schema.json…', openSchemaCreate, '', loaded);
     add('File', 'Validate with a schema — check this file against its rules…', openSchemaValidate, '', loaded);
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);

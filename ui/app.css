@@ -357,6 +357,7 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 #tbody .cell.frz-last { border-right-color: rgba(var(--accent-rgb), .6); }   /* the colour only: a wider border would take a pixel from the pinned width */
 #grid-layer.nohs #tbody .cell.frz { position: relative; left: auto !important; z-index: auto; }
 body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
+.no-spk .spk-on, :root:not(.no-spk) .spk-off { display: none; }
 /* A cell is clipped (ellipsis) only when its value overflows — .ov, decided by cellOv()
    in 12-…: every overflow: hidden is a clip node and a paint chunk of its own, and the 600
    of a drawn window made Chromium's layerization the biggest cost of a scroll step. While
@@ -377,7 +378,20 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 .cp-tools { display: flex; gap: 4px; padding: 2px 2px 6px; }
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
-.cp-tools .btn:first-child, .cp-tools .btn:nth-child(2) { padding: 4px 7px; }
+.cp-tools { align-items: stretch; }
+/* Joined buttons (move, split / merge, insert / delete): one frame, square inner corners. */
+.cp-grp { display: inline-flex; position: relative; }
+.cp-grp .btn:not(:first-child) { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cp-grp .btn:not(:last-of-type) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cp-grp .btn:hover { position: relative; z-index: 1; }
+.cp-tools .btn.ico { padding: 4px 6px; min-width: 26px; justify-content: center; font-size: 14px; line-height: 1; }
+.cp-tools .btn.ico svg.ic { width: 14px; height: 14px; }
+.cp-tools .btn.ico.del:hover { color: var(--danger-txt); border-color: rgba(var(--danger-rgb), .6); }
+/* The + asks where: before or after this column. */
+.cp-add-menu { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 2; min-width: 180px; padding: 4px;
+    background: var(--surf); border: 1px solid var(--brd-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.cp-add.open .cp-add-menu { display: block; animation: pop .12s ease-out; }
+.cp-add-menu .dd-item { display: block; white-space: nowrap; }
 #modal-split, #modal-merge, #modal-lookup, #modal-convert, #modal-formula, #modal-compare, #modal-group, #modal-noise, #modal-splitf { width: 560px; }
 #modal-combine { width: 640px; }
 .pv.cb td { vertical-align: top; }
@@ -784,12 +798,8 @@ thead .col-idx { z-index: 120; }
 .dd-item.danger:hover { background: rgba(var(--danger-rgb), .14); }
 
 
-/* Column Actions (+/-) décalées pour ne pas gêner le redimensionnement */
-/* Right of the title: the +/− column actions (on hover), then the ▾ panel button. */
-/* Only the ▾ keeps room beside the title; the +/− show on hover, over the end of the title. */
+/* Right of the title: the ▾ panel button (inserting and deleting a column are in its panel). */
 .col-title { position: relative; padding-right: 26px; }
-.col-actions { display: none; position: absolute; right: 30px; top: 50%; transform: translateY(-50%); gap: 3px;
-    padding-left: 8px; background: linear-gradient(90deg, transparent, var(--surf) 8px); }
 .col-menu { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 4px;
     display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--txt-dim); }
 .col-menu:hover, .col-menu.open { background: var(--surf-3); color: var(--txt-hi); }
@@ -805,6 +815,62 @@ thead .col-idx { z-index: 120; }
 .ty-d::before { content: ''; width: 11px; height: 11px; background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat; }
+
+/* Column charts (47-…): a band under the titles. Each box draws its column — the bars a mask
+   (an SVG per column in #spk-style, stretched to the box) filled with the type colour, a
+   text column's ribbon a gradient — over a 2 px gauge of how full it is, the empty part red.
+   Under a filter the whole file stays faint behind (::before) and the rows shown are drawn
+   on top (::after). */
+.spk-row th { height: 35px; padding: 4px 9px 4px; background: var(--surf); vertical-align: top; }
+/* The boxes' variables, set once on the row and inherited: declared on each box they were
+   computed 100 times at every header rebuild (most of its cost). The gauge: discreet at rest,
+   its full colours while the box is hovered, thicker while its own zone (the bottom 9 px,
+   SPK_GAUGE — taller than the line, to be easy to click) is. */
+.spk-row { --sg0: var(--accent-2); --sg1: var(--pink-txt); --sg2: var(--orange-txt); --sg3: var(--ok-txt); --sg4: var(--warn); --sgo: rgba(var(--gray-rgb), .38);
+    --kc: var(--txt-mut); --pw: 0%; --pl: 0%; --gf: rgba(var(--hi-rgb), .07); --ge: rgba(var(--danger-rgb), .32); --gh: 2px; }
+.spk-row th.spk-idx { cursor: pointer; padding: 0; vertical-align: middle; }
+.spk-row th.spk-idx::before { content: ''; display: block; margin: auto; width: 15px; height: 15px; background: var(--txt-faint);
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
+.spk-row th.spk-idx:hover::before { background: var(--txt-mut); }
+.no-spk .spk-row { display: none; }
+.spk { position: relative; height: 27px; cursor: default;
+    background: linear-gradient(rgba(var(--prim-rgb), .2), rgba(var(--prim-rgb), .2)) var(--pl) 0 / var(--pw) calc(100% - 9px) no-repeat,
+                linear-gradient(90deg, var(--gf) var(--fill, 100%), var(--ge) 0) left bottom / 100% var(--gh) no-repeat; }
+.spk:hover { --gf: rgba(var(--hi-rgb), .13); --ge: rgba(var(--danger-rgb), .8); }
+.spk.gz { --gf: rgba(var(--hi-rgb), .2); --ge: var(--danger); --gh: 3px; cursor: pointer; }
+.spk.k-n { --kc: var(--cyan-txt); }
+.spk.k-d { --kc: var(--violet-txt); }
+.spk.k-n, .spk.k-d, .spk.k-t { cursor: pointer; }
+.spk::before, .spk::after { content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 9px; background: var(--kc); transform-origin: 50% 100%;
+    -webkit-mask: var(--m) 0 0 / 100% 100% no-repeat; mask: var(--m) 0 0 / 100% 100% no-repeat; }
+.spk::before { opacity: .85; transition: opacity .25s; }
+.spk::after { display: none; animation: .35s ease-out both; }
+.spk:not(.k-n):not(.k-d)::before, .spk:not(.k-n):not(.k-d)::after { display: none; }
+.spk .lb { display: flex; overflow: hidden; white-space: nowrap; font: 500 10.5px/12px var(--ui); color: var(--txt-sub); letter-spacing: .01em; }
+/* The value takes 70 % of the box at most (a long one — a blob, a JSON — filled it and pushed its share out of view),
+   cut with an ellipsis; its share always shows after it. */
+.spk .lb b { font-weight: inherit; min-width: 0; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
+.spk .lb i { flex: none; font-style: normal; color: var(--txt-faint); }
+.spk .lb b + i { margin-left: 5px; }
+.spk .rb { position: absolute; left: 0; right: 0; bottom: 10px; height: 5px; border-radius: 3px; transform-origin: 0 50%; }
+.spk-hl { position: absolute; top: -2px; bottom: 8px; border-radius: 2px; background: rgba(var(--hi-rgb), .1); box-shadow: inset 0 0 0 1px rgba(var(--hi-rgb), .16); pointer-events: none; }
+/* Their arrival: the bars rise and the ribbons unroll, column after column (--i: its place), once. */
+.spk-row.in .spk::before { animation: spk-rise .7s cubic-bezier(.2, .9, .25, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
+.spk-row.in .spk .rb { animation: spk-unroll .7s cubic-bezier(.2, .9, .25, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
+.spk-row.in .spk .lb { animation: fadein .5s ease-out both; animation-delay: calc(var(--i, 0) * 28ms + .15s); }
+.spk-hl.g { top: auto; bottom: -2px; height: 8px; }
+@keyframes spk-rise { from { transform: scaleY(0); opacity: 0; } }
+@keyframes spk-unroll { from { transform: scaleX(0); } }
+/* A new filtering: the bars of the rows shown come in again (#spk-style alternates the two names). */
+@keyframes spk-f0 { from { opacity: 0; transform: scaleY(.6); } }
+@keyframes spk-f1 { from { opacity: 0; transform: scaleY(.6); } }
+/* Status bar switch, left of the colour wheel: three bars. */
+.sb-spk { flex: none; width: 16px; height: 16px; cursor: pointer; margin-left: 6px; background: var(--cyan-txt); transition: transform .15s, opacity .15s, filter .15s;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
+.sb-spk:hover { transform: scale(1.12); }
+.sb-spk.off { filter: grayscale(1); opacity: .45; }
 
 #col-panel {
     display: none; position: fixed; z-index: 1500; width: 300px; box-sizing: border-box; padding: 6px;
@@ -847,10 +913,6 @@ thead .col-idx { z-index: 120; }
 .cp-val .n { color: var(--txt-dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .cp-more { padding: 6px; font-size: 11.5px; color: var(--txt-dim); }
 .cp-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 4px 2px; border-top: 1px solid var(--brd); margin-top: 6px; }
-th:hover .col-actions { display: flex; }
-.c-btn { cursor: pointer; color: var(--txt-hi); background: var(--surf-3); border-radius: 4px; width: 18px; height: 18px; line-height: 18px; text-align: center; font-weight: 600; font-size: 12px; }
-.c-btn:hover { background: var(--prim); }
-.c-btn.del:hover { background: var(--danger); }
 
 td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; max-width: 480px; cursor: cell; }
 

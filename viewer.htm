@@ -24,6 +24,7 @@
          (The colours repeat each palette's --bg; THEME_SWATCH in 01-core.js holds them too.) -->
     <script>try { var th = localStorage.getItem('csvfab-theme'); if (th && th !== 'dark') document.documentElement.dataset.theme = th;
         if (localStorage.getItem('csvfab-type-colors') === '0') document.documentElement.classList.add('no-kcol');
+        if (localStorage.getItem('csvfab-sparklines') === '0') document.documentElement.classList.add('no-spk');
         var mf = localStorage.getItem('csvfab-mono'); if (mf) document.documentElement.style.setProperty('--mono-pick', mf === 'monospace' ? 'monospace' : '"' + mf.replace(/["\\]/g, '') + '"'); } catch (e) {}
         (function (h, t) { var bg = { dark: '#0d1117', tokyonight: '#15161e', catppuccin: '#11111b', vscode: '#1a1b26', light: '#ffffff', latte: '#eff1f5' }[t] || '#0d1117';
             h.style.background = bg; h.style.colorScheme = t === 'light' || t === 'latte' ? 'light' : 'dark'; })(document.documentElement, document.documentElement.dataset.theme || 'dark');</script>
@@ -527,6 +528,9 @@
                     <div class="dd-sep"></div>
                     <div class="dd-item" onclick="closeDDs(); toggleFreeze()" title="Keep the first column in view">
                         <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><path d="M5.5 7v2M5.5 12v2"></path></svg><span class="frz-off">Freeze the first column</span><span class="frz-on">Unfreeze the first column</span></span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); toggleSparklines()" title="Each column's values drawn under its title">
+                        <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M3 20h18"></path><path d="M6 16v-3M10 16V7M14 16v-6M18 16V4"></path></svg><span class="spk-off">Show the column charts</span><span class="spk-on">Hide the column charts</span></span>
                     </div>
                     <div class="dd-item" onclick="closeDDs(); openColManager()" title="Tick the columns to show">
                         <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>Show or hide columns…</span>

@@ -261,12 +261,16 @@ function checkWorker() {
 }
 
 /* --- Progress helpers --- */
+/* progressAt: when the bar was started (0: ended) — a long operation awaiting the disk or the
+   server is under way, which the column charts' background pass waits for (47-…). */
+let progressAt = 0;
 function startProgress() {
+    progressAt = performance.now();
     progressBar.style.transition = 'none'; progressBar.style.width = '0%'; progressBar.style.opacity = '1';
     setTimeout(() => progressBar.style.transition = 'width 0.1s linear, opacity 0.5s ease-out', 10);
 }
 function setProgress(ratio) { progressBar.style.width = Math.min(ratio * 100, 100) + '%'; }
-function endProgress() { progressBar.style.width = '100%'; setTimeout(() => { progressBar.style.opacity = '0'; }, 500); }
+function endProgress() { progressAt = 0; progressBar.style.width = '100%'; setTimeout(() => { progressBar.style.opacity = '0'; }, 500); }
 function setStats(txt) { document.getElementById('stats').innerText = txt; }
 function setStatsHtml(html) { document.getElementById('stats').innerHTML = html; }
 

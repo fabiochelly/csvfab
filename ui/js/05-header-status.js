@@ -226,6 +226,7 @@ function renderStatusFormat(t) {
             t.tail ? (t.tailPaused === 'edits' ? 'Following paused while edits are pending · click: stop' : 'New lines appear as they are written · click: stop') : 'Follow the end of the file, as tail -f', 'toggleTail(event)') : '')
         + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
             'Line endings · click: switch', 'toggleEol(event)') : '')
+        + `<span class="sb-spk${spkOn() ? '' : ' off'}" onclick="toggleSparklines()" title="Column charts ${spkOn() ? 'on' : 'off'}"></span>`
         + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Type colours ${typeColorsOn() ? 'on' : 'off'}"></span>`
         + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])}" style="${swatchCss(currentTheme())}"></span>`;
 }
@@ -307,26 +308,13 @@ function renderHeader() {
         </th>`;
         fCells += `<th>${colFilterBox(i, t.colFilters[i])}</th>`;
     });
-    thead.innerHTML = `<tr>${hCells}</tr><tr class="filter-row">${fCells}</tr>`;
+    /* The column charts' row (47-…) is kept when it is still the right one: only the titles and the filters are rebuilt. */
+    if (spkRowKept(t)) { thead.rows[0].outerHTML = `<tr>${hCells}</tr>`; thead.lastElementChild.outerHTML = `<tr class="filter-row">${fCells}</tr>`; }
+    else { thead.innerHTML = `<tr>${hCells}</tr>${spkRowHtml(t)}<tr class="filter-row">${fCells}</tr>`; spkRowMark(t); }
     if (srBar.style.display === 'flex') fillSRCols();
     document.querySelectorAll('.resizer').forEach(setupResizer);
+    spkSoon(t);                               // the column charts (47-…): shown if known, else computed when idle
 }
-
-/* The + / − of a title: one pair, moved into the title the pointer enters,
-   rather than a pair in each of 85 titles rebuilt with the header. */
-const colActs = document.createElement('div');
-colActs.className = 'col-actions';
-colActs.innerHTML = '<span class="c-btn" data-a="add" title="Add column right">+</span><span class="c-btn del" data-a="del" title="Delete column">−</span>';
-colActs.onclick = e => {
-    const b = e.target.closest('.c-btn'), th = colActs.closest('th');
-    if (!b || !th) return;
-    const i = +th.dataset.col;
-    if (b.dataset.a === 'add') addColumn(i); else deleteColumn(i);
-};
-thead.addEventListener('mouseover', e => {
-    const th = e.target.closest && e.target.closest('th.col-th'), title = th && th.querySelector('.col-title');
-    if (title && colActs.parentElement !== title) title.appendChild(colActs);
-});
 
 /* The filter row holds look-alike boxes, not inputs: 85 inputs were most of
    the header's layout, rebuilt after every sort, undo, tab switch… for a

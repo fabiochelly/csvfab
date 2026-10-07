@@ -65,6 +65,7 @@ function updateSaveBtn() {
             toast(last.what.charAt(0).toUpperCase() + last.what.slice(1), { undo: { t, entry: last }, kind: /delet|remov|clear/i.test(last.what) ? 'danger' : 'ok' });
         t._seenLog = n; t._seenLast = last;
         if (t.loaded) findRefresh(t);    // an edit that redraws only its rows still changes the find count (29-…)
+        spkLater(t);                      // …and the column charts (47-…), when idle
     }
 }
 
@@ -444,6 +445,7 @@ function applyFilters() {
     container.scrollTop = 0; t.scrollTop = 0; renderFirst();
     updateStats();
     lastFilterMs = performance.now() - t0;
+    spkLater(t);                              // the column charts (47-…): what the filters let through, when idle
 }
 
 /* Field count ≠ header width: a stray delimiter, or an unclosed quote that
