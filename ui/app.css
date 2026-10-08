@@ -816,50 +816,82 @@ thead .col-idx { z-index: 120; }
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3e%3crect x='2' y='3' width='12' height='11' rx='2'/%3e%3cpath d='M2 7h12M5.5 1.5v3M10.5 1.5v3'/%3e%3c/svg%3e") center / contain no-repeat; }
 
-/* Column charts (47-…): a band under the titles. Each box draws its column — the bars a mask
-   (an SVG per column in #spk-style, stretched to the box) filled with the type colour, a
-   text column's ribbon a gradient — over a 2 px gauge of how full it is, the empty part red.
-   Under a filter the whole file stays faint behind (::before) and the rows shown are drawn
-   on top (::after). */
-.spk-row th { height: 35px; padding: 4px 9px 4px; background: var(--surf); vertical-align: top; }
+/* Column charts (47-…): a band under the titles. Each box draws its column — the curve (or bars) a mask
+   (an SVG per column in #spk-style, stretched to the box) filled with the type colour fading
+   down to its base, and under it a gauge of how full it is —
+   filled green, empty grey (grey and red read as neither, the user 2026-10-08); a text
+   column's label and ribbon (a gradient, its empty cells at its end: no gauge). Under a
+   filter the whole file stays faint behind (::before) and the rows shown are drawn on top
+   (::after). The band is its own panel, a shade deeper than the titles: 27 px tall it read as
+   clutter between titles and filters, the gauge glued to the bars (the user, 2026-10-08) —
+   it can be hidden in one click, so it takes the room a chart needs. */
+.spk-row th { height: 74px; padding: 9px 10px 7px; vertical-align: top;
+    background: linear-gradient(var(--surf), color-mix(in srgb, var(--surf) 55%, var(--bg)));
+    box-shadow: inset 0 1px rgba(var(--hi-rgb), .03); }
 /* The boxes' variables, set once on the row and inherited: declared on each box they were
-   computed 100 times at every header rebuild (most of its cost). The gauge: discreet at rest,
-   its full colours while the box is hovered, thicker while its own zone (the bottom 9 px,
-   SPK_GAUGE — taller than the line, to be easy to click) is. */
-.spk-row { --sg0: var(--accent-2); --sg1: var(--pink-txt); --sg2: var(--orange-txt); --sg3: var(--ok-txt); --sg4: var(--warn); --sgo: rgba(var(--gray-rgb), .38);
-    --kc: var(--txt-mut); --pw: 0%; --pl: 0%; --gf: rgba(var(--hi-rgb), .07); --ge: rgba(var(--danger-rgb), .32); --gh: 2px; }
+   computed 100 times at every header rebuild (most of its cost). The gauge's own zone, to hover
+   and click it, is the bottom 10 px of a box (SPK_GAUGE): taller than the line, short of the curve. */
+.spk-row { --sg0: var(--accent-2); --sg1: var(--pink-txt); --sg2: var(--orange-txt); --sg3: var(--ok-txt); --sg4: var(--warn); --sgo: rgba(var(--gray-rgb), .42); --sge: rgba(var(--gray-rgb), .16);
+    --kc: var(--txt-mut); --pw: 0%; --pl: 0%; --gf: rgba(var(--ok-rgb), .45); --ge: rgba(var(--gray-rgb), .22); }
 .spk-row th.spk-idx { cursor: pointer; padding: 0; vertical-align: middle; }
 .spk-row th.spk-idx::before { content: ''; display: block; margin: auto; width: 15px; height: 15px; background: var(--txt-faint);
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
 .spk-row th.spk-idx:hover::before { background: var(--txt-mut); }
 .no-spk .spk-row { display: none; }
-.spk { position: relative; height: 27px; cursor: default;
-    background: linear-gradient(rgba(var(--prim-rgb), .2), rgba(var(--prim-rgb), .2)) var(--pl) 0 / var(--pw) calc(100% - 9px) no-repeat,
-                linear-gradient(90deg, var(--gf) var(--fill, 100%), var(--ge) 0) left bottom / 100% var(--gh) no-repeat; }
-.spk:hover { --gf: rgba(var(--hi-rgb), .13); --ge: rgba(var(--danger-rgb), .8); }
-.spk.gz { --gf: rgba(var(--hi-rgb), .2); --ge: var(--danger); --gh: 3px; cursor: pointer; }
+.spk { position: relative; height: 58px; cursor: default;
+    background: linear-gradient(rgba(var(--prim-rgb), .2), rgba(var(--prim-rgb), .2)) var(--pl) 0 / var(--pw) calc(100% - 14px) no-repeat; }
+/* The gauge: 6 px and rounded from the start, as a text column's ribbon; over it the part under the pointer lights up
+   (.spk-hl.g), the other stays as it is. */
+.spk .gg { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--gf) clamp(var(--gm, 0px), var(--fill, 100%), calc(100% - var(--gm, 0px))), var(--ge) 0); }   /* in one piece, as a progress bar; each part --gm (6 px) at least, to be hovered */
+.spk.gz { cursor: pointer; }
 .spk.k-n { --kc: var(--cyan-txt); }
 .spk.k-d { --kc: var(--violet-txt); }
 .spk.k-n, .spk.k-d, .spk.k-t { cursor: pointer; }
-.spk::before, .spk::after { content: ''; position: absolute; left: 0; right: 0; top: 0; bottom: 9px; background: var(--kc); transform-origin: 50% 100%;
+.spk::before, .spk::after { content: ''; position: absolute; left: 0; right: 0; top: 1px; bottom: 13px; transform-origin: 50% 100%;
+    background: linear-gradient(var(--kc), color-mix(in srgb, var(--kc) 28%, transparent));
     -webkit-mask: var(--m) 0 0 / 100% 100% no-repeat; mask: var(--m) 0 0 / 100% 100% no-repeat; }
 .spk::before { opacity: .85; transition: opacity .25s; }
+.spk:hover::before { opacity: 1; }
 .spk::after { display: none; animation: .35s ease-out both; }
 .spk:not(.k-n):not(.k-d)::before, .spk:not(.k-n):not(.k-d)::after { display: none; }
-.spk .lb { display: flex; overflow: hidden; white-space: nowrap; font: 500 10.5px/12px var(--ui); color: var(--txt-sub); letter-spacing: .01em; }
+/* Just above the ribbon (at the top of the box, a gap opened between them once the ribbon went to the bottom). */
+.spk .lb { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; font: 500 11.5px/15px var(--ui); color: var(--txt-sub); letter-spacing: .01em; }
 /* The value takes 70 % of the box at most (a long one — a blob, a JSON — filled it and pushed its share out of view),
    cut with an ellipsis; its share always shows after it. */
-.spk .lb b { font-weight: inherit; min-width: 0; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
+.spk .lb b { font-weight: 600; color: var(--txt-hi); min-width: 0; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
 .spk .lb i { flex: none; font-style: normal; color: var(--txt-faint); }
 .spk .lb b + i { margin-left: 5px; }
-.spk .rb { position: absolute; left: 0; right: 0; bottom: 10px; height: 5px; border-radius: 3px; transform-origin: 0 50%; }
-.spk-hl { position: absolute; top: -2px; bottom: 8px; border-radius: 2px; background: rgba(var(--hi-rgb), .1); box-shadow: inset 0 0 0 1px rgba(var(--hi-rgb), .16); pointer-events: none; }
+/* The ribbon: flat, 6 px at the bottom as a histogram's gauge (the two unified, the user), its
+   parts 2 px apart; the part hovered is drawn whole over it. */
+.spk .rb { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; border-radius: 3px; transform-origin: 0 50%; }
+/* The value colours, the label's and the legend's dots (s0…s4: the ribbon's order). */
+.spk .s0 { --c: var(--sg0); } .spk .s1 { --c: var(--sg1); } .spk .s2 { --c: var(--sg2); } .spk .s3 { --c: var(--sg3); } .spk .s4 { --c: var(--sg4); }
+.spk .lb b::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c); margin-right: 5px; vertical-align: 1px; }
+/* No value standing out: the count over the share filled, small, each its colour (the share in the
+   filled green of the gauges). */
+.spk .lb .two { display: flex; flex-direction: column; min-width: 0; font-size: 10px; line-height: 12px; }
+.spk .lb .two i { overflow: hidden; text-overflow: ellipsis; color: var(--txt-sub); }
+.spk .lb .two .fl { color: rgba(var(--ok-rgb), .85); }
+/* The part under the pointer (spkHlOn()): the rest of the box fades, the part keeps its full
+   colour — a bar through the box's own mask (--m, sized and shifted by the script so the bar
+   lands under it), a ribbon value in its colour, a gauge part brighter. No halo: on parts a few
+   px wide it glared (the user, 2026-10-08). */
+.spk-hl { position: absolute; pointer-events: none; }
+.spk-hl.b { top: 1px; bottom: 13px; background: var(--kc);
+    -webkit-mask: var(--m) var(--mp) / var(--ms) no-repeat; mask: var(--m) var(--mp) / var(--ms) no-repeat; }
+.spk-hl.r { bottom: 0; height: 6px; background: var(--c); }
+.spk .so, .spk .se { --c: rgba(var(--gray-hi-rgb), .55); }
+.spk-hl.g { bottom: 0; height: 6px; --c: var(--ok); background: var(--c); }
+.spk-hl.g.e { --c: rgba(var(--gray-hi-rgb), .55); }
+.spk.hv::before, .spk.hv::after { opacity: .35; }
+.spk.hv .rb { opacity: .4; }
+.spk .rb { transition: opacity .15s; }
 /* Their arrival: the bars rise and the ribbons unroll, column after column (--i: its place), once. */
 .spk-row.in .spk::before { animation: spk-rise .7s cubic-bezier(.2, .9, .25, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
 .spk-row.in .spk .rb { animation: spk-unroll .7s cubic-bezier(.2, .9, .25, 1) both; animation-delay: calc(var(--i, 0) * 28ms); }
 .spk-row.in .spk .lb { animation: fadein .5s ease-out both; animation-delay: calc(var(--i, 0) * 28ms + .15s); }
-.spk-hl.g { top: auto; bottom: -2px; height: 8px; }
 @keyframes spk-rise { from { transform: scaleY(0); opacity: 0; } }
 @keyframes spk-unroll { from { transform: scaleX(0); } }
 /* A new filtering: the bars of the rows shown come in again (#spk-style alternates the two names). */

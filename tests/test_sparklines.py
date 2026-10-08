@@ -94,7 +94,7 @@ class SparklinesTest(unittest.TestCase):
         self.assertEqual(self.chrome.eval(rows), 100)
         self.assertEqual(self.chrome.eval("T().filteredData.every(r => cellOf(r, 0) === '3')"), True)
         r = self.chrome.eval("""(() => { const f = T().spk.f; return { n: Array.from(f[0].cnt), cat: Array.from(f[1].seg),
-                                          picked: document.getElementById('spk-style').textContent.includes('#spk-0{--fill:100.0%;--i:0;--pl:') }; })()""")
+                                          picked: /#spk-0\{[^}]*--pl:/.test(document.getElementById('spk-style').textContent) }; })()""")
         self.assertEqual(r["n"], [0, 0, 0, 100, 0, 0, 0, 0, 0, 0])
         self.assertEqual(r["cat"], [100, 0, 0])                # les lignes 3, 13, 23… sont toutes « A »
         self.assertTrue(r["picked"])
@@ -123,11 +123,33 @@ class SparklinesTest(unittest.TestCase):
         self.assertEqual(self.chrome.eval(rows), 800)
         self.chrome.eval("spkFilter(T(), 3, { fill: 'f' }); true")   # la même : tout revient
         self.assertEqual(self.chrome.eval(rows), 1000)
-        # Le survol de la zone de la jauge la désigne (et non le ruban au-dessus).
-        r = self.chrome.eval("""(() => { const box = document.getElementById('spk-3'), b = box.getBoundingClientRect();
-          const at = y => spkAt({ target: box, clientX: b.left + b.width * .9, clientY: y });
-          return [at(b.bottom - 3).part.fill, !!at(b.top + 3).part.fill]; })()""")
-        self.assertEqual(r, ["e", False])
+        # Une colonne de texte n'a pas de jauge : la fin de son ruban est sa part vide, qu'on pointe
+        # en haut comme en bas ; sous un histogramme, le bas de la case est la jauge, le haut une barre.
+        r = self.chrome.eval("""(() => { const at = (i, x, dy) => { const box = document.getElementById('spk-' + i), b = box.getBoundingClientRect();
+            const h = spkAt({ target: box, clientX: b.left + b.width * x, clientY: dy < 0 ? b.bottom + dy : b.top + dy }); return [h.gauge, h.part.fill || null, h.part.bar ?? null]; };
+          return { texte: [at(3, .9, -3), at(3, .9, 30)], gg: !!document.querySelector('#spk-3 .gg'),
+                   nombre: [at(0, .05, -3), at(0, .05, 5)] }; })()""")
+        self.assertEqual(r["texte"], [[False, "e", None], [False, "e", None]])
+        self.assertFalse(r["gg"])
+        self.assertEqual(r["nombre"], [[True, "f", None], [False, None, 0]])
+
+    def test_hover_light_never_takes_the_label(self):
+        # La lumière du survol (spkHl) est le dernier enfant de la case survolée : après un filtre
+        # puis son retrait, le texte réécrit allait dedans et suivait le pointeur comme une
+        # infobulle en italique ; il doit rester dans .lb, la lumière vide.
+        self.open(self.path)
+        self.chrome.eval("""(() => { const box = document.getElementById('spk-1'), r = box.getBoundingClientRect();
+          box.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 5, clientY: r.top + 22, bubbles: true }));
+          spkFilter(T(), 1, { seg: 1, x0: 0, w: .3 }); return true; })()""")
+        self.assertTrue(self.chrome.eval(WAIT, timeout=60))
+        self.chrome.eval("spkFilter(T(), 1, { seg: 1 }); true")
+        self.assertTrue(self.chrome.eval(WAIT, timeout=60))
+        r = self.chrome.eval("""(() => { const box = document.getElementById('spk-1'), r = box.getBoundingClientRect();
+          box.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 5, clientY: r.top + 22, bubbles: true }));
+          return { lit: spkHl.parentElement === box, text: spkHl.textContent, label: box.querySelector('.lb').textContent }; })()""")
+        self.assertTrue(r["lit"])
+        self.assertEqual(r["text"], "")
+        self.assertIn("60 %", r["label"])
 
     def test_band_row_kept_across_header_rebuilds(self):
         self.open(self.path)
