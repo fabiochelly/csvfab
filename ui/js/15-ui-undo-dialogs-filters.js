@@ -392,7 +392,7 @@ function narrowsLast(t) {
 function applyFilters() {
     const t = T(); if (!t || !t.loaded) return;
     clearTimeout(filterTimer);
-    const t0 = performance.now();
+    const t0 = performance.now(), prevView = t.filteredData;   // the rows shown now, for the motion (52-…)
     collectUIState(t);
 
     /* Highlight context used by render() */
@@ -443,7 +443,9 @@ function applyFilters() {
     if (t.exprRun && t.exprRun.errors) t.exprErr = `${fmt(t.exprRun.errors)} rows raise an error and are hidden (${t.exprRun.first})`;
     t.exprRun = null;
 
+    const motion = filterMotionBefore(t, prevView);   // the rows on screen before the view changes (52-…)
     container.scrollTop = 0; t.scrollTop = 0; renderFirst();
+    filterMotionAfter(t, motion);             // …the gaps close in the next frame
     updateStats();
     lastFilterMs = performance.now() - t0;
     spkLater(t);                              // the column charts (47-…): what the filters let through, when idle

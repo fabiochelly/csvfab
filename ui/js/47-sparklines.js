@@ -269,6 +269,7 @@ function spkFinishBase(t, j) {
         }, 1600);
     }
     spkRowSwap(t);                            // the boxes get their kind, a text column its label
+    lookRefresh(t);                           // the grid's pills take the ribbon's values and colours (51-…)
 }
 /* The band's row alone, redrawn in place: a whole header rebuild would take the focus from a
    column filter being typed in. */
@@ -482,9 +483,10 @@ thead.addEventListener('mousemove', e => {
     if (spkBrush) return;                     // a range being dragged: the window's handler draws it
     const h = spkAt(e);
     spkGz(h && h.gauge && h.box);
-    if (!h) return spkHlOff();
+    if (!h) { glowOff(); return spkHlOff(); }
     const p = h.part;
     if (p && p.w > 0) spkHlOn(h); else spkHlOff();
+    if (p && p.w > 0) glowOn(h.t, h.i, p); else glowOff();   // its rows lit in the grid, ticks on the strip (52-…)
     spkTipAt(h, e);
 });
 function spkTipAt(h, e) {
@@ -496,7 +498,7 @@ function spkTipAt(h, e) {
     tipBox.style.left = Math.max(6, Math.min(x - w / 2, innerWidth - w - 6)) + 'px';
     tipBox.style.top = (h.r.bottom + 8) + 'px';
 }
-thead.addEventListener('mouseleave', () => { if (!spkBrush) { spkGz(null); spkHlOff(); } });
+thead.addEventListener('mouseleave', () => { if (!spkBrush) { spkGz(null); spkHlOff(); glowOff(); } });
 /* Dragging across the bars of a curve picks a range of them (2026-10-08, the user's pick): lit as
    the pointer goes, said in the tooltip, filtered on release — a value filter keeping every value
    of those bars, as one bar's click does. A press and release on one bar stays a click. */
@@ -517,14 +519,14 @@ window.addEventListener('mousemove', e => {
     if (b === B.b1) return;
     B.b1 = b;
     const g = { ...h, part: spkRange(B, c), brush: true };
-    spkHlOn(g); spkTipAt(g, e);
+    spkHlOn(g); spkTipAt(g, e); glowOn(g.t, g.i, g.part);
 });
 window.addEventListener('mouseup', () => {
     const B = spkBrush; if (!B) return;
     spkBrush = null;
     if (B.b0 === B.b1) return;                // a click: thead's click handler takes it
     spkBrushed = true; setTimeout(() => { spkBrushed = false; }, 0);
-    spkHlOff();
+    spkHlOff(); glowOff();
     if (T() === B.h.t && spkShown(B.h.t)) spkFilter(B.h.t, B.h.i, spkRange(B, B.h.c));
 });
 /* The box whose gauge is under the pointer: drawn thicker (.gz). */
@@ -551,10 +553,7 @@ function spkFilter(t, i, part) {
         delete t.valFilters[i]; delete picks[i];
         setStats(`${t.headers[i]}: every value shown again.`);
     } else {
-        const keep = part.fill ? (part.fill === 'f' ? (v => !!cellType(v)) : (v => !cellType(v)))
-            : c.k === 't' && part.seg != null ? (v => v === c.segs[part.seg][0])
-            : c.k === 't' ? (() => { const top = new Set(c.segs.map(x => x[0])); return v => !top.has(v) && !!cellType(v); })()
-            : (v => { const s = v.trim(); if (cellType(s) !== c.k) return false; const x = spkKey(c.k, s); if (isNaN(x)) return false; const b = spkBin(c, x); return b >= part.bar && b <= (part.bar1 ?? part.bar); });
+        const keep = spkKeep(c, part);       // 52-…: the same test lights the rows on hover
         const seen = new Set();
         visitRows(t, t.allData, r => seen.add(cellStr(cellOf(r, i))));
         const ex = new Set(); let kept = 0;
@@ -568,6 +567,6 @@ function spkFilter(t, i, part) {
             : part.seg != null ? `"${c.segs[part.seg][0]}"` : 'the other values';
         setStats(`${t.headers[i]}: only ${what} — click it again to show all.`);
     }
-    tipHide();
+    tipHide(); glowOff();
     renderHeader(); applyColStyles(); applyFilters();
 }

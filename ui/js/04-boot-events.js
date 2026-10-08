@@ -178,6 +178,7 @@ function fillSRCols() {
     if (prev !== '' && t && +prev < t.headers.length) sel.value = prev;
 }
 function resizeContainer() {
+    groupBox = null;                          // the group tag measures the container again (51-…)
     const top = document.getElementById('chrome').offsetHeight, bottom = document.getElementById('statusbar').offsetHeight;
     container.style.height = `calc(100vh - ${top + bottom}px)`;
     /* The row card (22-row-card.js) docks on the right, between the chrome and the status bar; the grid narrows to make room. */

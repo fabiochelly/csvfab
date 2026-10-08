@@ -60,6 +60,7 @@ function setSel(t, ar, ac, fr, fc) {
 function paintSel(t) {
     for (const td of tbody.querySelectorAll('.cell.sel, .cell.cur, .cell.fh')) td.classList.remove('sel', 'cur', 'fh');
     stripSel(t);                              // the selection's band on the scroll strip
+    paintCross(t);                            // the active cell's row (51-…)
     const rg = selRange(t); if (!rg) return;
     for (const tr of tbody.querySelectorAll('.row[data-idx]')) {
         const i = +tr.dataset.idx; if (i < rg.r0 || i > rg.r1) continue;
@@ -252,14 +253,19 @@ function parseTSV(text) {
     return rows;
 }
 
-document.addEventListener('copy', e => {
-    const t = T(); if (!t || !t.loaded || !gridKeysAllowed(e)) return;
-    const rg = selRange(t); if (!rg) return;
+/* The selection as the clipboard's text (Ctrl+C, the cell menu's Copy — 53-…): { text, rows, cols }. */
+function selectionTSV(t) {
+    const rg = selRange(t); if (!rg) return null;
     const cols = visibleCols(t).filter(c => c >= rg.c0 && c <= rg.c1), out = [];
     for (let r = rg.r0; r <= rg.r1; r++) out.push(cols.map(c => tsvQuote(t.filteredData[r].data[c])).join('\t'));
-    e.clipboardData.setData('text/plain', out.join('\r\n') + (out.length > 1 ? '\r\n' : ''));
+    return { text: out.join('\r\n') + (out.length > 1 ? '\r\n' : ''), rows: out.length, cols: cols.length };
+}
+document.addEventListener('copy', e => {
+    const t = T(); if (!t || !t.loaded || !gridKeysAllowed(e)) return;
+    const s = selectionTSV(t); if (!s) return;
+    e.clipboardData.setData('text/plain', s.text);
     e.preventDefault();
-    doneMsg(`${t.name} | ${fmt(out.length)} × ${fmt(cols.length)} cells copied.`);
+    doneMsg(`${t.name} | ${fmt(s.rows)} × ${fmt(s.cols)} cells copied.`);
 });
 document.addEventListener('paste', e => {
     const t = T(); if (!t || !t.loaded || !gridKeysAllowed(e) || !sel || sel.tab !== t.id) return;

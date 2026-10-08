@@ -58,7 +58,7 @@ const KEY_GROUPS = [
         ['Start / end of the row', ['Home', 'End']], ['Start / end of the file', ['Ctrl+Home', 'Ctrl+End']], ['Select every row shown', 'Ctrl+A'], ['Go to row', 'Ctrl+G'], ['Row card', 'Ctrl+I'], ['File map', 'Ctrl+M']]],
     ['Searching', [['Find without filtering', 'Ctrl+F'], ['Next / previous match', ['F3', 'Shift+F3']], ['Close what is open', 'Esc'], ['These shortcuts', ['F1', '?']]]],
     ['Columns, with the mouse', [['Sort', 'click the title'], ['Add a sort key', 'Shift+click'], ['Rename', 'double-click the title'], ['Move', 'drag the title'],
-        ['Fit to the content', 'double-click its edge'], ['Filter a range of values', 'drag across a column chart'], ['Extend a series', 'drag the selection\'s corner'], ['Copy instead of a series', 'Ctrl+drag']]]
+        ['Fit to the content', 'double-click its edge'], ['Filter a range of values', 'drag across a column chart'], ['Split, merge, insert, delete a column', 'right-click the title'], ['The row\'s menu', 'right-click its number'], ['Copy, paste, keep a value…', 'right-click a cell'], ['Extend a series', 'drag the selection\'s corner'], ['Copy instead of a series', 'Ctrl+drag']]]
 ];
 /* Keys as <kbd> chips: Ctrl+Shift+P → Ctrl + Shift + P; words (click the title) stay text. */
 function kbdHtml(keys) {

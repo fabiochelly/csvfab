@@ -26,7 +26,7 @@ const sortCalm = matchMedia('(prefers-reduced-motion: reduce)');
 /* Before the sort: the rows on screen — their element, row and top in the viewport. */
 function sortMotionBefore(t) {
     if (sortCalm.matches || !drawn || drawn.t !== t) return null;
-    const top = container.scrollTop, h = container.clientHeight, on = [];
+    const top = viewRows.st || 0, h = container._vh || container.clientHeight, on = [];   // no layout read: the DOM may be dirty here (viewRows.st, 12-…)
     for (const el of tbody.children) {
         if (el.dataset.idx == null) continue;
         const i = +el.dataset.idx, y = i * ROW_H - top;

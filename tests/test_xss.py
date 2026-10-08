@@ -118,6 +118,11 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
     setCells(t, [[t.allData[0], c, cellStr(cellOf(t.allData[0], 0))]], 'set');
     setSel(t, 0, c, 0, c); fillByExample(); await pause(200);
     if (!ffx) throw new Error('no rule offered'); render(); hover(); ffAccept(); await pause(100); });
+  await step('right-click menus', async () => {
+    const at = el => { const b = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { clientX: b.left + 5, clientY: b.top + 5, bubbles: true, cancelable: true })); };
+    for (const c of [0, 1, 2, 3]) { const td = tbody.querySelector(`.row[data-idx="0"] .cell[data-c="${c}"]`); if (td) { at(td); await pause(); hover(); closeDDs(); } }
+    at(tbody.querySelector('.row[data-idx="1"] .col-idx')); await pause(); closeDDs();
+    sortBy(1); await pause(600); container.scrollTop = 3 * ROW_H; renderOnScroll(); await pause(); });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

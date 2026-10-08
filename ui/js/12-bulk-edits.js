@@ -299,8 +299,11 @@ function sortBy(col, forceDir, add) {
     container.scrollTop = 0;
     const desc = specs.map(sp => `${t.headers[sp.col]} ${sp.dir > 0 ? '↑' : '↓'}`).join(', then ');
     cols.length = 0; order.length = 0;    // the undo closure below shares this scope: don't let it keep them
-    commitRows(t, sorted, { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
-        t => { t.sort = prevSort; });
+    motionSort = true;                        // the sort's own motion (50-…), not the filter's (52-…)
+    try {
+        commitRows(t, sorted, { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
+            t => { t.sort = prevSort; });
+    } finally { motionSort = false; }
     sortMarks(t);
     sortMotionAfter(t, motion);               // …and the glide to where they are now
     const kinds = specs.length === 1 ? ` (${{ n: 'numbers', d: 'dates', t: 'text' }[specs[0].kind]})` : '';
@@ -374,13 +377,18 @@ function colLayout(t) {
        coloured): one class per cell, no per-column rule for every cell to be matched against. */
     const kinds = t.loaded ? columnKinds(t) : [];
     const kc = vis.map(c => kinds[c] === 'n' ? ' kn' : kinds[c] === 'd' ? ' kd' : '');
+    /* Pills for a column of categories (51-…): null when none. */
+    const look = t.loaded && !t.lang ? gridLook(t) : null;
+    const pill = look && look.cat.size ? vis.map(c => look.cat.get(c) || null) : null;
     /* F: the visible columns frozen at the left (t.frozen, 0 or 1 for now — the code takes any
        count). They are drawn in every row whatever the window, sticky right after the row
        numbers; the window of other columns starts after them. */
-    return { vis, x, kc, F: Math.min(t.frozen || 0, vis.length) };
+    return { vis, x, kc, pill, F: Math.min(t.frozen || 0, vis.length) };
 }
 function viewRows(t) {
-    const top = Math.max(0, Math.floor((container.scrollTop - thead.offsetHeight) / ROW_H));   // rows start below the header
+    /* The scroll read kept (viewRows.st): the motions of a sort or a filter (50-, 52-…) note the rows
+       on screen when the DOM is dirty, where a read of scrollTop forced a layout (~3 ms a filter). */
+    const top = Math.max(0, Math.floor(((viewRows.st = container.scrollTop) - thead.offsetHeight) / ROW_H));   // rows start below the header
     return [top, top + Math.ceil(container.clientHeight / ROW_H)];
 }
 function viewCols(L) {
@@ -460,7 +468,9 @@ function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
     const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, cellShown(c, TEXT_SHOWN), cIdx) : showBreaks(highlightCell(cellShown(c, CELL_SHOWN), cIdx, t.hl));
     const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
     const g = cIdx === ffCol ? ffGhostHtml(t, r, c, i) : '';   // a rule's value offered for an empty cell (48-…)
-    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, g ? true : cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${g || html}</div>`;
+    const pa = !g && L.pill && L.pill[k] ? pillAttrs(L.pill[k], c) : null;   // a category's pill, the cell's background (51-…)
+    const ov = g ? true : pa ? pa.w + 24 > L.x[k + 1] - L.x[k] || html.indexOf('<mark') >= 0 : cellOv(t, cIdx, c, html);
+    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${pa ? pa.cls : ''}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, ov)}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${pa ? `;--pw:${pa.w}px` : ''}${barStyle(t, cIdx, c)}">${g || html}</div>`;
 }
 /* The spacer standing, in a row, for the columns between the frozen ones (or the row numbers)
    and the window — none when the window starts right there. */
@@ -469,10 +479,11 @@ const hsp = (L, c0) => c0 > L.F ? `<div class="hsp" style="width:${hspW(L, c0)}"
 /* Rows i0…i1 of the view, as HTML, in the window's columns w.c0…w.c1 of w.L. */
 function rowsHtml(t, i0, i1, w) {
     const data = t.filteredData, rg = selRange(t), fp = fillRect(), L = w.L, W = L.x[L.x.length - 1], sp = hsp(L, w.c0);
+    const gc = t.sort ? groupCol(t) : -1, xr = rg ? sel.fr : -1;   // a sorted view's group lines, the active row (51-…)
     let html = '';
     for (let i = i0; i <= i1; i++) {
         const r = data[i], mk = markedCells(t, r), d = r.data;
-        html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}" style="top:${i * ROW_H}px;width:${W}px" data-idx="${i}">
+        html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}${gc >= 0 && groupStart(t, gc, i, d) ? ' gs' : ''}${i === xr ? ' xr' : ''}" style="top:${i * ROW_H}px;width:${W}px" data-idx="${i}">
             <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Drag: move">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
@@ -571,6 +582,7 @@ function renderOnScroll() {
         return;
     }
     syncLayer();                              // the layer follows the scroll only with rows drawn at the new position
+    if (t.sort) groupTag(t, L);               // the group at the top of a sorted view (51-…)
     if (!rowsMove && !colsMove) return;
     if (colsMove) { shiftCols(t, w); drawn.c0 = w.c0; drawn.c1 = w.c1; }
     else { w.c0 = drawn.c0; w.c1 = drawn.c1; }   // rows entering take the columns drawn
@@ -586,6 +598,7 @@ function renderOnScroll() {
 function render(lean) {
     const t = T();
     drawn = null;
+    groupTagHide();                           // shown again at the end, if this view has one (51-…)
     /* Drawn at the size the container has now: a redraw the resize observer asked for (15-…) is
        done. Left pending, it ran in the next frame — when a file had just been read, the frame
        meant to show its lean window (the tab bar appearing resizes the grid while the file is
@@ -604,6 +617,7 @@ function render(lean) {
     tbody.innerHTML = rowsHtml(t, w.r0, w.r1, w);
     drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') + '|' + L.F };
     syncSpace(t);
+    if (t.sort) groupTag(t, L);               // the group at the top of a sorted view (51-…)
 }
 
 /* A redraw the user waits on — a file just read, a tab switched to, a filter typed: the lean
@@ -636,7 +650,8 @@ function pinColWidths(t) {
     const [v0] = viewRows(t), rows = t.filteredData.slice(v0, v0 + 80);
     missing.forEach(i => {
         let w = cells && cells[i + 1] ? cells[i + 1].getBoundingClientRect().width : 0;
-        for (const r of rows) w = Math.max(w, textWidth(cellStr(r.data[i])) + 21);   // padding 10 + 10, border 1
+        const ex = t.lang ? 0 : lookExtra(t, i);   // a pill's padding (51-…)
+        for (const r of rows) w = Math.max(w, textWidth(cellStr(r.data[i])) + 21 + ex);   // padding 10 + 10, border 1
         t.colWidths[i] = Math.min(Math.max(Math.ceil(w), 60), 480);
     });
     applyColStyles(true);                 // render() calls syncSpace once the rows are in

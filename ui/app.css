@@ -356,7 +356,8 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 #tbody .cell.frz, #tbody .cell.frz.fh { position: sticky; z-index: 100; }
 #tbody .row-even .cell.frz { background-color: var(--row-alt); }
 #tbody .row-odd .cell.frz { background-color: var(--row-bg, var(--bg)); }
-#tbody .row:hover .cell.frz { background-color: var(--row-hover); }
+#tbody .row-even:hover .cell.frz { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 12%, var(--row-alt)); }
+#tbody .row-odd:hover .cell.frz { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 12%, var(--row-bg, var(--bg))); }
 #tbody .row-even .cell.frz.sel { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 18%, var(--row-alt)) !important; }
 #tbody .row-odd .cell.frz.sel { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 18%, var(--row-bg, var(--bg))) !important; }
 #tbody .row-even .cell.frz.mkc { background-color: color-mix(in srgb, rgb(var(--warn-rgb)) 16%, var(--row-alt)) !important; }
@@ -802,7 +803,7 @@ thead .col-idx { z-index: 120; }
 .row-btn { background-image: radial-gradient(circle, currentColor 1.3px, transparent 1.6px); background-size: 4px 4.5px; background-repeat: repeat-y; background-position: center; background-origin: content-box; background-clip: content-box; padding: 4.25px 0; box-sizing: border-box; }
 #tbody .row:hover .row-btn, .row-btn.open { display: flex; }
 .row-btn:hover, .row-btn.open { background-color: var(--surf-3); color: var(--txt-strong); }   /* the colour only: the dots are the background image */
-#row-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }
+#row-menu, #cell-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }
 .dd-item.danger, .dd-item.danger .lbl svg { color: var(--danger-txt); }
 .dd-item.danger:hover { background: rgba(var(--danger-rgb), .14); }
 
@@ -958,7 +959,10 @@ thead .col-idx { z-index: 120; }
 td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; max-width: 480px; cursor: cell; }
 
 .row-even { background-color: var(--row-alt); } .row-odd { background-color: var(--row-bg, var(--bg)); }   /* --row-bg: only themes whose rows differ from the grid's background; opaque, over #tbody's stripes */
-#tbody .row:hover { background-color: var(--row-hover) !important; }
+/* The row under the pointer: a light accent tint mixed into the row's own colour (opaque: a sort's
+   rows slide over one another) — a grey --row-hover was found too heavy by the user, 6 % too faint (2026-10-09). */
+#tbody .row-even:hover { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 12%, var(--row-alt)) !important; }
+#tbody .row-odd:hover { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 12%, var(--row-bg, var(--bg))) !important; }
 
 .resizer { position: absolute; right: 0; top: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 10; }
 .resizer:hover { background: var(--prim); }
@@ -1300,3 +1304,37 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: roun
 /* A row leaving the screen during a sort's motion (50-sort-motion.js): an old element, put back
    only for the animation. */
 #tbody .row.leaving { pointer-events: none; }
+
+/* --- Reading the grid (51-grid-look.js) --- */
+/* Category pills, in the column chart's ribbon colours and order; grey for the other values. The
+   colour wheel of the status bar (no-kcol) turns them grey too. */
+/* The pill is the cell's background — no element (a span cost a redraw ~3 %): a half disc from 3 px,
+   a body, a half disc ending 7 px past the text; --pw is the text's width (pillWidth(), 51-…).
+   The text in the interface font, as the pill's own. */
+#tbody .cell.pc { --c: rgb(var(--gray-hi-rgb)); --pb: color-mix(in srgb, var(--c) 17%, transparent); font: 12px/34px var(--ui); color: var(--c);
+    background-image: radial-gradient(circle 10px at 100% 50%, var(--pb) 9.5px, transparent 10px), linear-gradient(var(--pb), var(--pb)), radial-gradient(circle 10px at 0 50%, var(--pb) 9.5px, transparent 10px);
+    background-repeat: no-repeat; background-size: 10px 20px, calc(var(--pw) - 6px) 20px, 10px 20px;
+    background-position: 3px 50%, 13px 50%, calc(var(--pw) + 7px) 50%; }   /* half discs beside the body, never over it: the tint is translucent */
+#tbody .cell.pc.p0 { --c: var(--accent-2); } #tbody .cell.pc.p1 { --c: var(--pink-txt); } #tbody .cell.pc.p2 { --c: var(--orange-txt); }
+#tbody .cell.pc.p3 { --c: var(--ok-txt); } #tbody .cell.pc.p4 { --c: var(--warn); }
+:root.no-kcol #tbody .cell.pc { --c: rgb(var(--gray-hi-rgb)); }
+/* A sorted view's groups: a line where the sort value changes, and the tag of the group in view. */
+#tbody .row.gs { box-shadow: inset 0 1px 0 rgba(var(--accent-rgb), .55); }
+#grp-tag { position: fixed; z-index: 140; pointer-events: none; padding: 1px 9px; border-radius: 10px; box-sizing: border-box;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 600 12px/18px var(--ui); color: var(--txt-strong);
+    background: rgba(var(--accent-rgb), .22); border: 1px solid rgba(var(--accent-rgb), .45); backdrop-filter: blur(8px); }
+#grp-tag.flip { animation: grpflip .22s ease-out; }
+@keyframes grpflip { from { opacity: .3; translate: 0 -4px; } }
+/* The active cell's row: an accent tint, stronger than the hover's so the two read apart (the
+   column was tinted at first: dropped by the user; 4 and 7 % were too faint, 16 % chosen on a capture).
+   On the row, mixed into its colour as the hover is: a rule on its cells (.row.xr > .cell) was
+   matched against every cell drawn. */
+#tbody .row-even.xr { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 16%, var(--row-alt)) !important; }
+#tbody .row-odd.xr { background-color: color-mix(in srgb, rgb(var(--accent-rgb)) 16%, var(--row-bg, var(--bg))) !important; }
+
+/* --- Charts linked to the rows (52-motion-links.js) --- */
+/* Hovering a chart part: in its column, the values it holds a little brighter — nothing else
+   (whole rows lit and the others dimmed were too much, the user); ticks on the strip's left edge. */
+#tbody .cell.lit { color: var(--txt-strong) !important; font-weight: 600; }
+#tbody .cell.lit.pc { --pb: color-mix(in srgb, var(--c) 32%, transparent); }
+#scroll-strip .ss-glow { position: absolute; left: 0; top: 0; pointer-events: none; }
