@@ -113,6 +113,43 @@ class SparklinesTest(unittest.TestCase):
         self.assertIn("100 %", self.chrome.eval("document.querySelector('#spk-1 .lb').textContent"))
         self.chrome.eval("spkFilter(T(), 1, { seg: 1 }); true")
 
+    def test_drag_across_bars_filters_a_range(self):
+        self.open(self.path)
+        r = self.chrome.eval("""(async () => {
+          const box = document.getElementById('spk-0'), b = box.getBoundingClientRect(), y = b.top + 8;
+          const at = k => b.left + (k + .5) / 10 * b.width, ev = (type, x, on) => (on || box).dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true, button: 0 }));
+          ev('mousedown', at(2)); ev('mousemove', at(4), window); ev('mousemove', at(5), window);
+          const tip = document.getElementById('tip').textContent;
+          ev('mouseup', at(5), window); ev('click', at(5));
+          const t = T(), kept = new Set(t.filteredData.map(r => cellOf(r, 0)));
+          const out = { n: t.filteredData.length, kept: [...kept].sort(), tip };
+          spkFilter(t, 0, { bar: 2, bar1: 5 });           // la même plage : le filtre s'en va
+          out.after = T().filteredData.length;
+          return out;
+        })()""")
+        self.assertEqual(r["n"], 400)
+        self.assertEqual(r["kept"], ["2", "3", "4", "5"])
+        self.assertIn("2 – 5", r["tip"])
+        self.assertIn("400 rows", r["tip"])
+        self.assertIn("Release: show only these", r["tip"])
+        self.assertEqual(r["after"], 1000)
+
+    def test_sort_moves_the_rows_on_screen(self):
+        self.open(self.path)
+        r = self.chrome.eval("""(async () => {
+          document.getAnimations().forEach(a => a.cancel());
+          sortBy(0, -1);
+          await new Promise(r => requestAnimationFrame(r));
+          const anims = document.getAnimations().filter(a => a.effect && a.effect.target && a.effect.target.classList.contains('row'));
+          const tops = [...tbody.querySelectorAll('.row')].slice(0, 5).map(e => e.style.top);
+          const out = { anims: anims.length, top: cellOf(T().filteredData[0], 0), tops };
+          undo();
+          return out;
+        })()""")
+        self.assertGreater(r["anims"], 10)                     # les lignes à l'écran glissent
+        self.assertEqual(r["top"], "9")                         # le tri lui-même est fait
+        self.assertTrue(all(x.endswith("px") for x in r["tops"]))
+
     def test_gauge_filters_filled_or_empty(self):
         self.open(self.path)
         rows = "T().filteredData.length"

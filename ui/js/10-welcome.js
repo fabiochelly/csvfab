@@ -52,13 +52,13 @@ const KEY_GROUPS = [
     ['Files and tabs', [['Open files', 'Ctrl+O'], ['Save', 'Ctrl+S'], ['Command palette', ['Ctrl+P', 'Ctrl+Shift+P']], ['Previous / next tab', ['Alt+←', 'Alt+→']],
         ['Go to tab 1 to 9', 'Alt+1…9'], ['Close the tab', 'Ctrl+W'], ['Quit', 'Ctrl+Q']]],
     ['Editing', [['Edit the cell', ['Enter', 'F2']], ['Replace its value', 'start typing'], ['Line break in a cell', 'Shift+Enter'], ['Same value in every selected cell', 'Enter'],
-        ['A series in the selected cells', 'Ctrl+Enter'], ['Fill a series down', 'Ctrl+D'], ['Clear the cells', 'Delete'], ['Undo', 'Ctrl+Z'], ['Redo', ['Ctrl+Y', 'Ctrl+Shift+Z']],
+        ['A series in the selected cells', 'Ctrl+Enter'], ['Fill a series down', 'Ctrl+D'], ['Fill by example (the values offered: Tab takes, Esc drops)', 'Ctrl+E'], ['Clear the cells', 'Delete'], ['Undo', 'Ctrl+Z'], ['Redo', ['Ctrl+Y', 'Ctrl+Shift+Z']],
         ['Copy / paste a range', ['Ctrl+C', 'Ctrl+V']]]],
     ['Moving and selecting', [['Move', '↑ ↓ ← →'], ['Extend the selection', 'Shift+arrows'], ['To the edge of the data', 'Ctrl+arrows'], ['A screen up / down', ['PgUp', 'PgDn']],
         ['Start / end of the row', ['Home', 'End']], ['Start / end of the file', ['Ctrl+Home', 'Ctrl+End']], ['Select every row shown', 'Ctrl+A'], ['Go to row', 'Ctrl+G'], ['Row card', 'Ctrl+I'], ['File map', 'Ctrl+M']]],
     ['Searching', [['Find without filtering', 'Ctrl+F'], ['Next / previous match', ['F3', 'Shift+F3']], ['Close what is open', 'Esc'], ['These shortcuts', ['F1', '?']]]],
     ['Columns, with the mouse', [['Sort', 'click the title'], ['Add a sort key', 'Shift+click'], ['Rename', 'double-click the title'], ['Move', 'drag the title'],
-        ['Fit to the content', 'double-click its edge'], ['Extend a series', 'drag the selection\'s corner'], ['Copy instead of a series', 'Ctrl+drag']]]
+        ['Fit to the content', 'double-click its edge'], ['Filter a range of values', 'drag across a column chart'], ['Extend a series', 'drag the selection\'s corner'], ['Copy instead of a series', 'Ctrl+drag']]]
 ];
 /* Keys as <kbd> chips: Ctrl+Shift+P → Ctrl + Shift + P; words (click the title) stay text. */
 function kbdHtml(keys) {

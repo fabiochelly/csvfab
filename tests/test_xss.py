@@ -111,6 +111,13 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
       box.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + 3, clientY: r.top + 6, bubbles: true })); }
     const c = t.spk.cols.findIndex(x => x.k === 't' && x.segs.length);
     if (c >= 0) { spkFilter(t, c, { seg: 0 }); await pause(300); spkFilter(t, c, { seg: 0 }); await pause(100); } });
+  await step('what I noticed', async () => { openInsights(); for (let k = 0; k < 300 && !(insights && insights.done); k++) await pause(20); hover();
+    const it = insights.items.find(x => x.show); if (it) { await inShow(it.id); await pause(); render(); hover(); clearRowMark(); } closeAllModals(); });
+  await step('fill by example', async () => { const c = 2;
+    setCells(t, t.allData.slice(1).map(r => [r, c, '']), 'cleared');
+    setCells(t, [[t.allData[0], c, cellStr(cellOf(t.allData[0], 0))]], 'set');
+    setSel(t, 0, c, 0, c); fillByExample(); await pause(200);
+    if (!ffx) throw new Error('no rule offered'); render(); hover(); ffAccept(); await pause(100); });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

@@ -77,6 +77,7 @@ function startEdit(td, typed, caretEnd) {
                     undo: () => ed.undo() });
                 updateSaveBtn(); renderTabBar();
                 redrawRows(t, viewIdx, viewIdx);   // that row alone
+                if (!oldVal.trim() && v.trim()) ffNoteExample(t, rowObj, colIdx);   // an example for fill by example (48-…)
             }
             return;
         }

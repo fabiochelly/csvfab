@@ -273,6 +273,7 @@ function sortBy(col, forceDir, add) {
         const i = prevSort.findIndex(k => k.col === col);
         keys = i < 0 ? prevSort.concat([{ col, dir: forceDir || 1 }]) : prevSort.map((k, j) => j === i ? { col, dir: forceDir || -k.dir } : k);
     } else keys = [{ col, dir: forceDir || (prevSort && prevSort.length === 1 && prevSort[0].col === col ? -prevSort[0].dir : 1) }];
+    const motion = sortMotionBefore(t);       // where the rows on screen are now (50-…)
     const specs = keys.map(k => ({ ...k, kind: sortKind(t, k.col) }));
     const coll = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
     /* One key column per sort key — numbers in a Float64Array (NaN: empty),
@@ -291,6 +292,7 @@ function sortBy(col, forceDir, add) {
         const num = specs[k].kind === 't' ? textRanks(cols[k], coll) : cols[k];
         order = radixOrder(order, num, specs[k].dir);
     }
+    sortMotionFrom(motion, order);            // where the new first rows were (50-…)
     const all = t.allData, sorted = new Array(n);
     for (let i = 0; i < n; i++) sorted[i] = all[order[i]];
     t.sort = keys;
@@ -300,6 +302,7 @@ function sortBy(col, forceDir, add) {
     commitRows(t, sorted, { id: '-', col: t.headers[col], old: 'Sort', new: desc, what: `sort by ${desc}` },
         t => { t.sort = prevSort; });
     sortMarks(t);
+    sortMotionAfter(t, motion);               // …and the glide to where they are now
     const kinds = specs.length === 1 ? ` (${{ n: 'numbers', d: 'dates', t: 'text' }[specs[0].kind]})` : '';
     setStats(`${t.name} | Sorted by ${desc}${kinds} — not written yet, use Save.`);
 }
@@ -456,7 +459,8 @@ function cellShown(c, max) {
 function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
     const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, cellShown(c, TEXT_SHOWN), cIdx) : showBreaks(highlightCell(cellShown(c, CELL_SHOWN), cIdx, t.hl));
     const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
-    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${html}</div>`;
+    const g = cIdx === ffCol ? ffGhostHtml(t, r, c, i) : '';   // a rule's value offered for an empty cell (48-…)
+    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, g ? true : cellOv(t, cIdx, c, html))}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${barStyle(t, cIdx, c)}">${g || html}</div>`;
 }
 /* The spacer standing, in a row, for the columns between the frozen ones (or the row numbers)
    and the window — none when the window starts right there. */

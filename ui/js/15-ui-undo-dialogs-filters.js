@@ -67,6 +67,7 @@ function updateSaveBtn() {
         if (t.loaded) findRefresh(t);    // an edit that redraws only its rows still changes the find count (29-…)
         spkLater(t);                      // …and the column charts (47-…), when idle
     }
+    ffCheck();                            // a fill-by-example rule offered for rows that changed goes (48-…)
 }
 
 /* Back to the file as it is on disk: the edits only ever lived in memory,
@@ -493,12 +494,14 @@ function updateCount(t) {
 function updateStats() {
     const t = T();
     updateCount(t);
-    if (!t || !t.loaded) document.getElementById('btn-extract').style.display = document.getElementById('btn-map').style.display = 'none';
+    ffCheck();                            // another tab shown: its fill-by-example offer goes (48-…)
+    if (!t || !t.loaded) document.getElementById('btn-export').style.display = document.getElementById('btn-map').style.display = document.getElementById('btn-insights').style.display = 'none';
     if (!t || !t.loaded) { updateDupChip(null); updateMojiChip(null); updateMarkChip(null); rowCardSync(); }
     if (!t) { setStats('Ready.'); return; }
     if (!t.loaded) { setStats(`${t.name} | ${t.loading ? 'loading…' : 'released from RAM'}`); return; }
     const hasFilters = hasFilter(t);
-    document.getElementById('btn-extract').style.display = document.getElementById('btn-map').style.display = '';
+    document.getElementById('btn-export').style.display = document.getElementById('btn-map').style.display = '';
+    document.getElementById('btn-insights').style.display = t.lang ? 'none' : '';
     updateIrregular(t); updateDupChip(t); updateMojiChip(t); updateMarkChip(t);
     const gen = t.lang ? '' : t.syntheticHeader ? ' | no header line: columns numbered from 0' : '';
     const ex = (t.useExpr && t.exprErr ? ` | expression: ${t.exprErr}` : '') + (t.reErr ? ` | regex: ${t.reErr}` : '');

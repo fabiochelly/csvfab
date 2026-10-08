@@ -584,7 +584,7 @@ async function extractFiltered() {
         if (!dest) { uiAlert('No free file name found beside the source.'); return; }
         const j = await srvWrite(t, dest, false, delim, rows);
         if (!j) return;
-        doneMsg(`${t.name} | ${fmt(rows.length)} rows extracted to ${baseName(dest)}.`);
+        doneMsg(`${t.name} | ${fmt(rows.length)} rows exported to ${baseName(dest)}.`);
         await addPathTabs([dest]);
         return;
     }
@@ -599,7 +599,7 @@ async function extractFiltered() {
         });
     } catch (e) { return; }                     // picker dismissed
     if (!await writeToHandle(t, handle, rows, t.headers.map((_, i) => i), delim)) return;
-    doneMsg(`${t.name} | ${fmt(rows.length)} rows extracted to ${handle.name}.`);
+    doneMsg(`${t.name} | ${fmt(rows.length)} rows exported to ${handle.name}.`);
     await addHandles([handle], null);
 }
 

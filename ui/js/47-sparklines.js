@@ -418,7 +418,7 @@ function spkPicked(t, i) {
     const p = t.spkPicks && t.spkPicks[i];
     if (!p || t.valFilters[i] !== p.set) return null;
     const c = t.spk.cols[i];
-    return p.bar != null && c.B ? [p.bar / c.B, 1 / c.B] : null;   // a value of a ribbon: the ribbon is that value alone now
+    return p.bar != null && c.B ? [p.bar / c.B, ((p.bar1 ?? p.bar) - p.bar + 1) / c.B] : null;   // a value of a ribbon: the ribbon is that value alone now
 }
 
 /* ---- Hover and click ---- */
@@ -467,30 +467,66 @@ function spkTip(h) {
             + (c.bad && !e ? `\n${est(c.bad)} not ${c.k === 'n' ? 'numbers' : 'dates'}` : '') + hint;
     }
     let what, n, fn;
-    if (p.bar != null) {
-        const a = c.first[p.bar], b = c.last[p.bar];
+    if (p.bar != null) {                      // a bar, or a range of them being dragged across (bar1)
+        const hi = p.bar1 ?? p.bar;
+        let a = null, b = null; n = 0; fn = f ? 0 : null;
+        for (let k = p.bar; k <= hi; k++) { if (!a && c.first[k]) a = c.first[k]; if (c.last[k]) b = c.last[k]; n += c.cnt[k]; if (f) fn += f.cnt[k]; }
         what = !a ? 'No value here' : a[1] === b[1] ? a[1] : `${a[1]} – ${b[1]}`;
-        n = c.cnt[p.bar]; fn = f && f.cnt[p.bar];
     } else if (p.seg != null) { what = c.segs[p.seg][0]; n = c.segs[p.seg][1]; fn = f && f.seg[p.seg]; }
     else { what = `${fmt(Math.max(0, c.distinct - c.segs.length))}${c.many || s.sampled ? '+' : ''} other values`; n = c.other; fn = f && f.other; }
     return `${what.length > 120 ? what.slice(0, 120) + '…' : what}\n${est(n)} row${n === 1 && !s.sampled ? '' : 's'} · ${spkPct(n / s.S)}`
         + (f ? `\n${fest(fn)} of the rows shown` : '')
-        + (n ? `\n${picked ? 'Click: show all again' : 'Click: show only these'}` : '');
+        + (h.brush ? (n ? '\nRelease: show only these' : '') : n ? `\n${picked ? 'Click: show all again' : 'Click: show only these'}${p.bar != null ? ' · drag across: a range' : ''}` : '');
 }
 thead.addEventListener('mousemove', e => {
+    if (spkBrush) return;                     // a range being dragged: the window's handler draws it
     const h = spkAt(e);
     spkGz(h && h.gauge && h.box);
     if (!h) return spkHlOff();
     const p = h.part;
     if (p && p.w > 0) spkHlOn(h); else spkHlOff();
+    spkTipAt(h, e);
+});
+function spkTipAt(h, e) {
+    const p = h.part;
     tipFor = h.box;                           // 34-…: leaving the band hides it
     tipBox.textContent = spkTip(h);
     tipBox.classList.add('open');
     const w = tipBox.offsetWidth, x = p ? h.r.left + (p.x0 + p.w / 2) * h.r.width : e.clientX;
     tipBox.style.left = Math.max(6, Math.min(x - w / 2, innerWidth - w - 6)) + 'px';
     tipBox.style.top = (h.r.bottom + 8) + 'px';
+}
+thead.addEventListener('mouseleave', () => { if (!spkBrush) { spkGz(null); spkHlOff(); } });
+/* Dragging across the bars of a curve picks a range of them (2026-10-08, the user's pick): lit as
+   the pointer goes, said in the tooltip, filtered on release — a value filter keeping every value
+   of those bars, as one bar's click does. A press and release on one bar stays a click. */
+let spkBrush = null;                      // { h: the press's spkAt(), b0, b1 } while dragging
+let spkBrushed = false;                   // the click that ends a drag is not a click on a bar
+thead.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const h = spkAt(e);
+    if (!h || h.gauge || !h.part || h.part.bar == null) return;
+    e.preventDefault();                       // no text selection while dragging
+    spkBrush = { h, b0: h.part.bar, b1: h.part.bar };
 });
-thead.addEventListener('mouseleave', () => { spkGz(null); spkHlOff(); });
+const spkRange = (B, c) => { const lo = Math.min(B.b0, B.b1), hi = Math.max(B.b0, B.b1); return { bar: lo, bar1: hi, x0: lo / c.B, w: (hi - lo + 1) / c.B }; };
+window.addEventListener('mousemove', e => {
+    const B = spkBrush; if (!B) return;
+    const { h } = B, c = h.c, x = Math.max(0, Math.min(.9999, (e.clientX - h.r.left) / h.r.width));
+    const b = Math.min(c.B - 1, Math.floor(x * c.B));
+    if (b === B.b1) return;
+    B.b1 = b;
+    const g = { ...h, part: spkRange(B, c), brush: true };
+    spkHlOn(g); spkTipAt(g, e);
+});
+window.addEventListener('mouseup', () => {
+    const B = spkBrush; if (!B) return;
+    spkBrush = null;
+    if (B.b0 === B.b1) return;                // a click: thead's click handler takes it
+    spkBrushed = true; setTimeout(() => { spkBrushed = false; }, 0);
+    spkHlOff();
+    if (T() === B.h.t && spkShown(B.h.t)) spkFilter(B.h.t, B.h.i, spkRange(B, B.h.c));
+});
 /* The box whose gauge is under the pointer: drawn thicker (.gz). */
 let spkGzBox = null;
 function spkGz(box) {
@@ -500,6 +536,7 @@ function spkGz(box) {
     if (box) box.classList.add('gz');
 }
 thead.addEventListener('click', e => {
+    if (spkBrushed) return;
     const h = spkAt(e); if (!h || !h.part || !(h.part.w > 0)) return;
     spkFilter(h.t, h.i, h.part);
 });
@@ -510,14 +547,14 @@ thead.addEventListener('click', e => {
    picked, the filter goes. */
 function spkFilter(t, i, part) {
     const picks = t.spkPicks || (t.spkPicks = {}), c = t.spk.cols[i], p = picks[i];   // by column: a pick elsewhere leaves this one
-    if (p && t.valFilters[i] === p.set && p.bar === part.bar && p.seg === part.seg && !!p.other === !!part.other && p.fill === part.fill) {
+    if (p && t.valFilters[i] === p.set && p.bar === part.bar && (p.bar1 ?? p.bar) === (part.bar1 ?? part.bar) && p.seg === part.seg && !!p.other === !!part.other && p.fill === part.fill) {
         delete t.valFilters[i]; delete picks[i];
         setStats(`${t.headers[i]}: every value shown again.`);
     } else {
         const keep = part.fill ? (part.fill === 'f' ? (v => !!cellType(v)) : (v => !cellType(v)))
             : c.k === 't' && part.seg != null ? (v => v === c.segs[part.seg][0])
             : c.k === 't' ? (() => { const top = new Set(c.segs.map(x => x[0])); return v => !top.has(v) && !!cellType(v); })()
-            : (v => { const s = v.trim(); if (cellType(s) !== c.k) return false; const x = spkKey(c.k, s); return !isNaN(x) && spkBin(c, x) === part.bar; });
+            : (v => { const s = v.trim(); if (cellType(s) !== c.k) return false; const x = spkKey(c.k, s); if (isNaN(x)) return false; const b = spkBin(c, x); return b >= part.bar && b <= (part.bar1 ?? part.bar); });
         const seen = new Set();
         visitRows(t, t.allData, r => seen.add(cellStr(cellOf(r, i))));
         const ex = new Set(); let kept = 0;
@@ -525,8 +562,9 @@ function spkFilter(t, i, part) {
         if (!kept) return setStats('No row holds those values.');
         if (!ex.size) return setStats(`${t.headers[i]}: every row already holds those values.`);
         t.valFilters[i] = ex;
-        picks[i] = { set: ex, bar: part.bar, seg: part.seg, other: !!part.other, fill: part.fill };
-        const what = part.fill ? `the ${part.fill === 'f' ? 'filled' : 'empty'} rows` : part.bar != null ? (c.first[part.bar] && c.first[part.bar][1] === c.last[part.bar][1] ? c.first[part.bar][1] : `${c.first[part.bar][1]} to ${c.last[part.bar][1]}`)
+        picks[i] = { set: ex, bar: part.bar, bar1: part.bar1, seg: part.seg, other: !!part.other, fill: part.fill };
+        const hi = part.bar1 ?? part.bar, lo1 = part.bar != null && c.first.slice(part.bar, hi + 1).find(Boolean), hi1 = part.bar != null && c.last.slice(part.bar, hi + 1).filter(Boolean).pop();
+        const what = part.fill ? `the ${part.fill === 'f' ? 'filled' : 'empty'} rows` : part.bar != null ? (lo1[1] === hi1[1] ? lo1[1] : `${lo1[1]} to ${hi1[1]}`)
             : part.seg != null ? `"${c.segs[part.seg][0]}"` : 'the other values';
         setStats(`${t.headers[i]}: only ${what} — click it again to show all.`);
     }

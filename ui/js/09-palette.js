@@ -37,7 +37,7 @@ function paletteCommands() {
     add('File', 'Save as… — another name, delimiter, encoding or Excel', openSaveModal, '', loaded);
     add('File', 'Save as Excel workbook', () => saveExcel(), '', loaded);
     add('File', 'Save as SQLite database — one table, typed columns', () => saveExcel(null, 'sqlite'), '', loaded);
-    add('File', 'Extract the rows shown to a new file', extractFiltered, '', loaded);
+    add('File', 'Export the rows shown to a new file', extractFiltered, '', loaded);
     add('File', 'Discard all edits and reload from disk', discardEdits, '', loaded && isDirty(t));
     add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
     add('File', 'Quit csvfab', quitApp, 'Ctrl+Q');
@@ -51,6 +51,7 @@ function paletteCommands() {
     add('View', 'Go to row…', goToRow, 'Ctrl+G', loaded);
     add('View', 'File profile — every column at a glance', openProfile, '', loaded);
     add('View', 'File map — the whole file as one picture', openFileMap, 'Ctrl+M', loaded);
+    add('View', 'What I noticed — keys, values written otherwise, outliers, copies, hidden rules', openInsights, '', loaded && !t.lang);
     add('View', spkOn() ? 'Hide the column charts' : 'Column charts — each column\'s values drawn under its title', toggleSparklines, spkOn() ? '✓' : '');
     add('File', 'Create a schema — the rules this file follows, as name.schema.json…', openSchemaCreate, '', loaded);
     add('File', 'Validate with a schema — check this file against its rules…', openSchemaValidate, '', loaded);
@@ -66,6 +67,7 @@ function paletteCommands() {
     add('File', 'Combine files — open tabs into one new file, columns matched by title…', openCombine, '', loaded);
     add('Edit', 'Fill series down', fillDown, 'Ctrl+D', loaded);
     add('Edit', 'Fill empty cells from above', fillBlanks, '', loaded);
+    add('Edit', 'Fill by example — type one or two results, the rest of the column follows', fillByExample, 'Ctrl+E', loaded && !t.lang);
     add('Edit', 'Select all rows shown', () => setSel(t, 0, 0, t.filteredData.length - 1, t.headers.length - 1), 'Ctrl+A', loaded && t.filteredData.length > 0);
     add('Rows', 'Remove duplicates…', openDedupe, '', loaded);
     add('Rows', 'Delete hidden rows', deleteHiddenRows, '', loaded);

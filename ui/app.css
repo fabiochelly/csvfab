@@ -293,6 +293,15 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split > .btn + .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 6px 8px; }
 
+/* Joined button groups in the toolbar (Map | Insights, Export | Save ▾): one frame, square inner
+   corners. A member hidden (style display none: no file, a text file) leaves its neighbour its
+   round corners; a group with nothing shown takes no room — nor the flex gap around it. */
+.btn-grp { display: inline-flex; }
+.btn-grp:not(:has(> :not([style*="none"]))) { display: none; }
+.btn-grp > .btn:has(~ :not([style*="none"])), .btn-grp > .btn:has(~ .split) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn-grp > :not([style*="none"]) ~ .btn, .btn-grp > :not([style*="none"]) ~ .split > .btn:first-child { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.btn-grp > .btn:hover { position: relative; z-index: 1; }
+
 #modal-save, #modal-dedupe, #modal-bulk { width: 380px; }
 #modal-clean { width: 520px; }
 #modal-save h4, #modal-dedupe h4, #modal-bulk h4, #modal-clean h4 { margin: 0 0 14px; }
@@ -1230,3 +1239,64 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: roun
 #mp-rows span { position: absolute; right: 0; margin-top: -6px; line-height: 12px; }
 #mp-hl { position: absolute; display: none; pointer-events: none; outline: 1px solid var(--txt-hi); outline-offset: 0; }
 #mp-info { flex: none; margin-top: 8px; font-size: 12px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- Fill by example (48-fill-example.js): the rule's values as ghosts, its bar --- */
+#tbody .cell .ffg { color: var(--txt-dim); font-style: italic; }
+/* The ghosts arrive as a wave down the screen, once per offer (#tbody.ff-in for 1.6 s). */
+#tbody.ff-in .cell .ffg { display: inline-block; animation: ffin .45s ease-out both; animation-delay: calc(var(--ffi, 0) * 16ms); }
+@keyframes ffin { from { opacity: 0; translate: -8px 0; } }
+#ff-bar { position: fixed; left: 50%; bottom: 46px; translate: -50% 0; z-index: 2500; display: none; align-items: center; gap: 10px;
+    max-width: calc(100vw - 32px); box-sizing: border-box; padding: 6px 6px 6px 12px; border-radius: 10px;
+    background: var(--surf); border: 1px solid var(--brd); border-left: 3px solid var(--violet-txt);
+    box-shadow: 0 12px 32px rgba(0,0,0,.45); font: 13px var(--ui); color: var(--txt-hi); }
+#ff-bar.on { display: flex; animation: ffbar .28s cubic-bezier(.2, .9, .3, 1.15); }
+@keyframes ffbar { from { opacity: 0; translate: -50% 12px; } }
+#ff-bar .ff-ic { flex: none; width: 18px; height: 18px; color: var(--violet-txt); stroke-width: 1.8; }
+#ff-bar .ff-t { flex: none; white-space: nowrap; }
+#ff-bar .ff-rule { display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; flex-wrap: nowrap; }
+#ff-bar .ff-a, #ff-bar .ff-k { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 1px 7px; border-radius: 6px; line-height: 20px; white-space: nowrap; }
+#ff-bar .ff-a { background: rgba(var(--violet-rgb), .14); color: var(--txt-hi); }
+#ff-bar .ff-a small { font-size: 11.5px; color: var(--txt-mut); }
+#ff-bar .ff-k { font: 12.5px var(--mono); color: var(--txt); border: 1px dashed rgba(var(--hi-rgb), .22); }
+#ff-bar .ff-k i { font-style: normal; color: var(--txt-dim); }
+#ff-bar .ff-n { flex: none; color: var(--txt-mut); font-size: 12px; white-space: nowrap; }
+#ff-bar .ff-go { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 6px; border: none; cursor: pointer;
+    font: 600 12.5px var(--ui); color: var(--on-prim); background: var(--prim); }
+#ff-bar .ff-go:hover { filter: brightness(1.1); }
+#ff-bar .ff-go kbd { font: 10.5px var(--mono); padding: 0 4px; border-radius: 4px; background: rgba(var(--hi-rgb), .18); line-height: 16px; }
+#ff-bar .ff-x { flex: none; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 5px; color: var(--txt-dim); cursor: pointer; font-size: 15px; }
+#ff-bar .ff-x:hover { background: var(--surf-2); color: var(--txt-hi); }
+
+/* --- What I noticed (49-insights.js): cards arriving as they are found --- */
+#modal-insights { width: min(860px, calc(100vw - 40px)); height: min(86vh, 900px); max-height: none; overflow: hidden; flex-direction: column; box-sizing: border-box; padding: 18px 20px 14px; }
+#modal-insights[style*="block"] { display: flex !important; }
+#modal-insights .in-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#modal-insights h4 { margin: 0; }
+#modal-insights .in-logo { width: 20px; height: 20px; color: var(--violet-txt); stroke-width: 1.8; }
+#in-sum { font-size: 12.5px; }
+#in-prog { height: 2px; margin: 12px 0 10px; border-radius: 2px; background: var(--surf-3); overflow: hidden; flex: none; opacity: 0; transition: opacity .3s; }
+#in-prog.on { opacity: 1; }
+#in-prog i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--prim), var(--violet-txt)); transition: width .25s ease-out; }
+#in-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.in-card { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 9px; background: var(--surf-2); border: 1px solid var(--brd);
+    border-left: 3px solid var(--txt-faint); animation: inin .38s cubic-bezier(.2, .9, .3, 1.1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.in-card.warn { border-left-color: var(--warn); }
+.in-card.info { border-left-color: var(--accent-2); }
+@keyframes inin { from { opacity: 0; translate: 0 10px; } }
+.in-card .in-ic { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--txt-mut); }
+.in-card.warn .in-ic { color: var(--warn); }
+.in-card.info .in-ic { color: var(--accent-2); }
+.in-card .in-b { flex: 1; min-width: 0; }
+.in-card .in-t { font-size: 13.5px; color: var(--txt-hi); line-height: 1.45; }
+.in-card .in-s { margin-top: 4px; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; }
+.in-card .in-acts { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.in-card .in-acts .btn { padding: 4px 10px; font-size: 12px; }
+.in-c { display: inline-block; padding: 0 6px; border-radius: 5px; background: rgba(var(--accent-rgb), .14); color: var(--txt-strong); font-weight: 500; cursor: pointer; line-height: 19px; }
+.in-c:hover { background: rgba(var(--accent-rgb), .28); }
+.in-v { font: 12px var(--mono); padding: 0 4px; border-radius: 4px; background: rgba(var(--hi-rgb), .07); color: var(--txt-hi); white-space: pre; }
+.in-none { display: flex; align-items: center; gap: 10px; padding: 18px 14px; color: var(--txt-mut); font-size: 13px; }
+.in-none svg { width: 18px; height: 18px; color: var(--ok); flex: none; }
+
+/* A row leaving the screen during a sort's motion (50-sort-motion.js): an old element, put back
+   only for the animation. */
+#tbody .row.leaving { pointer-events: none; }
