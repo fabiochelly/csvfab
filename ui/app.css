@@ -825,7 +825,7 @@ thead .col-idx { z-index: 120; }
    (::after). The band is its own panel, a shade deeper than the titles: 27 px tall it read as
    clutter between titles and filters, the gauge glued to the bars (the user, 2026-10-08) —
    it can be hidden in one click, so it takes the room a chart needs. */
-.spk-row th { height: 74px; padding: 9px 10px 7px; vertical-align: top;
+.spk-row th { height: 61px; padding: 9px 10px 7px; vertical-align: top;
     background: linear-gradient(var(--surf), color-mix(in srgb, var(--surf) 55%, var(--bg)));
     box-shadow: inset 0 1px rgba(var(--hi-rgb), .03); }
 /* The boxes' variables, set once on the row and inherited: declared on each box they were
@@ -839,7 +839,7 @@ thead .col-idx { z-index: 120; }
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
 .spk-row th.spk-idx:hover::before { background: var(--txt-mut); }
 .no-spk .spk-row { display: none; }
-.spk { position: relative; height: 58px; cursor: default;
+.spk { position: relative; height: 45px; cursor: default;
     background: linear-gradient(rgba(var(--prim-rgb), .2), rgba(var(--prim-rgb), .2)) var(--pl) 0 / var(--pw) calc(100% - 14px) no-repeat; }
 /* The gauge: 6 px and rounded from the start, as a text column's ribbon; over it the part under the pointer lights up
    (.spk-hl.g), the other stays as it is. */
@@ -857,7 +857,7 @@ thead .col-idx { z-index: 120; }
 .spk::after { display: none; animation: .35s ease-out both; }
 .spk:not(.k-n):not(.k-d)::before, .spk:not(.k-n):not(.k-d)::after { display: none; }
 /* Just above the ribbon (at the top of the box, a gap opened between them once the ribbon went to the bottom). */
-.spk .lb { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; font: 500 11.5px/15px var(--ui); color: var(--txt-sub); letter-spacing: .01em; }
+.spk .lb { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; font: 500 11.5px/15px var(--ui); color: var(--txt-sub); letter-spacing: .01em; }
 /* The value takes 70 % of the box at most (a long one — a blob, a JSON — filled it and pushed its share out of view),
    cut with an ellipsis; its share always shows after it. */
 .spk .lb b { font-weight: 600; color: var(--txt-hi); min-width: 0; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
@@ -871,7 +871,7 @@ thead .col-idx { z-index: 120; }
 .spk .lb b::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--c); margin-right: 5px; vertical-align: 1px; }
 /* No value standing out: the count over the share filled, small, each its colour (the share in the
    filled green of the gauges). */
-.spk .lb .two { display: flex; flex-direction: column; min-width: 0; font-size: 10px; line-height: 12px; }
+.spk .lb .two { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 10px; line-height: 12px; }   /* its lines 2 px apart; 6 px down to the ribbon (.lb's bottom) */
 .spk .lb .two i { overflow: hidden; text-overflow: ellipsis; color: var(--txt-sub); }
 .spk .lb .two .fl { color: rgba(var(--ok-rgb), .85); }
 /* The part under the pointer (spkHlOn()): the rest of the box fades, the part keeps its full
