@@ -33,6 +33,31 @@ function barStyle(t, c, v) {
     const col = x < 0 ? 'var(--danger)' : 'var(--prim)', a1 = a.toFixed(1), a2 = (a + Math.max(w, .6)).toFixed(1);
     return `;background-image:linear-gradient(90deg,transparent ${a1}%,${col} ${a1}%,${col} ${a2}%,transparent ${a2}%),none;background-size:100% 3px,auto;background-position:left 0 bottom 4px,0 0;background-repeat:no-repeat;background-origin:content-box,padding-box;background-clip:content-box,border-box`;
 }
+/* Colour scale: a numeric column's cells tinted by their value, light to strong accent from its 2nd to
+   its 98th percentile (an outlier does not squash the others into one shade); with negatives and
+   positives, the negatives in the danger colour from zero. Opaque (mixed into the rows' background):
+   a frozen cell must hide what scrolls under it. t.heat {col: {lo, hi}}, keyed like the other maps. */
+function toggleHeat(col) {
+    const t = T(); if (!t || !t.loaded) return;
+    if (t.heat[col]) { delete t.heat[col]; render(); return; }
+    const v = [];
+    visitRows(t, t.allData, r => { const s = cellStr(cellOf(r, col)).trim(); if (s && isNumericLike(s)) { const x = numKey(s); if (isFinite(x)) v.push(x); } });
+    if (!v.length) return;
+    const a = Float64Array.from(v).sort(), q = p => a[Math.round(p * (a.length - 1))];
+    t.heat[col] = { lo: q(.02), hi: q(.98) };
+    render();
+    setStats(`${t.name} | Column "${t.headers[col]}" coloured by value — again to remove.`);
+}
+function heatStyle(t, c, v) {
+    const h = t.heat[c]; if (!h) return '';
+    v = cellStr(v).trim(); if (!v || !isNumericLike(v)) return '';
+    const x = numKey(v); if (isNaN(x)) return '';
+    let f, rgb = 'var(--accent-rgb)';
+    if (h.lo < 0 && h.hi > 0) { if (x < 0) { f = x / h.lo; rgb = 'var(--danger-rgb)'; } else f = x / h.hi; }
+    else f = h.hi > h.lo ? (x - h.lo) / (h.hi - h.lo) : 1;
+    const p = (6 + Math.max(0, Math.min(1, f)) * 40).toFixed(0);
+    return `;background-color:color-mix(in srgb,rgb(${rgb}) ${p}%,var(--row-bg,var(--bg)))`;
+}
 function cellCls(i, c, rg, fp, row, marked, ov) {
     const k = marked ? ['mkc'] : [];
     if (ov) k.push('ov');

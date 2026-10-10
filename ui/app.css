@@ -164,6 +164,22 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
     min-height: 52px; box-sizing: border-box; padding: 8px 16px; background: var(--surf); border-bottom: 1px solid var(--brd);
     display: flex; align-items: center; flex-wrap: wrap; gap: 12px; z-index: 1000; position: relative;
 }
+/* The filters in force (55-…): chips in the toolbar's free room, right of the search toggles (made
+   icons for that room, 2026-10-10). Too many for it: they go under, their own line (min-width: the
+   chips area wraps whole rather than shrink to nothing), never hidden — a chip hidden would hide
+   why rows are missing. Empty, it takes no room. */
+#fchips { flex: 1 1 0; min-width: 260px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-family: var(--ui); }
+#fchips:empty { min-width: 0; }
+.fchip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 3px 0 9px; border-radius: 12px; font-size: 12px; white-space: nowrap;
+    color: var(--txt-hi); background: rgba(var(--prim-rgb), .12); border: 1px solid rgba(var(--prim-rgb), .4); animation: pop .15s ease-out; }
+.fchip b { font-weight: 600; color: var(--txt-strong); margin-right: 2px; }
+.fchip i { font-style: normal; color: var(--txt-mut); font-size: 11px; }
+.fc-x { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; background: var(--txt-mut);
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3e%3cpath d='M4.5 4.5l7 7M11.5 4.5l-7 7'/%3e%3c/svg%3e") center / 12px no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3e%3cpath d='M4.5 4.5l7 7M11.5 4.5l-7 7'/%3e%3c/svg%3e") center / 12px no-repeat; }
+.fc-x:hover { background: var(--danger-txt); }
+.fchip-all { flex: none; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; background: var(--txt-mut);
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M3 4h14l-5.5 6.5V17l-3 2v-8.5z'/%3e%3cpath d='M16 14l5 5M21 14l-5 5'/%3e%3c/svg%3e") center / 16px no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M3 4h14l-5.5 6.5V17l-3 2v-8.5z'/%3e%3cpath d='M16 14l5 5M21 14l-5 5'/%3e%3c/svg%3e") center / 16px no-repeat; }
+.fchip-all:hover { background: var(--danger-txt); }
 .sr-chk { display: flex; align-items: center; gap: 6px; font-family: var(--ui); font-size: 13px; cursor: pointer; white-space: nowrap; }
 /* Native selects draw their arrow flush against the edge: the app's own chevron instead (two classes, to beat .bs-input declared later). */
 .bs-input.bs-select { cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 2.25rem;
@@ -375,6 +391,25 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
    of a drawn window made Chromium's layerization the biggest cost of a scroll step. While
    a column is being resized every cell is clipped (.rz), the rows being redrawn at the end. */
 #tbody .cell.ov, #grid-layer.rz #tbody .cell { overflow: hidden; text-overflow: ellipsis; }
+/* Rich values (richCols, 51-…). A link or an address: in the accent colour, underlined while Ctrl is held.
+   A yes / no: a check in a disc (or an empty ring), drawn as the cell's background — two strokes and
+   a disc, no element nor text in the cell. A colour: a swatch before its code. JSON: muted. */
+#tbody .cell.lk { color: var(--accent-2); }   /* the colour only: an underline on every link cell made a sideways scroll +5 % */
+body.ctrl #tbody .cell.lk { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+#tbody .cell.cbx { background-repeat: no-repeat; background-position: center; }
+#tbody .cell.cbx.on { background-image:
+    linear-gradient(45deg, transparent calc(50% - 1px), var(--on-prim) calc(50% - 1px), var(--on-prim) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(-45deg, transparent calc(50% - 1px), var(--on-prim) calc(50% - 1px), var(--on-prim) calc(50% + 1px), transparent calc(50% + 1px)),
+    radial-gradient(circle at center, var(--prim) 7.5px, transparent 8px);
+    background-size: 5px 5px, 9px 9px, 18px 18px;
+    background-position: calc(50% - 2.5px) calc(50% + 1px), calc(50% + 1.5px) calc(50% - 0.5px), center; }
+#tbody .cell.cbx:not(.on) { background-image: radial-gradient(circle at center, transparent 6.5px, var(--txt-faint) 7px, var(--txt-faint) 7.5px, transparent 8px); background-size: 18px 18px; }
+#tbody .cell.sw { padding-left: 30px; background-repeat: no-repeat;
+    background-image: radial-gradient(circle 7px at 17px 50%, var(--sw) 5.5px, rgba(var(--hi-rgb), .35) 6px, rgba(var(--hi-rgb), .35) 6.5px, transparent 7px); }
+#tbody .cell.js { color: var(--txt-mut); }
+.ty.ty-r { display: inline-grid; place-items: center; font-weight: 700; color: var(--accent-2); background: rgba(var(--accent-rgb), .14); }
+.ty-r > b, .ty-r > i { grid-area: 1 / 1; font-weight: inherit; font-style: normal; }
+.ty-r > i { visibility: hidden; }   /* the text icon's "Aa": the same width (51-…) */
 /* A grid narrower than its viewport (.nohs, from syncSpace()): the row numbers have nothing
    to stick to, and a sticky cell costs property nodes and a paint chunk at every step. */
 #grid-layer.nohs #tbody .cell.col-idx { position: relative; z-index: auto; }
@@ -407,7 +442,7 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 :root:not(.no-kcol) #tfoot .tf-c.kd .tf-v { color: var(--violet-txt); }
 #tfoot.stale .tf-v { opacity: .45; }
 #tfoot .tf-none:hover::after { content: 'Σ'; margin: auto; font: 600 13px var(--ui); color: var(--txt-faint); }
-.cp-tools { display: flex; gap: 4px; padding: 2px 2px 6px; }
+.cp-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 2px 6px; }   /* wraps rather than spill out of the panel (Scale did, 2026-10-10) */
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
 .cp-tools { align-items: stretch; }
@@ -593,7 +628,7 @@ th.dragging { opacity: .45; }
    ligature half-formed while typing — the first & of "&& " vanished at the space. */
 input, textarea, code, .fxp-mono, .ac-l { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 /* Expression mode: the box is a formula — monospace, wider, red while it does not compile. */
-#global-search.expr { width: 520px; font-family: var(--mono); font-size: 13px; }
+#global-search.expr { width: 340px; font-family: var(--mono); font-size: 13px; }   /* 520 px until the filter chips shared the line (2026-10-10) */
 #global-search.bad { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(var(--danger-rgb), .2); }
 /* Autocomplete of the expression box: column names inside a brace, helper functions elsewhere. */
 #expr-ac { display: none; position: fixed; z-index: 1600; max-height: 280px; overflow-y: auto; box-sizing: border-box; padding: 4px;
@@ -607,9 +642,27 @@ input, textarea, code, .fxp-mono, .ac-l { font-variant-ligatures: none; font-fea
 th.gen-head { color: var(--txt-dim); font-style: italic; }
 .f-in { width: 100%; min-width: 0; }
 
-.chk-group { display: flex; gap: 15px; align-items: center; font-family: var(--ui); font-size: 13px; }
-.chk-group label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.chk-group input[type="checkbox"] { margin: 0; }
+/* The search options: grey symbols that light up in the accent colour while on — no button look (the
+   user's wish); the checkbox inside, hidden, holds the state. The accents' é keeps its accent a shade
+   apart (lighter, red once on); the others are drawn strokes in the text colour. */
+.tgl-group { display: flex; gap: 2px; align-items: center; height: 32px; box-sizing: border-box; padding: 0 3px;
+    background: var(--bg-deep); border: 1px solid var(--brd); border-radius: 7px; }   /* the four grouped in one darker frame, like the search box */
+.tgl { position: relative; display: flex; align-items: center; justify-content: center; width: 26px; height: 28px; cursor: pointer; user-select: none;
+    color: var(--txt-dim); }   /* no transition: it lights at the click (150 ms of fade read as sluggish) */
+.tgl input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+.tgl:hover { color: var(--txt-hi); }
+/* Lit: the symbol right after the checked box (a sibling selector — no :has(), which every DOM change
+   of the grid would have to consider). */
+.tgl input:checked + * { color: var(--accent-2); }   /* a colour, no halo: the blurred edge read as a slow fade */
+.tgl svg.tg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }   /* as light as the é and the ƒx */
+.tgl svg.tg .fill { fill: currentColor; stroke: none; }
+.tgl svg.tg text { font: 600 17.5px var(--ui); fill: currentColor; stroke: none; }   /* the e larger, its accent as drawn */
+.tgl svg.tg .acc { stroke: color-mix(in srgb, var(--danger-txt) 45%, var(--txt-dim)); stroke-width: 1.9; }   /* off: a pale, dull red that still reads */
+.tgl input:checked + svg.tg .acc { stroke: var(--danger-txt); }
+/* Invert lights in the filtered count's orange: it turns the whole filter around. */
+.tgl.inv input:checked + * { color: var(--orange-txt); }
+.tgl .fx-glyph { width: 20px; height: 17px; }   /* the ƒx of the button left of the search, a little smaller */
+.tgl input:focus-visible + * { border-radius: 4px; box-shadow: 0 0 0 2px rgba(var(--prim-rgb), .45); }
 
 /* Bootstrap-like checkboxes and radios: native ones ignore most styling,
    so they are drawn from scratch — rounded box, small centred mark. */
@@ -847,13 +900,13 @@ thead .col-idx { z-index: 120; }
 .col-menu { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 4px;
     display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--txt-dim); }
 .col-menu:hover, .col-menu.open { background: var(--surf-3); color: var(--txt-hi); }
-.col-menu.on, .no-filt .col-menu.tf { color: var(--prim); }   /* .tf: a text filter, said by the funnel while the filter row is hidden */
+.col-menu.on { color: var(--prim); }
 /* ▾, or a funnel while a value filter is set, and the Dates calendar: CSS masks in the text
    colour — an SVG element in each of 85 titles was a third of the header's rebuild. */
 .col-menu::before { content: ''; width: 13px; height: 13px; background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat; }
-.col-menu.on::before, .no-filt .col-menu.tf::before {
+.col-menu.on::before {
     -webkit-mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e");
             mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e"); }
 .ty-d::before { content: ''; width: 11px; height: 11px; background: currentColor;
@@ -981,6 +1034,12 @@ thead .col-idx { z-index: 120; }
 .cp-kv .cnt { flex: none; margin-left: -2px; font-style: normal; color: var(--txt-dim); white-space: nowrap; }
 .cp-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cp-search { width: 100%; margin: 4px 0 6px; font-size: 13px; padding: 5px 10px; }
+/* The values' search, with the display toggles of a numeric column on its right (data bars, colour scale). */
+.cp-srow { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; }
+.cp-srow .cp-search { flex: 1; min-width: 0; width: auto; margin: 0; }
+.cp-srow .btn.ico { padding: 4px 6px; min-width: 28px; height: 30px; justify-content: center; }
+.cp-srow .btn.ico svg.ic { width: 15px; height: 15px; }
+.cp-srow .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-list { max-height: min(320px, calc(100vh - 300px)); overflow-y: auto; }
 /* The histogram: one bar per bin, its values and count in a tooltip shown at once (no title delay). */
 .cp-hist { position: relative; display: flex; align-items: flex-end; gap: 1px; height: 44px; margin-top: 8px; }
@@ -1100,6 +1159,35 @@ td { border-right: 1px solid var(--brd); border-bottom: 1px solid var(--brd); pa
 #modal-about .ab-env { margin-top: 14px; min-height: 16px; font-size: 11.5px; color: var(--txt-dim); }
 #modal-about .ab-legal { font-size: 11.5px; color: var(--txt-dim); }
 #modal-about .ab-author { margin-top: 10px; font-size: 13px; color: var(--txt); }
+#modal-about .ab-news { margin: 2px 0 4px; }
+/* What's new (57-…): a timeline, the version and its date on the left, a dot on the line, the features on the right. */
+#modal-news { width: min(640px, calc(100vw - 32px)); box-sizing: border-box; }
+#modal-news[style*="block"] { display: flex !important; flex-direction: column; max-height: 86vh; overflow: hidden; }
+#modal-news > * { flex: none; }
+#modal-news h4 { margin: 0; font-size: 17px; }
+.nw-sub { margin: 3px 0 12px; font-size: 12.5px; color: var(--txt-mut); }
+.nw-list { flex: 1 1 auto !important; min-height: 0; overflow-y: auto; margin: 0 -20px 14px; padding: 4px 20px 8px; border-top: 1px solid var(--brd); border-bottom: 1px solid var(--brd); }
+.nw-rel { display: grid; grid-template-columns: 116px 1fr; column-gap: 18px; }
+.nw-when { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; padding: 15px 0 12px; text-align: right; }
+.nw-when b { font: 600 15px var(--mono); color: var(--txt-strong); }
+.nw-when span { font-size: 11.5px; color: var(--txt-dim); }
+.nw-tag { margin-top: 5px; padding: 1px 8px; border-radius: 999px; font: normal 600 10.5px var(--ui); letter-spacing: .03em; color: var(--accent-2); background: rgba(var(--accent-rgb), .14); }
+.nw-tag.nw-first { color: var(--ok-txt); background: rgba(var(--ok-rgb), .14); }
+.nw-items { position: relative; list-style: none; margin: 0; padding: 12px 0 12px 22px; border-left: 2px solid var(--brd); }
+.nw-items::before { content: ''; position: absolute; left: -7px; top: 19px; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--brd-2); background: var(--surf); }
+.nw-cur .nw-items::before { border-color: var(--accent-2); background: var(--accent-2); box-shadow: 0 0 0 4px rgba(var(--accent-rgb), .18); }
+.nw-items li { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
+.nw-items li b { font-size: 13.5px; font-weight: 600; color: var(--txt-strong); }
+.nw-items li span { font-size: 12.5px; line-height: 1.45; color: var(--txt-mut); }
+.nw-wait { padding: 28px; text-align: center; font-size: 13px; color: var(--txt-dim); }
+#modal-news .modal-actions { align-items: center; }
+.nw-all { margin-right: auto; font-size: 13px; color: var(--accent-2); text-decoration: none; }
+.nw-all:hover { text-decoration: underline; }
+@media (max-width: 520px) {
+    .nw-rel { grid-template-columns: 1fr; }
+    .nw-when { flex-direction: row; align-items: baseline; gap: 8px; padding: 14px 0 0; }
+    .nw-tag { margin-top: 0; }
+}
 #modal-keys { width: min(900px, calc(100vw - 32px)); }
 #modal-keys[style*="block"] { display: flex !important; flex-direction: column; max-height: 88vh; overflow: hidden; box-sizing: border-box; }
 #modal-keys > * { flex: none; }
@@ -1204,11 +1292,14 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .sy-ins { color: var(--ok-txt); } .sy-del { color: var(--danger-txt); }
 
 /* ---- Tooltips (34-tooltips.js): every title, shown at once, small and quiet ---- */
-#tip { display: none; position: fixed; z-index: 3000; max-width: 420px; padding: 4px 8px; border-radius: 5px; pointer-events: none;
+#tip, #cell-peek { display: none; position: fixed; z-index: 3000; max-width: 420px; padding: 4px 8px; border-radius: 5px; pointer-events: none;
     background: color-mix(in srgb, var(--tip-bg) 72%, transparent); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
     border: 1px solid color-mix(in srgb, var(--tip-brd) 70%, transparent); color: var(--tip-fg); font: 11.5px/1.45 var(--ui); white-space: pre-line; overflow-wrap: anywhere;
     box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
 #tip.open { display: block; }
+/* The whole value of a cell cut short (56-…): the tooltips' box, wider, in the cells' font. */
+#cell-peek { max-width: min(560px, calc(100vw - 24px)); max-height: 60vh; overflow: hidden; padding: 7px 10px; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; z-index: 2900; }
+#cell-peek.open { display: block; animation: fadein .12s ease-out; }
 
 /* The ƒx sign (filter box, computed column, function picker): a long italic f whose crossbar runs
    into the x, one ligature drawn as a mask so it takes the button's colour, hover included. */

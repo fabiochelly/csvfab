@@ -29,6 +29,8 @@ const CELL_ICONS = {
     cut: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.1" y2="15.9"/><line x1="14.5" y1="14.5" x2="20" y2="20"/><line x1="8.1" y1="8.1" x2="12" y2="12"/>',
     all: '<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>',
     clearf: '<path d="M22 3H2l8 9.5V19l4 2v-8.5z"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="21" y1="15" x2="15" y2="21"/>',
+    heat: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18"/><rect x="3" y="15" width="18" height="6" fill="currentColor" stroke="none" opacity=".55"/><rect x="3" y="9" width="18" height="6" fill="currentColor" stroke="none" opacity=".25"/>',
+    freeze: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="10" y1="3" x2="10" y2="21"/><path d="M6.5 8v2M6.5 13v2"/>',
     hide: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-10-8-10-8a18 18 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 10 8 10 8a18 18 0 0 1-2.2 3.2"/><line x1="2" y1="2" x2="22" y2="22"/>',
 };
 /* The browser's menu: never (text fields get fieldMenu()). */
@@ -97,6 +99,11 @@ function colMenu(e, t, c) {
         + '<div class="dd-sep"></div>'
         + item(`addColumn(${c - 1})`, 'before', 'Insert a column before')
         + item(`addColumn(${c})`, 'after', 'Insert a column after')
+        + (columnKinds(t)[c] === 'n' ? item(`toggleHeat(${c})`, 'heat', t.heat[c] ? 'Remove the colour scale' : 'Colour the cells by value') : '')
+        + '<div class="dd-sep"></div>'
+        + (() => { const k = visibleCols(t).indexOf(c), on = t.frozen === k + 1;   // freeze up to here, or undo it from the last frozen title
+            return item(`freezeTo(${c})`, 'freeze', on ? 'Unfreeze the columns' : k ? 'Freeze up to this column' : 'Freeze this column')
+                + (t.frozen && !on ? item('toggleFreeze()', 'freeze', 'Unfreeze the columns') : ''); })()
         + '<div class="dd-sep"></div>'
         + item(`deleteColumn(${c})`, 'del', 'Delete the column', 'danger');
     menuAt(m, e);

@@ -105,7 +105,7 @@ function openColPanel(e, col) {
                 <button class="btn btn-outline ico" onclick="closeColPanel(); openSplit(${col})" title="Split"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M8 8l-4 4 4 4M4 12h5"/><path d="M16 8l4 4-4 4M20 12h-5"/></svg></button>
                 <button class="btn btn-outline ico" onclick="closeColPanel(); openMerge(${col})" title="Merge"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M5 8l4 4-4 4M3 12h6"/><path d="M19 8l-4 4 4 4M21 12h-6"/></svg></button>
             </span>
-            <button class="btn btn-outline" onclick="closeColPanel(); openConvert(${col})" title="Dates, numbers, phones into one format">Format</button>
+            <button class="btn btn-outline ico" onclick="closeColPanel(); openConvert(${col})" title="Convert: rewrite its dates, numbers or phones into one format (the values change)"><svg class="ic" viewBox="0 0 24 24"><polyline points="17 2 21 6 17 10"/><path d="M3 12v-2a4 4 0 0 1 4-4h14"/><polyline points="7 22 3 18 7 14"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/></svg></button>
             <span class="cp-grp cp-add">
                 <button class="btn btn-outline ico" onclick="this.parentElement.classList.toggle('open')" title="Insert a column">+</button>
                 <button class="btn btn-outline ico del" onclick="closeColPanel(); deleteColumn(${col})" title="Delete this column">−</button>
@@ -114,12 +114,17 @@ function openColPanel(e, col) {
                     <span class="dd-item" onclick="closeColPanel(); addColumn(${col})">Insert a column after</span>
                 </span>
             </span>
-            ${kind === 'n' ? `<button class="btn btn-outline${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})">Bars</button>` : ''}
         </div>
         <div class="dd-sep"></div>
         <div class="cp-prof">${prof}</div>
         <div class="dd-sep"></div>
-        <input type="text" class="bs-input cp-search" placeholder="Search values…" spellcheck="false" oninput="colPanel.query = this.value; renderColValues()">
+        <div class="cp-srow">
+            <input type="text" class="bs-input cp-search" placeholder="Search values…" spellcheck="false" autocomplete="off" oninput="colPanel.query = this.value; renderColValues()">
+            ${kind === 'n' ? `<span class="cp-grp">
+                <button class="btn btn-outline ico${t.dataBars[col] ? ' on' : ''}" onclick="closeColPanel(); toggleDataBars(${col})" title="Data bars: each value drawn as a bar at the foot of its cell"><svg class="ic" viewBox="0 0 24 24"><path d="M4 3v18"/><rect x="4" y="5.5" width="11" height="3.5" rx="1" fill="currentColor" stroke="none"/><rect x="4" y="10.25" width="16" height="3.5" rx="1" fill="currentColor" stroke="none" opacity=".75"/><rect x="4" y="15" width="7" height="3.5" rx="1" fill="currentColor" stroke="none" opacity=".5"/></svg></button>
+                <button class="btn btn-outline ico${t.heat[col] ? ' on' : ''}" onclick="closeColPanel(); toggleHeat(${col})" title="Colour scale: each cell tinted by its value"><svg class="ic" viewBox="0 0 24 24"><rect x="2.5" y="5" width="5" height="14" rx="1.5" fill="currentColor" fill-opacity=".12" stroke-width="1.6"/><rect x="9.5" y="5" width="5" height="14" rx="1.5" fill="currentColor" fill-opacity=".45" stroke-width="1.6"/><rect x="16.5" y="5" width="5" height="14" rx="1.5" fill="currentColor" stroke-width="1.6"/></svg></button>
+            </span>` : ''}
+        </div>
         <div class="cp-list" id="cp-list"></div>
         <div class="cp-actions">
             <button class="btn btn-outline" onclick="applyValueFilter(true)">Clear</button>

@@ -30,7 +30,7 @@ function updateExprUI() {
     box.classList.toggle('expr', on);
     if (!on) markExprBox(false);
 }
-document.getElementById('use-expr').onchange = () => { updateExprUI(); exprAcClose(); applyFilters(); };
+document.getElementById('use-expr').onchange = () => { updateExprUI(); exprAcClose(); filterAfterPaint(); };   // lit first, then filtered (04-…)
 
 /* ---- Autocomplete ----------------------------------------------------
    Under the search box, in expression mode: inside an open brace the

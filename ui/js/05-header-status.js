@@ -236,18 +236,20 @@ function renderStatusFormat(t) {
 /* Numbers and dates coloured in the grid, on unless switched off here: a class on <html>
    (set before the first paint by viewer.htm), so the switch redraws nothing. */
 /* The filter row under the titles, shown unless hidden here (<html>.no-filt, set before the first
-   paint so the header's height is right from the first frame). Its filters still apply while it is
-   hidden: a column holding one shows the funnel on its ▾ (.tf), and the status bar counts the rows. */
+   paint so the header's height is right from the first frame). Hiding it empties its boxes, in every
+   tab (the user's rule: a filter nobody can see would hide why rows are missing); a tab not shown
+   refilters when it is (t.refilter, activateTab). */
 function filterRowOn() { return !document.documentElement.classList.contains('no-filt'); }
 function toggleFilterRow() {
     const on = !filterRowOn(), t = T();
     if (!on && document.activeElement && document.activeElement.closest && document.activeElement.closest('.filter-row')) document.activeElement.blur();
+    let n = 0;
+    if (!on) for (const x of tabs) if (Object.keys(x.colFilters).length) { n += Object.keys(x.colFilters).length; x.colFilters = {}; x.lastFilter = null; if (x !== t) x.refilter = true; }
     document.documentElement.classList.toggle('no-filt', !on);
     try { localStorage.setItem('csvfab-filter-row', on ? '1' : '0'); } catch (e) { }
     renderStatusFormat(t);
-    if (t && t.loaded) { renderHeader(); render(); }   // the header changed height: the grid's extent with it
-    const n = t ? Object.keys(t.colFilters).length : 0;
-    setStats(on ? 'Filter row shown.' : `Filter row hidden${n ? ` — the filter${n > 1 ? 's' : ''} of ${n} column${n > 1 ? 's' : ''} still appl${n > 1 ? 'y' : 'ies'} (funnel on the title)` : ''}.`);
+    if (t && t.loaded) { renderHeader(); if (n) { applyColStyles(); applyFilters(); } else render(); }   // the header changed height: the grid's extent with it
+    setStats(on ? 'Filter row shown.' : `Filter row hidden${n ? ` — its ${n} filter${n > 1 ? 's' : ''} cleared` : ''}.`);
 }
 function typeColorsOn() { return !document.documentElement.classList.contains('no-kcol'); }
 function toggleTypeColors() {
@@ -312,14 +314,15 @@ function renderHeader() {
 
     const genCls = t.syntheticHeader ? ' gen-head' : '';
     const kinds = t.loaded ? columnKinds(t) : [];
+    const rich = t.loaded && !t.lang ? richCols(t) : null;   // links, yes / no, colours, JSON: their own icon (51-…)
     t.headers.forEach((h, i) => {
         const sk = t.sort ? t.sort.findIndex(k => k.col === i) : -1;
         const sortInd = sk < 0 ? '' : sortIndHtml(t, sk);
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name${sk < 0 ? '' : ' srt'}" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort · again: reverse · Shift+click: sub-sort">${typeIcon(kinds[i])}${sk < 0 ? esc(h) : `<span class="cn-t">${esc(h)}</span>`}${sortInd}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}</span>
+                <span class="col-name${sk < 0 ? '' : ' srt'}" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort · again: reverse · Shift+click: sub-sort">${rich && rich.has(i) ? richIcon(rich.get(i)) : typeIcon(kinds[i])}${sk < 0 ? esc(h) : `<span class="cn-t">${esc(h)}</span>`}${sortInd}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}</span>
             </div>
-            <span class="col-menu${t.valFilters[i] ? ' on' : ''}${t.colFilters[i] ? ' tf' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] || t.colFilters[i] ? 'Filtered · ' : ''}Profile, filter"></span>
+            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered · ' : ''}Profile, filter"></span>
             <div class="resizer" data-col="${i}"></div>
         </th>`;
         fCells += `<th>${colFilterBox(i, t.colFilters[i])}</th>`;

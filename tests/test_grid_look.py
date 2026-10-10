@@ -172,7 +172,7 @@ class GridLookTest(unittest.TestCase):
         self.assertEqual(r["sel"], [2, 1])
         self.assertEqual(r["kept"], [r["v"]])
         self.assertEqual(r["colItems"], ["Split the column…", "Merge columns…", "Insert a column before",
-                                         "Insert a column after", "Delete the column"])
+                                         "Insert a column after", "Colour the cells by value", "Freeze up to this column", "Delete the column"])
         self.assertFalse(r["colPanel"])                          # pas le panneau entier du ▾
         self.assertTrue(r["rowMenu"])
         self.assertTrue(r["fieldPrevented"])                     # plus de menu du navigateur, même dans un champ
@@ -181,32 +181,32 @@ class GridLookTest(unittest.TestCase):
         self.assertTrue(r["afterClear"])                         # l'effacement passe par l'événement input : le filtre suit
         self.assertTrue(r["colFilterField"])                     # le filtre d'une colonne devient un champ, avec le menu
 
-    # La barre de filtres masquable : l'en-tête et l'étendue rétrécissent d'autant, le filtre d'une
-    # colonne s'applique toujours et son entonnoir le dit, le choix est retenu, rien n'est perdu.
+    # La barre de filtres masquable : l'en-tête et l'étendue rétrécissent d'autant ; la masquer vide
+    # ses champs (la règle de l'utilisateur : un filtre invisible cacherait pourquoi des lignes
+    # manquent), dans l'onglet affiché comme dans les autres ; le choix est retenu.
     def test_filter_row_hides(self):
         self.open()
         r = self.chrome.eval("""(async () => {
-          const pause = ms => new Promise(r => setTimeout(r, ms)), t = T();
+          const pause = ms => new Promise(r => setTimeout(r, ms)), t = T(), n = t.allData.length;
           t.colFilters[1] = 'vip'; applyFilters(); renderHeader(); await pause(50);
-          const h0 = thead.offsetHeight, s0 = container.scrollHeight, n0 = t.filteredData.length;
+          const h0 = thead.offsetHeight, s0 = container.scrollHeight, shown = t.filteredData.length;
+          const other = { colFilters: { 0: 'x' }, refilter: false }; tabs.push(other);
           toggleFilterRow(); await pause(50);
-          const menu = thead.querySelector('th[data-col="1"] .col-menu');
-          const out = { dh: h0 - thead.offsetHeight, ds: s0 - container.scrollHeight, rows: t.filteredData.length === n0,
-                        funnel: getComputedStyle(menu).color !== getComputedStyle(thead.querySelector('th[data-col="2"] .col-menu')).color,
-                        tfOther: thead.querySelector('th[data-col="2"] .col-menu').classList.contains('tf'),
+          tabs.splice(tabs.indexOf(other), 1);
+          const out = { dh: h0 - thead.offsetHeight, rows: [shown, t.filteredData.length, n], filters: Object.keys(t.colFilters).length,
+                        other: [Object.keys(other.colFilters).length, other.refilter],
                         kept: localStorage.getItem('csvfab-filter-row'), pill: document.querySelector('.sb-filt').classList.contains('off') };
           toggleFilterRow(); await pause(50);
           out.back = thead.offsetHeight === h0; out.box = thead.querySelector('.filter-row .f-box[data-col="1"]').textContent;
-          delete t.colFilters[1]; applyFilters(); renderHeader();
           return out;
         })()""")
         self.assertEqual(r["dh"], 29)                            # la ligne de filtres, 28 px + sa bordure
-        self.assertEqual(r["ds"], 29)                            # l'étendue de défilement suit
-        self.assertTrue(r["rows"])                               # le filtre s'applique toujours
-        self.assertTrue(r["funnel"]); self.assertFalse(r["tfOther"])
+        self.assertLess(r["rows"][0], r["rows"][2])
+        self.assertEqual(r["rows"][1], r["rows"][2])             # le filtre vidé : toutes les lignes reviennent
+        self.assertEqual(r["filters"], 0)
+        self.assertEqual(r["other"], [0, True])                  # l'autre onglet aussi, refiltré à son retour
         self.assertEqual(r["kept"], "0"); self.assertTrue(r["pill"])
-        self.assertTrue(r["back"]); self.assertEqual(r["box"], "vip")
-
+        self.assertTrue(r["back"]); self.assertEqual(r["box"], "Filter")
 
 if __name__ == "__main__":
     unittest.main()

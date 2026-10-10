@@ -390,10 +390,13 @@ function colLayout(t) {
     /* Pills for a column of categories (51-…): null when none. */
     const look = t.loaded && !t.lang ? gridLook(t) : null;
     const pill = look && look.cat.size ? vis.map(c => look.cat.get(c) || null) : null;
-    /* F: the visible columns frozen at the left (t.frozen, 0 or 1 for now — the code takes any
-       count). They are drawn in every row whatever the window, sticky right after the row
+    const rich = look ? richCols(t) : null, rk = rich && rich.size ? vis.map(c => rich.get(c) || null) : null;   // links, checks, swatches… (51-…)
+    /* F: the visible columns frozen at the left (t.frozen: 1 from the menu, any count from a title's
+       right click, freezeTo()). They are drawn in every row whatever the window, sticky right after the row
        numbers; the window of other columns starts after them. */
-    return { vis, x, kc, pill, F: Math.min(t.frozen || 0, vis.length) };
+    /* hh: a colour scale somewhere (06-…) — otherwise no cell asks (a scroll step draws hundreds). */
+    let hh = false; for (const _ in t.heat) { hh = true; break; }
+    return { vis, x, kc, pill, rk, hh, F: Math.min(t.frozen || 0, vis.length) };
 }
 function viewRows(t) {
     /* The scroll read kept (viewRows.st): the motions of a sort or a filter (50-, 52-…) note the rows
@@ -475,12 +478,14 @@ function cellShown(c, max) {
     return s.slice(0, n) + '…';
 }
 function cellHtml(t, i, r, d, mk, k, L, rg, fp) {
-    const cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, cellShown(c, TEXT_SHOWN), cIdx) : showBreaks(highlightCell(cellShown(c, CELL_SHOWN), cIdx, t.hl));
+    let cIdx = L.vis[k], c = d[cIdx], m = mk && mk.has(t.headers[cIdx]), html = t.lang ? textCellHtml(t, cellShown(c, TEXT_SHOWN), cIdx) : showBreaks(highlightCell(cellShown(c, CELL_SHOWN), cIdx, t.hl));
     const frz = k < L.F ? (k === L.F - 1 ? ' frz frz-last' : ' frz') : '';   // frozen: sticky at its own left edge
     const g = cIdx === ffCol ? ffGhostHtml(t, r, c, i) : '';   // a rule's value offered for an empty cell (48-…)
     const pa = !g && L.pill && L.pill[k] ? pillAttrs(L.pill[k], c) : null;   // a category's pill, the cell's background (51-…)
-    const ov = g ? true : pa ? pa.w + 24 > L.x[k + 1] - L.x[k] || html.indexOf('<mark') >= 0 : cellOv(t, cIdx, c, html);
-    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${pa ? pa.cls : ''}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, ov)}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${pa ? `;--pw:${pa.w}px` : ''}${barStyle(t, cIdx, c)}">${g || html}</div>`;
+    const ra = !g && !pa && L.rk && L.rk[k] ? richAttrs(L.rk[k], c, L.x[k + 1] - L.x[k]) : null;   // a link, a check, a swatch (51-…)
+    if (ra && ra.html != null) html = ra.html;
+    const ov = g ? true : pa ? pa.w + 24 > L.x[k + 1] - L.x[k] || html.indexOf('<mark') >= 0 : ra && ra.ov != null ? ra.ov || html.indexOf('<mark') >= 0 : ra && ra.html != null ? false : cellOv(t, cIdx, c, html);
+    return `<div class="cell${t.lang ? ' tx' : ''}${L.kc[k]}${frz}${pa ? pa.cls : ''}${ra ? ra.cls : ''}${t.dupMarks ? dupCellCls(t, r, cIdx) : ''}${cellCls(i, cIdx, rg, fp, r, m, ov)}" data-c="${cIdx}"${m ? markTitle(t, mk.get(t.headers[cIdx])) : ''} style="width:${L.x[k + 1] - L.x[k]}px${frz ? `;left:${L.x[k]}px` : ''}${pa ? `;--pw:${pa.w}px` : ''}${ra ? ra.style : ''}${barStyle(t, cIdx, c)}${L.hh ? heatStyle(t, cIdx, c) : ''}">${g || html}</div>`;
 }
 /* The spacer standing, in a row, for the columns between the frozen ones (or the row numbers)
    and the window — none when the window starts right there. */

@@ -14,6 +14,10 @@
      over the sorted column — when the sort column has groups (fewer
      changes than half the rows in its first ones; decided when idle).
    - The active cell's row, tinted.
+   - Rich values (richCols): a column of links or e-mail addresses
+     (Ctrl+click opens or writes), of yes / no (a check, drawn as the
+     cell's background), of #colours (a swatch), of JSON (the peek,
+     56-…, indents it) — each with its own icon in the title.
    Everything is decided once per state (gridLook(), cached on the
    headers and the charts): a cell drawn costs one array read for a
    column that has none of it.
@@ -29,15 +33,16 @@ const GROUP_ROWS = 400;           // rows of a sorted view read to tell whether 
 function gridLook(t) {
     /* Keyed on the charts' object, not spkShown(): that joins every title, and this runs at every
        scroll step (colLayout). */
-    const key = [t.headers, t.headers.length, t.base, t.spk];
+    const key = [t.headers, t.headers.length, t.base, t.spk, t.rich && t.rich.map];
     if (t.look && sameStamp(t.look.key, key)) return t.look;
     const s = spkShown(t);
     const kinds = columnKinds(t), cat = new Map();
     const rows = t.allData.length > LOOK_ROWS ? t.allData.slice(0, LOOK_ROWS) : t.allData;
     let split = null;                         // the rows' cells, read once for every column that needs them
     const cells = () => split || (split = rows.map(r => r.data));
+    const rich = richCols(t);
     t.headers.forEach((_, c) => {
-        if (kinds[c] === 't') {
+        if (kinds[c] === 't' && !rich.has(c)) {   // a column of yes / no is checks, not pills
             let segs = null, distinct = 0;
             const sc = s && s.cols[c];
             if (sc && sc.k === 't') { segs = sc.segs.map(x => x[0]); distinct = sc.many ? Infinity : sc.distinct; }
@@ -88,7 +93,112 @@ function pillAttrs(pill, c) {
     return v ? { cls: ' pc ' + (pill.get(v) || 'po'), w: pillWidth(v) } : null;
 }
 /* The room a pill column's cells need beyond their text (pinColWidths, 12-…). */
-function lookExtra(t, c) { return gridLook(t).cat.has(c) ? 4 : 0; }   // the pill's 7 px each side, less the cell's padding left over
+function lookExtra(t, c) {
+    if (gridLook(t).cat.has(c)) return 4;     // the pill's 7 px each side, less the cell's padding left over
+    const r = richCols(t).get(c);
+    return r && r.k === 'color' ? 20 : 0;     // the swatch before the text
+}
+
+/* ---- Rich values ---- */
+/* A text column whose filled values (first LOOK_ROWS rows) are at RICH_MIN or more of one kind. Cached
+   on the headers and the bytes, as the pills; Map col → {k: 'url' | 'email' | 'bool' | 'color' | 'json',
+   yes: the true word of a yes / no column}. */
+const RICH_MIN = .9;
+const RICH_RE = { url: /^https?:\/\/[^\s<>"'`]+$/i, email: /^[^\s@<>"'`()]+@[^\s@<>"'`()]+\.[a-z]{2,}$/i, color: /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i };
+const RICH_BOOL = [['true', 'false'], ['yes', 'no'], ['oui', 'non'], ['vrai', 'faux']];
+const RICH_ICON = { url: ['↗', 'Links · Ctrl+click opens one'], email: ['@', 'E-mail addresses · Ctrl+click writes to one'], bool: ['✓', 'Yes / no'], color: ['◐', 'Colours'], json: ['{}', 'JSON · rest on a cell to read it whole'] };
+/* Read in idle time, not in the frame of an opening (400 rows, every text cell tested: the small file's cold
+   opening +9.6 %, measured): until then no column is rich, then the grid is drawn again — and a colour column
+   gets its swatch's room. */
+const RICH_NONE = new Map();
+function richCols(t) {
+    const key = [t.headers, t.headers.length, t.base];
+    if (t.rich && sameStamp(t.rich.key, key)) return t.rich.map;
+    if (!t.richWait && t.loaded && !t.lang) t.richWait = requestIdleCallback(function tick() {
+        if (spkBusy()) { t.richWait = requestIdleCallback(tick, { timeout: 1000 }); return; }   // a read or a filtering awaited: later
+        t.richWait = 0;
+        if (!t.loaded) return;
+        const map = richDetect(t);
+        t.rich = { key: [t.headers, t.headers.length, t.base], map };
+        if (!map.size) return;
+        for (const [c, r] of map) if (r.k === 'color' && t.colWidths[c] != null) t.colWidths[c] += 20;
+        if (T() === t) { renderHeader(); applyColStyles(); render(); }
+    }, { timeout: 1000 });
+    return RICH_NONE;
+}
+function richDetect(t) {
+    const map = new Map();
+    if (!t.loaded || t.lang) return map;
+    const kinds = columnKinds(t), rows = (t.allData.length > LOOK_ROWS ? t.allData.slice(0, LOOK_ROWS) : t.allData).map(r => r.data);
+    t.headers.forEach((_, c) => {
+        if (kinds[c] !== 't') return;
+        let n = 0, url = 0, mail = 0, col = 0, json = 0, parsed = 0;
+        const words = new Set();
+        for (const d of rows) {
+            const s = cellStr(d[c]).trim(); if (!s) continue;
+            n++;
+            if (words.size <= 2) words.add(s.toLowerCase());
+            const ch = s[0];
+            if (ch === 'h' || ch === 'H') { if (RICH_RE.url.test(s)) url++; }
+            else if (ch === '#') { if (RICH_RE.color.test(s)) col++; }
+            else if (ch === '{' || ch === '[') { if (parsed++ < 40) { try { if (typeof JSON.parse(s) === 'object') json++; } catch (e) { } } }
+            if (s.indexOf('@') > 0 && RICH_RE.email.test(s)) mail++;
+        }
+        if (n < 3) return;
+        const pair = words.size <= 2 && RICH_BOOL.find(p => [...words].every(w => p.includes(w)));
+        if (pair) map.set(c, { k: 'bool', yes: pair[0], no: pair[1], seen: new Map() });
+        else if (url >= n * RICH_MIN) map.set(c, { k: 'url' });
+        else if (mail >= n * RICH_MIN) map.set(c, { k: 'email' });
+        else if (col >= n * RICH_MIN) map.set(c, { k: 'color' });
+        else if (json >= Math.min(n, 40) * RICH_MIN) map.set(c, { k: 'json' });
+    });
+    return map;
+}
+/* The icon in the title, as wide as the text one ("Aa", hidden under it): a narrower icon made the column a few px
+   narrower and shifted every column after it — enough to change how the bench's sideways scroll steps fall on
+   column edges (+4-5 %, found the hard way). */
+function richIcon(r) { const [g, tip] = RICH_ICON[r.k]; return `<span class="ty ty-r" title="${tip}"><b>${g}</b><i>Aa</i></span>`; }
+/* A rich cell's class, style and content (cellHtml, 12-…): null when the value is not of the column's kind.
+   Every answer has the same shape {cls, html, style, ov} (null / '' when unused): answers of mixed shapes
+   made cellHtml's reads of them polymorphic, and a sideways scroll of the bench's wide file 4-5 % slower
+   (10 rich columns of 100; invisible in a page already warm — the JIT had seen every shape). Constant
+   answers where possible, the value trimmed only where it is read. */
+const richA = (cls, html, style, ov) => ({ cls, html, style, ov });
+const RA_LK = richA(' lk', null, '', null), RA_JS = richA(' js', null, '', null), RA_ON = richA(' cbx on', '', '', null), RA_OFF = richA(' cbx', '', '', null);
+function richAttrs(r, c, w) {
+    if (c == null || c === '') return null;
+    const k = r.k;
+    if (k === 'url' || k === 'email') return RA_LK;   // checked at the click, not at every cell drawn
+    if (k === 'json') return RA_JS;
+    if (k === 'bool') {                       // a few values, repeated: the answer kept per raw value (no trim nor lower case per cell)
+        let a = r.seen.get(c);
+        if (a === undefined) { const v = String(c).trim().toLowerCase(); a = v === r.yes ? RA_ON : v === r.no ? RA_OFF : null; if (r.seen.size < 64) r.seen.set(c, a); }
+        return a;
+    }
+    const s = (typeof c === 'string' ? c : String(c)).trim();
+    if (k === 'color') return RICH_RE.color.test(s) ? richA(' sw', null, `;--sw:${s}`, textWidth(s) + 20 > w - 21) : null;   // checked: the value goes into a style
+    return null;
+}
+/* Ctrl+click (Cmd on a Mac) on a link opens it in the browser, on an address writes to it. A mailto:
+   is not a page leaving: the prompt about unsaved edits must not come (quitting, 04-…). */
+document.addEventListener('keydown', e => { if (e.key === 'Control' || e.key === 'Meta') document.body.classList.add('ctrl'); });
+document.addEventListener('keyup', e => { if (e.key === 'Control' || e.key === 'Meta') document.body.classList.remove('ctrl'); });
+window.addEventListener('blur', () => document.body.classList.remove('ctrl'));
+tbody.addEventListener('click', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const cell = e.target.closest('.cell.lk'), row = cell && cell.closest('.row[data-idx]'), t = T();
+    if (!row || !t) return;
+    const c = +cell.dataset.c, r = t.filteredData[+row.dataset.idx], k = r && richCols(t).get(c);
+    if (!k) return;
+    const s = cellStr(cellOf(r, c)).trim();
+    e.preventDefault();
+    if (k.k === 'url' && RICH_RE.url.test(s)) { window.open(s, '_blank', 'noopener,noreferrer'); setStats(`Opened ${s}`); }
+    else if (k.k === 'email' && RICH_RE.email.test(s)) {
+        const was = quitting; quitting = true;
+        location.href = 'mailto:' + s;
+        setTimeout(() => { quitting = was; }, 1500);
+    }
+});
 
 /* ---- Groups of a sorted view ---- */
 /* The first sort key's column, when it holds groups worth a line: among its first LOOK_ROWS rows

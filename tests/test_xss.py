@@ -126,6 +126,13 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
   await step('totals row', async () => { totAll('sum'); for (let c = 0; c < W; c++) totPick(c, c % 2 ? 'distinct' : 'max');
     for (let k = 0; k < 200 && totMissing(t); k++) await pause(20); render(); hover();
     for (const cell of document.querySelectorAll('#tfoot .tf-c')) { cell.click(); await pause(20); hover(); closeDDs(); } totAll(null); });
+  await step('filter chips + cell peek', async () => {
+    const v = cellStr(cellOf(t.allData[0], 1)); t.colFilters[0] = cellStr(cellOf(t.allData[0], 0)).slice(0, 12); t.valFilters[1] = new Set([v]);
+    renderHeader(); applyFilters(); await pause(100); hover();
+    for (const c of [0, 1, 2, 3]) { t.colWidths[c] = 70; } applyColStyles(); render(); await pause(50);
+    for (const cell of [...tbody.querySelectorAll('.row[data-idx] .cell[data-c]')].slice(0, 12)) { const b = cell.getBoundingClientRect();
+      cell.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: b.left + 3, clientY: b.top + 3 })); await pause(500); }
+    clearAllFilters(); for (const c of [0, 1, 2, 3]) delete t.colWidths[c]; render(); });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

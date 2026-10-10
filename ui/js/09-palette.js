@@ -37,7 +37,7 @@ function paletteCommands() {
     add('File', 'Save as… — another name, delimiter, encoding or Excel', openSaveModal, '', loaded);
     add('File', 'Save as Excel workbook', () => saveExcel(), '', loaded);
     add('File', 'Save as SQLite database — one table, typed columns', () => saveExcel(null, 'sqlite'), '', loaded);
-    add('File', 'Export the rows shown to a new file', extractFiltered, '', loaded);
+    add('File', 'Extract the rows shown to a new file', extractFiltered, '', loaded);
     add('File', 'Discard all edits and reload from disk', discardEdits, '', loaded && isDirty(t));
     add('File', 'Close this tab', () => closeTab(t.id), '', !!t);
     add('File', 'Quit csvfab', quitApp, 'Ctrl+Q');
@@ -89,11 +89,12 @@ function paletteCommands() {
     if (loaded && t.rowMark) add('Rows', 'Remove the marks', () => clearRowMark());
     add('Columns', 'Convert formats — dates, numbers, phone numbers…', () => openConvert(), '', loaded);
     add('Columns', 'Show or hide columns…', openColManager, '', loaded);
-    add('Columns', t && t.frozen ? 'Unfreeze the first column' : 'Freeze the first column — it stays in view when scrolling sideways', toggleFreeze, t && t.frozen ? '✓' : '', loaded);
+    add('Columns', t && t.frozen ? 'Unfreeze the columns' : 'Freeze the first column — it stays in view when scrolling sideways', toggleFreeze, t && t.frozen ? '✓' : '', loaded);
     add('Columns', 'Fit every column to its content (double-click a resize handle for one)', () => fitColumns(visibleCols(t)), '', loaded);
     add('Columns', 'Reset the column widths', resetColWidths, '', loaded && Object.keys(t.colWidths).length > 0);
     add('Help', 'Keyboard shortcuts', openKeys, 'F1');
     add('Help', 'About csvfab… — version, licence, website', openAbout);
+    add('Help', 'What\'s new — the features of each version', openWhatsNew);
     add('View', t && t.tail ? 'Stop following the file' : 'Follow the end of the file (tail -f) — new lines as they are written', () => toggleTail(), t && t.tail ? '✓' : '', loaded && !!t.lang);
     add('View', 'Clear the reopen cache — big files are scanned again', idxClear);
     add('View', 'Monospace font…' + (monoPick() ? ` — ${monoPick() === 'monospace' ? 'system monospace' : monoPick()}` : ''), openFontDialog);

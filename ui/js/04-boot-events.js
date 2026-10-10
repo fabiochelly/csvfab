@@ -92,14 +92,17 @@ async function setEncoding(v) {
 function reread(t) {
     t.detectedDelim = ''; t.detectedEol = '\n';
     t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null;
-    t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.totals = {}; t.scrollTop = 0;
+    t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.heat = {}; t.totals = {}; t.scrollTop = 0;
     updateSaveBtn(); refreshParseOpts(); parseTab(t);
 }
 
 document.getElementById('global-search').oninput = filterSoon;
-document.getElementById('use-regex').onchange = applyFilters;
-document.getElementById('use-slug').onchange = applyFilters;
-document.getElementById('use-reverse').onchange = applyFilters;
+/* The search toggles light at the click, then filter: run in the change handler itself, the filtering
+   and the grid's redraw held the frame that shows the toggle lit — it felt sluggish. */
+function filterAfterPaint() { requestAnimationFrame(() => setTimeout(applyFilters, 0)); }
+document.getElementById('use-regex').onchange = filterAfterPaint;
+document.getElementById('use-slug').onchange = filterAfterPaint;
+document.getElementById('use-reverse').onchange = filterAfterPaint;
 
 // --- Tab keyboard shortcuts ---
 window.addEventListener('keydown', (e) => {
