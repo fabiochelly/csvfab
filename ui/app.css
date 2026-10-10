@@ -368,6 +368,8 @@ body { background: var(--bg); color: var(--txt); font-family: var(--mono); margi
 #grid-layer.nohs #tbody .cell.frz { position: relative; left: auto !important; z-index: auto; }
 body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 .no-spk .spk-on, :root:not(.no-spk) .spk-off { display: none; }
+.no-tot .tot-on, :root:not(.no-tot) .tot-off { display: none; }
+.no-filt .filt-on, :root:not(.no-filt) .filt-off { display: none; }
 /* A cell is clipped (ellipsis) only when its value overflows — .ov, decided by cellOv()
    in 12-…: every overflow: hidden is a clip node and a paint chunk of its own, and the 600
    of a drawn window made Chromium's layerization the biggest cost of a scroll step. While
@@ -385,6 +387,26 @@ body:not(.frozen) .frz-on, body.frozen .frz-off { display: none; }
 #tbody .row.drop-below .cell { box-shadow: inset 0 -2px 0 var(--prim); }
 #tbody .row.row-dragging { opacity: .45; }
 #tbody .col-idx[draggable] { cursor: grab; }
+/* The totals row (54-…): in flow after #tbody, sticky at the grid layer's bottom — so right under
+   the last row when every row fits —, above the rows' sticky cells (110), under the header (130).
+   A cell per visible column, widths inline as the rows'; the function's name small on the left,
+   its value on the right in the cells' font and the column's type colour. Dimmed while new values
+   are being counted. */
+#tfoot { display: none; position: sticky; bottom: 0; z-index: 125; height: 35px; box-sizing: border-box;
+    background: var(--surf); border-top: 1px solid var(--brd-2); box-shadow: 0 -4px 12px rgba(0, 0, 0, .18); }
+#tfoot .tf-c { flex: none; height: 34px; box-sizing: border-box; padding: 0 10px; border-right: 1px solid var(--brd);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; white-space: nowrap;
+    cursor: pointer; font-size: 13px; color: var(--txt-strong); background: var(--surf); user-select: none; }
+#tfoot .tf-c:hover { background: var(--surf-2); }
+#tfoot .tf-c.col-idx { position: sticky; left: 0; z-index: 2; justify-content: center; font: 600 15px var(--ui); color: var(--txt-mut); }
+#tfoot .tf-c.frz { position: sticky; z-index: 1; }
+#tfoot .tf-c.frz-last { border-right-color: rgba(var(--accent-rgb), .6); }
+#tfoot .tf-l { flex: none; font: 600 10px var(--ui); letter-spacing: .05em; text-transform: uppercase; color: var(--txt-dim); }
+#tfoot .tf-v { min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; font-weight: 600; text-rendering: optimizeSpeed; font-variant-ligatures: none; transition: opacity .15s; }
+:root:not(.no-kcol) #tfoot .tf-c.kn .tf-v { color: var(--cyan-txt); }
+:root:not(.no-kcol) #tfoot .tf-c.kd .tf-v { color: var(--violet-txt); }
+#tfoot.stale .tf-v { opacity: .45; }
+#tfoot .tf-none:hover::after { content: 'Σ'; margin: auto; font: 600 13px var(--ui); color: var(--txt-faint); }
 .cp-tools { display: flex; gap: 4px; padding: 2px 2px 6px; }
 .cp-tools .btn.on { border-color: var(--prim); color: var(--accent-2); background: rgba(var(--accent-rgb), .12); }
 .cp-tools .btn { padding: 4px 8px; font-size: 12px; gap: 4px; }
@@ -548,10 +570,21 @@ th.dragging { opacity: .45; }
 .ty-d { color: var(--violet-txt); background: rgba(var(--violet-rgb), .13); }
 .ty-t { color: var(--txt-dim); background: rgba(var(--gray-rgb), .16); }
 .col-no { margin-left: 6px; font-size: 10.5px; font-weight: 400; color: var(--txt-faint); font-variant-numeric: tabular-nums; }
+/* A title: type icon, text, number, cut at the end with an ellipsis. A sorted one (.srt, its text in
+   .cn-t) is a flex line — icon, text, sort arrow, number — where the number gives way first, then the
+   text; the icon and the arrow stay (the arrow, last, used to be the first thing cut). Flex only
+   there: on every title it cost a header rebuild +7 % (100 columns, 20.8 → 22.2 ms). */
 .col-name { cursor: pointer; display: block; overflow: hidden; text-overflow: ellipsis; user-select: none; }   /* Shift+click would select text */
+.col-name.srt { display: flex; align-items: center; min-width: 0; }
+.col-name.srt > * { flex: none; }
+.col-name.srt > .cn-t { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-name.srt > .col-no { flex: 0 1000 auto; min-width: 0; overflow: hidden; }
 .col-name:hover { color: var(--txt-strong); }
-.sort-ind { color: var(--prim); font-size: 9px; margin-left: 6px; vertical-align: 1px; }
-.sort-ind sup { font-size: 8px; margin-left: 1px; }
+.sort-ind { display: inline-flex; align-items: center; color: var(--prim); margin-left: 5px; }
+.sort-ind::before { content: ''; width: 12px; height: 12px; background: currentColor; transition: transform .2s;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M8 13.5V2.5M3.5 7 8 2.5 12.5 7'/%3e%3c/svg%3e") center / contain no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M8 13.5V2.5M3.5 7 8 2.5 12.5 7'/%3e%3c/svg%3e") center / contain no-repeat; }
+.sort-ind.dn::before { transform: rotate(180deg); }
+.sort-ind sup { font-size: 9px; font-weight: 600; margin-left: 1px; line-height: 1; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 #global-search { width: 260px; }
@@ -803,7 +836,8 @@ thead .col-idx { z-index: 120; }
 .row-btn { background-image: radial-gradient(circle, currentColor 1.3px, transparent 1.6px); background-size: 4px 4.5px; background-repeat: repeat-y; background-position: center; background-origin: content-box; background-clip: content-box; padding: 4.25px 0; box-sizing: border-box; }
 #tbody .row:hover .row-btn, .row-btn.open { display: flex; }
 .row-btn:hover, .row-btn.open { background-color: var(--surf-3); color: var(--txt-strong); }   /* the colour only: the dots are the background image */
-#row-menu, #cell-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }
+#row-menu, #cell-menu, #tot-menu { position: fixed; top: auto; min-width: 230px; z-index: 1600; }
+#tot-menu .k { font-family: var(--mono); }
 .dd-item.danger, .dd-item.danger .lbl svg { color: var(--danger-txt); }
 .dd-item.danger:hover { background: rgba(var(--danger-rgb), .14); }
 
@@ -813,13 +847,13 @@ thead .col-idx { z-index: 120; }
 .col-menu { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 4px;
     display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--txt-dim); }
 .col-menu:hover, .col-menu.open { background: var(--surf-3); color: var(--txt-hi); }
-.col-menu.on { color: var(--prim); }
+.col-menu.on, .no-filt .col-menu.tf { color: var(--prim); }   /* .tf: a text filter, said by the funnel while the filter row is hidden */
 /* ▾, or a funnel while a value filter is set, and the Dates calendar: CSS masks in the text
    colour — an SVG element in each of 85 titles was a third of the header's rebuild. */
 .col-menu::before { content: ''; width: 13px; height: 13px; background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M4 6l4 4 4-4'/%3e%3c/svg%3e") center / contain no-repeat; }
-.col-menu.on::before {
+.col-menu.on::before, .no-filt .col-menu.tf::before {
     -webkit-mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e");
             mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e"); }
 .ty-d::before { content: ''; width: 11px; height: 11px; background: currentColor;
@@ -849,6 +883,12 @@ thead .col-idx { z-index: 120; }
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
 .spk-row th.spk-idx:hover::before { background: var(--txt-mut); }
 .no-spk .spk-row { display: none; }
+/* The filter row, hidden by toggleFilterRow() (05-…): its row-number cell is its switch. */
+.no-filt .filter-row { display: none; }
+.filter-row th.f-idx { cursor: pointer; padding: 0; }
+.filter-row th.f-idx::before { content: ''; display: block; margin: auto; width: 13px; height: 13px; background: var(--txt-faint);
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e") center / contain no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e") center / contain no-repeat; }
+.filter-row th.f-idx:hover::before { background: var(--txt-mut); }
 .spk { position: relative; height: 45px; cursor: default;
     background: linear-gradient(rgba(var(--prim-rgb), .2), rgba(var(--prim-rgb), .2)) var(--pl) 0 / var(--pw) calc(100% - 14px) no-repeat; }
 /* The gauge: 6 px and rounded from the start, as a text column's ribbon; over it the part under the pointer lights up
@@ -911,8 +951,15 @@ thead .col-idx { z-index: 120; }
 .sb-spk { flex: none; width: 16px; height: 16px; cursor: pointer; margin-left: 6px; background: var(--cyan-txt); transition: transform .15s, opacity .15s, filter .15s;
     -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath d='M1 15h14v-1.5H1zM2 12h2.2V8H2zm3.3 0h2.2V3H5.3zm3.3 0h2.2V6H8.6zm3.3 0h2.2V1h-2.2z'/%3e%3c/svg%3e") center / contain no-repeat; }
-.sb-spk:hover { transform: scale(1.12); }
-.sb-spk.off { filter: grayscale(1); opacity: .45; }
+.sb-spk:hover, .sb-filt:hover { transform: scale(1.12); }
+.sb-spk.off, .sb-filt.off { filter: grayscale(1); opacity: .45; }
+/* …the totals row's, a Σ; and the filter row's, a funnel. */
+.sb-tot { flex: none; width: 15px; height: 15px; cursor: pointer; margin-left: 6px; background: var(--orange-txt); transition: transform .15s, opacity .15s, filter .15s;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M12.5 3.5v-1h-9l5 5.5-5 5.5h9v-1'/%3e%3c/svg%3e") center / contain no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='M12.5 3.5v-1h-9l5 5.5-5 5.5h9v-1'/%3e%3c/svg%3e") center / contain no-repeat; }
+.sb-tot:hover { transform: scale(1.12); }
+.sb-tot.off { filter: grayscale(1); opacity: .45; }
+.sb-filt { flex: none; width: 15px; height: 15px; cursor: pointer; margin-left: 6px; background: var(--accent-2); transition: transform .15s, opacity .15s, filter .15s;
+    -webkit-mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e") center / contain no-repeat; mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3e%3cpath d='M3 4h18l-7 8.5V19l-4 2v-8.5z'/%3e%3c/svg%3e") center / contain no-repeat; }
 
 #col-panel {
     display: none; position: fixed; z-index: 1500; width: 300px; box-sizing: border-box; padding: 6px;
@@ -1157,8 +1204,10 @@ mark.fd { background: rgba(var(--ok-rgb), 0.3); }   /* a find match, distinct fr
 .sy-ins { color: var(--ok-txt); } .sy-del { color: var(--danger-txt); }
 
 /* ---- Tooltips (34-tooltips.js): every title, shown at once, small and quiet ---- */
-#tip { display: none; position: fixed; z-index: 3000; max-width: 420px; padding: 3px 7px; border-radius: 4px; pointer-events: none;
-    background: var(--surf-2); border: 1px solid var(--brd); color: var(--txt); font: 11.5px/1.45 var(--ui); white-space: pre-line; overflow-wrap: anywhere; }
+#tip { display: none; position: fixed; z-index: 3000; max-width: 420px; padding: 4px 8px; border-radius: 5px; pointer-events: none;
+    background: color-mix(in srgb, var(--tip-bg) 72%, transparent); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+    border: 1px solid color-mix(in srgb, var(--tip-brd) 70%, transparent); color: var(--tip-fg); font: 11.5px/1.45 var(--ui); white-space: pre-line; overflow-wrap: anywhere;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
 #tip.open { display: block; }
 
 /* The ƒx sign (filter box, computed column, function picker): a long italic f whose crossbar runs

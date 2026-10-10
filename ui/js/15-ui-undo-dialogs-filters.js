@@ -66,6 +66,7 @@ function updateSaveBtn() {
         t._seenLog = n; t._seenLast = last;
         if (t.loaded) findRefresh(t);    // an edit that redraws only its rows still changes the find count (29-…)
         spkLater(t);                      // …and the column charts (47-…), when idle
+        totLater();                       // …and the totals row (54-…)
     }
     ffCheck();                            // a fill-by-example rule offered for rows that changed goes (48-…)
 }
@@ -91,15 +92,15 @@ function updateSaveBtn() {
    stack was built on), as do a save and a re-read.
 ----------------------------------------------------------------*/
 function viewSnap(t) {
-    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null, colSrc: t.colSrc && t.colSrc.slice() };
+    return { hidden: new Set(t.hiddenCols), widths: { ...t.colWidths }, filters: { ...t.colFilters }, vals: { ...t.valFilters }, bars: { ...t.dataBars }, tots: { ...t.totals }, sort: t.sort ? t.sort.map(k => ({ ...k })) : null, colSrc: t.colSrc && t.colSrc.slice() };
 }
 /* Copies, not the snapshot's own objects: a closure may run twice (undo, redo, undo). */
 function viewRestore(t, v) {
-    t.hiddenCols = new Set(v.hidden); t.colWidths = { ...v.widths }; t.colFilters = { ...v.filters }; t.valFilters = { ...v.vals }; t.dataBars = { ...v.bars };
+    t.hiddenCols = new Set(v.hidden); t.colWidths = { ...v.widths }; t.colFilters = { ...v.filters }; t.valFilters = { ...v.vals }; t.dataBars = { ...v.bars }; t.totals = { ...v.tots };
     t.sort = v.sort ? v.sort.map(k => ({ ...k })) : null; t.colSrc = v.colSrc && v.colSrc.slice();
 }
 const sameView = (a, b) => JSON.stringify(viewKey(a)) === JSON.stringify(viewKey(b));
-function viewKey(v) { return [[...v.hidden].sort(), v.widths, v.filters, Object.keys(v.vals).map(k => [k, [...v.vals[k]]]), v.bars, v.sort, v.colSrc]; }
+function viewKey(v) { return [[...v.hidden].sort(), v.widths, v.filters, Object.keys(v.vals).map(k => [k, [...v.vals[k]]]), v.bars, v.tots, v.sort, v.colSrc]; }
 const REDO_MAX = 40e6;                    // recorded row assignments past which an edit is not redoable (a restructure of 20 M rows)
 function undo() {
     const t = T(); if (!t || !t.loaded) return;
@@ -162,7 +163,7 @@ async function discardEdits() {
 }
 function reloadKeepingView(t, colsChanged) {
     t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null; t.rowMark = null;
-    if (colsChanged) { t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; }
+    if (colsChanged) { t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.totals = {}; }
     updateSaveBtn(); renderTabBar();
     parseTab(t);
 }

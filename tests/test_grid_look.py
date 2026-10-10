@@ -181,6 +181,32 @@ class GridLookTest(unittest.TestCase):
         self.assertTrue(r["afterClear"])                         # l'effacement passe par l'événement input : le filtre suit
         self.assertTrue(r["colFilterField"])                     # le filtre d'une colonne devient un champ, avec le menu
 
+    # La barre de filtres masquable : l'en-tête et l'étendue rétrécissent d'autant, le filtre d'une
+    # colonne s'applique toujours et son entonnoir le dit, le choix est retenu, rien n'est perdu.
+    def test_filter_row_hides(self):
+        self.open()
+        r = self.chrome.eval("""(async () => {
+          const pause = ms => new Promise(r => setTimeout(r, ms)), t = T();
+          t.colFilters[1] = 'vip'; applyFilters(); renderHeader(); await pause(50);
+          const h0 = thead.offsetHeight, s0 = container.scrollHeight, n0 = t.filteredData.length;
+          toggleFilterRow(); await pause(50);
+          const menu = thead.querySelector('th[data-col="1"] .col-menu');
+          const out = { dh: h0 - thead.offsetHeight, ds: s0 - container.scrollHeight, rows: t.filteredData.length === n0,
+                        funnel: getComputedStyle(menu).color !== getComputedStyle(thead.querySelector('th[data-col="2"] .col-menu')).color,
+                        tfOther: thead.querySelector('th[data-col="2"] .col-menu').classList.contains('tf'),
+                        kept: localStorage.getItem('csvfab-filter-row'), pill: document.querySelector('.sb-filt').classList.contains('off') };
+          toggleFilterRow(); await pause(50);
+          out.back = thead.offsetHeight === h0; out.box = thead.querySelector('.filter-row .f-box[data-col="1"]').textContent;
+          delete t.colFilters[1]; applyFilters(); renderHeader();
+          return out;
+        })()""")
+        self.assertEqual(r["dh"], 29)                            # la ligne de filtres, 28 px + sa bordure
+        self.assertEqual(r["ds"], 29)                            # l'étendue de défilement suit
+        self.assertTrue(r["rows"])                               # le filtre s'applique toujours
+        self.assertTrue(r["funnel"]); self.assertFalse(r["tfOther"])
+        self.assertEqual(r["kept"], "0"); self.assertTrue(r["pill"])
+        self.assertTrue(r["back"]); self.assertEqual(r["box"], "vip")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -123,6 +123,9 @@ document.addEventListener('securitypolicyviolation', e => window.__csp.push(`${e
     for (const c of [0, 1, 2, 3]) { const td = tbody.querySelector(`.row[data-idx="0"] .cell[data-c="${c}"]`); if (td) { at(td); await pause(); hover(); closeDDs(); } }
     at(tbody.querySelector('.row[data-idx="1"] .col-idx')); await pause(); closeDDs();
     sortBy(1); await pause(600); container.scrollTop = 3 * ROW_H; renderOnScroll(); await pause(); });
+  await step('totals row', async () => { totAll('sum'); for (let c = 0; c < W; c++) totPick(c, c % 2 ? 'distinct' : 'max');
+    for (let k = 0; k < 200 && totMissing(t); k++) await pause(20); render(); hover();
+    for (const cell of document.querySelectorAll('#tfoot .tf-c')) { cell.click(); await pause(20); hover(); closeDDs(); } totAll(null); });
   await step('palette', async () => { openPalette(); input('cmdk-in', 'H'); await pause(); input('cmdk-in', 'img'); await pause(); closePalette(); });
   await step('find bar', async () => { toggleSRBar(); input('sr-find', 'img'); await pause(200); findStep(1); toggleSRBar(); });
   await step('global filter + marks', async () => { input('global-search', 'img'); await pause(500); input('global-search', ''); await pause(300); });

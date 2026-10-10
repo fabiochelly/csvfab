@@ -50,7 +50,7 @@ function stripEl() {
 /* The strip's coordinates: H pixels stand for the container's whole scroll extent. */
 function stripGeom(t) {
     const H = container.clientHeight, ch = H, th = thead.offsetHeight;
-    return { H, ch, th, sh: Math.max(ch, th + t.filteredData.length * ROW_H) };
+    return { H, ch, th, sh: Math.max(ch, th + t.filteredData.length * ROW_H + totHeight()) };
 }
 const rowY = (g, i) => (g.th + i * ROW_H) / g.sh * g.H;
 

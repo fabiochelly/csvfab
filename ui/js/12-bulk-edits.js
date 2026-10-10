@@ -310,13 +310,23 @@ function sortBy(col, forceDir, add) {
     setStats(`${t.name} | Sorted by ${desc}${kinds} — not written yet, use Save.`);
 }
 
-/* The ▲ / ▼ marks of the header, in place: rebuilding the whole header after
+/* A sort key's mark in its title: an arrow (a CSS mask, up for ascending — .dn turns it down),
+   numbered when there are several keys. */
+function sortIndHtml(t, n) {
+    return `<span class="sort-ind${t.sort[n].dir > 0 ? '' : ' dn'}" title="${t.sort[n].dir > 0 ? 'Ascending' : 'Descending'}">${t.sort.length > 1 ? `<sup>${n + 1}</sup>` : ''}</span>`;
+}
+/* The marks of the header, in place: rebuilding the whole header after
    each sort cost ~20 ms on an 85-column file (its layout, as for the rows). */
 function sortMarks(t) {
     thead.querySelectorAll('.sort-ind').forEach(x => x.remove());
+    thead.querySelectorAll('.col-name.srt').forEach(x => x.classList.remove('srt'));
     (t.sort || []).forEach((k, n) => {
         const span = thead.querySelector(`th[data-col="${k.col}"] .col-name`);
-        if (span) span.insertAdjacentHTML('beforeend', `<span class="sort-ind">${k.dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${n + 1}</sup>` : ''}</span>`);
+        if (!span) return;
+        span.classList.add('srt');            // laid out as a line whose text gives way (app.css): the text in its own span
+        if (!span.querySelector('.cn-t')) for (const x of span.childNodes) if (x.nodeType === 3) { const w = document.createElement('span'); w.className = 'cn-t'; x.replaceWith(w); w.appendChild(x); break; }
+        const no = span.querySelector('.col-no');   // the arrow goes before the number, which gives way first
+        if (no) no.insertAdjacentHTML('beforebegin', sortIndHtml(t, n)); else span.insertAdjacentHTML('beforeend', sortIndHtml(t, n));
     });
 }
 
@@ -542,6 +552,7 @@ function placeCells(t) {
             if (k < L.F) el.style.left = L.x[k] + 'px';
         }
     }
+    totRedraw(t);                             // the totals row (54-…) at the new widths
 }
 
 /* A scroll moves the window by steps: rows or columns come in only once the
@@ -607,15 +618,16 @@ function render(lean) {
     clearTimeout(jumpTimer); jumpTimer = 0;   // a redraw for any reason: nothing left to catch up
     syncLayer();
     tbody.classList.toggle('tx', !!(t && t.lang));   // a text file: lines striped, no rules between them (33-…)
-    if (!t || !t.loaded) { tbody.innerHTML = ''; tbody.style.height = '0px'; tbody.classList.remove('no-rows'); return; }
+    if (!t || !t.loaded) { tbody.innerHTML = ''; tbody.style.height = '0px'; tbody.classList.remove('no-rows'); totDraw(null); return; }
     const data = t.filteredData;
-    if (data.length === 0) { tbody.innerHTML = '<div class="empty-msg">No results found</div>'; tbody.style.height = ''; tbody.classList.add('no-rows'); syncSpace(t); return; }
+    if (data.length === 0) { tbody.innerHTML = '<div class="empty-msg">No results found</div>'; tbody.style.height = ''; tbody.classList.add('no-rows'); totDraw(null); syncSpace(t); return; }
     tbody.classList.remove('no-rows');
     pinColWidths(t);                          // every cell is placed by the widths: they come first
     const w = drawWindow(t, lean), L = w.L;
     tbody.style.height = data.length * ROW_H + 'px'; tbody.style.width = L.x[L.x.length - 1] + 'px';
     tbody.innerHTML = rowsHtml(t, w.r0, w.r1, w);
     drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') + '|' + L.F };
+    totDraw(t, L, true);                      // the totals row (54-…), part of the extent syncSpace gives
     syncSpace(t);
     if (t.sort) groupTag(t, L);               // the group at the top of a sorted view (51-…)
 }
@@ -682,7 +694,7 @@ function titleWidth(c) {
     if (!span) return 60;
     const st = getComputedStyle(span), ctx = document.createElement('canvas').getContext('2d');
     ctx.font = `${st.fontStyle} ${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
-    let w = 0; for (const el of span.childNodes) w += el.nodeType === 3 ? ctx.measureText(el.textContent).width : el.getBoundingClientRect().width + 6;
+    let w = 0; for (const el of span.childNodes) w += el.nodeType === 3 || el.classList.contains('cn-t') ? ctx.measureText(el.textContent).width : el.getBoundingClientRect().width + 6;   // the text whole, not as its ellipsis shows it
     return Math.ceil(w) + 26 + 22;                                     // .col-title's padding-right (the ▾), the th's padding and border
 }
 function resetColWidths() {
@@ -715,8 +727,8 @@ function syncLayer() {
     stripFollow();                        // the scroll strip's thumb (28-…)
 }
 /* The layer the size of the viewport, the spacer the rest of the table's extent
-   (rows × ROW_H + the header, and the pinned widths' sum — measured only while
-   widths are still unknown). */
+   (rows × ROW_H + the header + the totals row, and the pinned widths' sum — measured
+   only while widths are still unknown). */
 function syncSpace(t) {
     const gridLayer = document.getElementById('grid-layer'), scrollSpace = document.getElementById('scroll-space');
     /* No native scrollbar of the strip's width there (none shown: every row fits;
@@ -736,7 +748,7 @@ function syncSpace(t) {
     if (gridLayer.classList.contains('nohs') !== nohs) gridLayer.classList.toggle('nohs', nohs);
     const sbh = container.offsetHeight - ch, padB = !nohs && sbh < 16 ? 24 - sbh : 0;
     if (padB) { gridLayer.style.height = (ch - padB) + 'px'; container._vh = ch - padB; }
-    const h = thead.offsetHeight + t.filteredData.length * ROW_H;
+    const h = thead.offsetHeight + t.filteredData.length * ROW_H + totHeight();
     scrollSpace.style.height = Math.max(0, h + padB - ch) + 'px';
     scrollSpace.style.width = Math.max(1, nohs ? w : w + padR) + 'px';
     syncLayer();

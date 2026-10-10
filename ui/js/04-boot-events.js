@@ -92,7 +92,7 @@ async function setEncoding(v) {
 function reread(t) {
     t.detectedDelim = ''; t.detectedEol = '\n';
     t.modificationsLog = []; t.headers = []; t.syntheticHeader = false; t.sort = null;
-    t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.scrollTop = 0;
+    t.hiddenCols.clear(); t.colWidths = {}; t.colFilters = {}; t.valFilters = {}; t.dataBars = {}; t.totals = {}; t.scrollTop = 0;
     updateSaveBtn(); refreshParseOpts(); parseTab(t);
 }
 

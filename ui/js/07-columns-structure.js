@@ -87,7 +87,7 @@ function moveColumn(from, to) {
     const undoRows = remapRows(t, order);
     const [h] = t.headers.splice(from, 1); t.headers.splice(to, 0, h);
     t.hiddenCols = new Set([...t.hiddenCols].map(c => movedIndex(c, from, to)));
-    t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars);
+    t.colWidths = shift(t.colWidths); t.colFilters = shift(t.colFilters); t.valFilters = shift(t.valFilters); t.dataBars = shift(t.dataBars); t.totals = shift(t.totals);
     remapColRefs(t, c => movedIndex(c, from, to));
     t.modificationsLog.push({ id: '-', col: h, old: 'moved', new: `${from} → ${to}`, what: `column "${h}" moved`, undo: t => {
         const [x] = t.headers.splice(to, 1); t.headers.splice(from, 0, x);
@@ -121,7 +121,7 @@ function restructure(t, headers, rowFn, mapOld, what) {
 function remapCols(t, mapOld) {
     const remap = m => { const o = {}; Object.keys(m).forEach(k => { const c = mapOld(+k); if (c >= 0) o[c] = m[k]; }); return o; };
     t.hiddenCols = new Set([...t.hiddenCols].map(mapOld).filter(c => c >= 0));
-    t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars);
+    t.colWidths = remap(t.colWidths); t.colFilters = remap(t.colFilters); t.valFilters = remap(t.valFilters); t.dataBars = remap(t.dataBars); t.totals = remap(t.totals);
     remapColRefs(t, mapOld);
 }
 const pad = (d, n) => { if (d.length >= n) return d; const c = d.slice(); while (c.length < n) c.push(''); return c; };
@@ -427,6 +427,7 @@ async function addColumn(idx) {
     t.colFilters = shiftKeys(t.colFilters, idx, +1);
     t.valFilters = shiftKeys(t.valFilters, idx, +1);
     t.dataBars = shiftKeys(t.dataBars, idx, +1);
+    t.totals = shiftKeys(t.totals, idx, +1);
 
     remapColRefs(t, c => c > idx ? c + 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: '---', new: 'Column added', what: `column "${colName}" added`, undo: t => {
@@ -456,6 +457,7 @@ async function deleteColumn(idx) {
     t.colFilters = shiftKeys(t.colFilters, idx, -1);
     t.valFilters = shiftKeys(t.valFilters, idx, -1);
     t.dataBars = shiftKeys(t.dataBars, idx, -1);
+    t.totals = shiftKeys(t.totals, idx, -1);
 
     remapColRefs(t, c => c === idx ? -1 : c > idx ? c - 1 : c);
     t.modificationsLog.push({ id: '-', col: colName, old: 'Column deleted', new: '---', what: `column "${colName}" deleted`, undo: t => {

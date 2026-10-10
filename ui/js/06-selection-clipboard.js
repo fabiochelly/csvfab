@@ -103,7 +103,7 @@ function revealCell(r, c) {
     const top = thead.offsetHeight, y = top + r * ROW_H;   // row r's top in content coordinates, below the sticky header
     const vw = container._vw || container.clientWidth, vh = container._vh || container.clientHeight;   // the grid's visible size (syncSpace: the strips may take some)
     if (y < container.scrollTop + top) container.scrollTop = y - top;
-    else if (y + ROW_H > container.scrollTop + vh) container.scrollTop = y + ROW_H - vh;
+    else if (y + ROW_H > container.scrollTop + vh - totHeight()) container.scrollTop = y + ROW_H - vh + totHeight();   // above the totals row (54-…)
     /* Sideways from the pinned widths: the cell may be outside the columns
        drawn. Left of it, the sticky row numbers cover what scrolls under them;
        the first column goes all the way left, nothing cut off. */

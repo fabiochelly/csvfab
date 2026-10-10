@@ -226,6 +226,8 @@ function renderStatusFormat(t) {
             t.tail ? (t.tailPaused === 'edits' ? 'Following paused while edits are pending · click: stop' : 'New lines appear as they are written · click: stop') : 'Follow the end of the file, as tail -f', 'toggleTail(event)') : '')
         + (loaded ? pill('', t.detectedEol === '\r\n' ? 'CRLF' : t.detectedEol === '\r' ? 'CR' : 'LF',
             'Line endings · click: switch', 'toggleEol(event)') : '')
+        + `<span class="sb-tot${totOn() ? '' : ' off'}" onclick="toggleTotals()" title="Totals row ${totOn() ? 'shown' : 'hidden'}"></span>`
+        + `<span class="sb-filt${filterRowOn() ? '' : ' off'}" onclick="toggleFilterRow()" title="Filter row ${filterRowOn() ? 'shown' : 'hidden'}"></span>`
         + `<span class="sb-spk${spkOn() ? '' : ' off'}" onclick="toggleSparklines()" title="Column charts ${spkOn() ? 'on' : 'off'}"></span>`
         + `<span class="sb-kcol${typeColorsOn() ? '' : ' off'}" onclick="toggleTypeColors()" title="Type colours ${typeColorsOn() ? 'on' : 'off'}"></span>`
         + `<span class="sb-theme" onclick="openSbMenu(event, 't')" title="Theme: ${esc((THEMES.find(x => x[0] === currentTheme()) || [0, ''])[1])}" style="${swatchCss(currentTheme())}"></span>`;
@@ -233,6 +235,20 @@ function renderStatusFormat(t) {
 
 /* Numbers and dates coloured in the grid, on unless switched off here: a class on <html>
    (set before the first paint by viewer.htm), so the switch redraws nothing. */
+/* The filter row under the titles, shown unless hidden here (<html>.no-filt, set before the first
+   paint so the header's height is right from the first frame). Its filters still apply while it is
+   hidden: a column holding one shows the funnel on its ▾ (.tf), and the status bar counts the rows. */
+function filterRowOn() { return !document.documentElement.classList.contains('no-filt'); }
+function toggleFilterRow() {
+    const on = !filterRowOn(), t = T();
+    if (!on && document.activeElement && document.activeElement.closest && document.activeElement.closest('.filter-row')) document.activeElement.blur();
+    document.documentElement.classList.toggle('no-filt', !on);
+    try { localStorage.setItem('csvfab-filter-row', on ? '1' : '0'); } catch (e) { }
+    renderStatusFormat(t);
+    if (t && t.loaded) { renderHeader(); render(); }   // the header changed height: the grid's extent with it
+    const n = t ? Object.keys(t.colFilters).length : 0;
+    setStats(on ? 'Filter row shown.' : `Filter row hidden${n ? ` — the filter${n > 1 ? 's' : ''} of ${n} column${n > 1 ? 's' : ''} still appl${n > 1 ? 'y' : 'ies'} (funnel on the title)` : ''}.`);
+}
 function typeColorsOn() { return !document.documentElement.classList.contains('no-kcol'); }
 function toggleTypeColors() {
     const on = !typeColorsOn();
@@ -292,18 +308,18 @@ function renderHeader() {
     let hCells = `<th class="col-idx" onclick="openColManager()" title="Manage Columns" style="cursor:pointer;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; vertical-align: middle;"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
     </th>`;
-    let fCells = `<th class="col-idx"></th>`;
+    let fCells = `<th class="col-idx f-idx" onclick="toggleFilterRow()" title="Hide the filter row"></th>`;
 
     const genCls = t.syntheticHeader ? ' gen-head' : '';
     const kinds = t.loaded ? columnKinds(t) : [];
     t.headers.forEach((h, i) => {
         const sk = t.sort ? t.sort.findIndex(k => k.col === i) : -1;
-        const sortInd = sk < 0 ? '' : `<span class="sort-ind">${t.sort[sk].dir > 0 ? '▲' : '▼'}${t.sort.length > 1 ? `<sup>${sk + 1}</sup>` : ''}</span>`;
+        const sortInd = sk < 0 ? '' : sortIndHtml(t, sk);
         hCells += `<th class="col-th${genCls}" data-col="${i}" ondragover="colDragOver(event)" ondragleave="this.classList.remove('drop-before', 'drop-after')" ondrop="colDrop(event)">
             <div class="col-title">
-                <span class="col-name" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort · again: reverse · Shift+click: sub-sort">${typeIcon(kinds[i])}${esc(h)}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}${sortInd}</span>
+                <span class="col-name${sk < 0 ? '' : ' srt'}" draggable="true" onclick="titleClick(event, ${i})" ondragstart="colDragStart(event, ${i})" ondragend="colDragEnd()" title="Click: sort · again: reverse · Shift+click: sub-sort">${typeIcon(kinds[i])}${sk < 0 ? esc(h) : `<span class="cn-t">${esc(h)}</span>`}${sortInd}${t.syntheticHeader ? '' : `<span class="col-no">${i}</span>`}</span>
             </div>
-            <span class="col-menu${t.valFilters[i] ? ' on' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] ? 'Filtered · ' : ''}Profile, filter"></span>
+            <span class="col-menu${t.valFilters[i] ? ' on' : ''}${t.colFilters[i] ? ' tf' : ''}" onclick="openColPanel(event, ${i})" title="${t.valFilters[i] || t.colFilters[i] ? 'Filtered · ' : ''}Profile, filter"></span>
             <div class="resizer" data-col="${i}"></div>
         </th>`;
         fCells += `<th>${colFilterBox(i, t.colFilters[i])}</th>`;

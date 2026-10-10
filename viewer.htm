@@ -25,6 +25,8 @@
     <script>try { var th = localStorage.getItem('csvfab-theme'); if (th && th !== 'dark') document.documentElement.dataset.theme = th;
         if (localStorage.getItem('csvfab-type-colors') === '0') document.documentElement.classList.add('no-kcol');
         if (localStorage.getItem('csvfab-sparklines') === '0') document.documentElement.classList.add('no-spk');
+        if (localStorage.getItem('csvfab-filter-row') === '0') document.documentElement.classList.add('no-filt');
+        if (localStorage.getItem('csvfab-totals') === '0') document.documentElement.classList.add('no-tot');
         var mf = localStorage.getItem('csvfab-mono'); if (mf) document.documentElement.style.setProperty('--mono-pick', mf === 'monospace' ? 'monospace' : '"' + mf.replace(/["\\]/g, '') + '"'); } catch (e) {}
         (function (h, t) { var bg = { dark: '#0d1117', tokyonight: '#15161e', catppuccin: '#11111b', vscode: '#1a1b26', light: '#ffffff', latte: '#eff1f5' }[t] || '#0d1117';
             h.style.background = bg; h.style.colorScheme = t === 'light' || t === 'latte' ? 'light' : 'dark'; })(document.documentElement, document.documentElement.dataset.theme || 'dark');</script>
@@ -456,9 +458,6 @@
             <div class="dd-item" onclick="closeDDs(); openProfile()" title="Every column's stats at a glance">
                 <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"></path><path d="M7 15v-4M12 15V7M17 15v-6"></path></svg>File profile…</span>
             </div>
-            <div class="dd-item" onclick="closeDDs(); openFileMap()" title="The whole file as one picture: types, gaps, misfits (Ctrl+M)">
-                <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"></path><path d="M9 3v15M15 6v15"></path></svg>File map…</span>
-            </div>
             <div class="dd-item" onclick="closeDDs(); openInsights()" title="Keys, misfits, outliers, copies, hidden rules">
                 <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"></path></svg>What I noticed…</span>
             </div>
@@ -534,6 +533,12 @@
                     </div>
                     <div class="dd-item" onclick="closeDDs(); toggleSparklines()" title="Each column's values drawn under its title">
                         <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M3 20h18"></path><path d="M6 16v-3M10 16V7M14 16v-6M18 16V4"></path></svg><span class="spk-off">Show the column charts</span><span class="spk-on">Hide the column charts</span></span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); toggleTotals()" title="A sum, average, count… under each column">
+                        <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M18 5H6l6 7-6 7h12"></path></svg><span class="tot-off">Show the totals row</span><span class="tot-on">Hide the totals row</span></span>
+                    </div>
+                    <div class="dd-item" onclick="closeDDs(); toggleFilterRow()" title="The filter boxes under the titles">
+                        <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M3 4h18l-7 8.5V19l-4 2v-8.5z"></path></svg><span class="filt-off">Show the filter row</span><span class="filt-on">Hide the filter row</span></span>
                     </div>
                     <div class="dd-item" onclick="closeDDs(); openColManager()" title="Tick the columns to show">
                         <span class="lbl"><svg class="ic" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>Show or hide columns…</span>
@@ -663,12 +668,13 @@
     <!-- The grid lives in a sticky, clipped layer that the script scrolls (12-…, SCROLLING);
          the native scrollbars come from #scroll-space, sized like the grid. The header is a
          table, sticky at the layer's top; the rows are divs placed absolutely in #tbody
-         (12-…, VIRTUAL RENDERING). -->
+         (12-…, VIRTUAL RENDERING); the totals row sticks at its bottom (54-…). -->
     <div id="grid-layer">
         <table id="mainTable" class="grid">
             <thead id="thead"></thead>
         </table>
         <div id="tbody"></div>
+        <div id="tfoot"></div>
     </div>
     <div id="scroll-space"></div>
 </div>
@@ -686,6 +692,7 @@
 <div class="dd-menu" id="sb-menu"></div>
 <div class="dd-menu" id="row-menu"></div>
 <div class="dd-menu" id="cell-menu"></div>
+<div class="dd-menu" id="tot-menu"></div>
 <div class="dd-menu" id="sc-menu"></div>
 
 <!-- The app: ui/js/*.js, joined in name order by server.py into one script (/app.js), so

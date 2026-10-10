@@ -47,7 +47,7 @@ function newTab(src) {
         delimiter: '', detectedDelim: '', detectedEol: '\n',
         encoding: '', detectedEnc: '', bom: false,   // encoding: '' = auto
         headerMode: 'auto', syntheticHeader: false,
-        globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, frozen: 0, onlyIrregular: false, quoteErrors: 0, mojibake: false, dupSpec: null, onlyDups: false, rowMark: null,   // valFilters: {col: Set of EXCLUDED values}
+        globalQuery: '', colFilters: {}, valFilters: {}, dataBars: {}, totals: {}, frozen: 0, onlyIrregular: false, quoteErrors: 0, mojibake: false, dupSpec: null, onlyDups: false, rowMark: null,   // valFilters: {col: Set of EXCLUDED values}
         useRegex: false, useSlug: false, useReverse: false, useExpr: false, exprErr: '',   // useExpr: the search box is a formula (23-expr-filter)
         scrollTop: 0, lastUsed: Date.now()
     };
@@ -141,7 +141,7 @@ async function closeTab(id) {
 }
 
 /* --- RAM management: release the least recently used clean tabs --- */
-function unloadTab(t) { if (t.base) parRelease(t.base); t.allData = []; t.filteredData = []; t.base = null; t.loaded = false; }
+function unloadTab(t) { if (t.base) parRelease(t.base); t.allData = []; t.filteredData = []; t.base = null; t.loaded = false; t.tot = null; t.totDef = null; t.totDefWip = null; }   // tot holds rows, and rows their base
 
 function evictIfNeeded() {
     const max = parseInt(document.getElementById('max-ram').value, 10);

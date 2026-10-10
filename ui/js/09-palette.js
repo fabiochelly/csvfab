@@ -53,6 +53,10 @@ function paletteCommands() {
     add('View', 'File map — the whole file as one picture', openFileMap, 'Ctrl+M', loaded);
     add('View', 'What I noticed — keys, values written otherwise, outliers, copies, hidden rules', openInsights, '', loaded && !t.lang);
     add('View', spkOn() ? 'Hide the column charts' : 'Column charts — each column\'s values drawn under its title', toggleSparklines, spkOn() ? '✓' : '');
+    add('View', filterRowOn() ? 'Hide the filter row — the boxes under the titles' : 'Show the filter row — the boxes under the titles', toggleFilterRow, filterRowOn() ? '✓' : '');
+    add('View', totOn() ? 'Hide the totals row' : 'Totals row — a sum, average, count… under each column', toggleTotals, totOn() ? '✓' : '');
+    add('Columns', 'Totals: sum every number column', () => totAll('sum'), '', loaded && totOn());
+    add('Columns', 'Totals: clear every total', () => totAll(''), '', loaded && totOn());
     add('File', 'Create a schema — the rules this file follows, as name.schema.json…', openSchemaCreate, '', loaded);
     add('File', 'Validate with a schema — check this file against its rules…', openSchemaValidate, '', loaded);
     add('View', 'Insert a function (ƒx) — every helper of formulas, with examples', () => openFxPicker('search'), '', loaded);
