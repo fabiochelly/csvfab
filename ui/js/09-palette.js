@@ -18,7 +18,7 @@ function clearAllFilters() {
 function goToColumn(c) {
     const t = T(); if (!t || !t.loaded) return;
     if (t.hiddenCols.has(c)) { t.hiddenCols.delete(c); applyColStyles(); }
-    const r = Math.min(t.filteredData.length - 1, Math.max(0, sel && sel.tab === t.id ? sel.fr : Math.floor(container.scrollTop / ROW_H)));
+    const r = Math.min(t.filteredData.length - 1, Math.max(0, sel && sel.tab === t.id ? sel.fr : Math.floor(container.vTop / ROW_H)));
     if (r < 0) { const th = thead.rows[0].cells[c + 1]; if (th) th.scrollIntoView({ inline: 'center', block: 'nearest' }); return; }
     setSel(t, r, c, r, c); revealCell(r, c);
 }

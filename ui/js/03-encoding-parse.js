@@ -191,7 +191,7 @@ async function parseTab(t) {
         renderHeader(); applyColStyles(); refreshParseOpts();
         applyFilters();                   // zeroes t.scrollTop: back to where the tab was, now that the extent is known
         t.scrollTop = top;
-        if (top) { container.scrollTop = top; render(); }   // a first opening is at the top, as applyFilters() just drew it
+        if (top) { container.vTop = top; render(); }   // a first opening is at the top, as applyFilters() just drew it
     }
     renderTabBar();
     afterShown(t, base);

@@ -197,7 +197,7 @@ function mapGo(e) {
     const c = k >= 0 ? m.g.cols[k] : (visibleCols(t)[0] || 0);
     closeAllModals();
     if (T() !== t) return;
-    container.scrollTop = Math.max(0, thead.offsetHeight + i * ROW_H - container.clientHeight / 2);
+    container.vTop = Math.max(0, thead.offsetHeight + i * ROW_H - container.clientHeight / 2);
     setSel(t, i, c, i, c); revealCell(i, c);
 }
 

@@ -44,7 +44,7 @@ function stripEl() {
     const end = e => { if (!el._s.drag) return; el._s.drag = false; el.classList.remove('drag'); try { el.releasePointerCapture(e.pointerId); } catch (x) { } stripTip(e); };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
     el.addEventListener('pointerleave', () => { if (!el._s.drag) el.classList.remove('tip'); });
-    el.addEventListener('wheel', e => { e.preventDefault(); container.scrollTop += e.deltaMode === 1 ? e.deltaY * ROW_H : e.deltaMode === 2 ? e.deltaY * container.clientHeight : e.deltaY; }, { passive: false });
+    el.addEventListener('wheel', e => { e.preventDefault(); container.vTop += e.deltaMode === 1 ? e.deltaY * ROW_H : e.deltaMode === 2 ? e.deltaY * container.clientHeight : e.deltaY; }, { passive: false });
     return el;
 }
 /* The strip's coordinates: H pixels stand for the container's whole scroll extent. */
@@ -81,7 +81,7 @@ function stripFollow() {
     hstripFollow(t);
     if (!el || el.style.display === 'none' || !t || !t.loaded) return;
     const g = stripGeom(t), thumb = el.children[3];
-    const h = Math.max(THUMB_MIN, g.ch / g.sh * g.H), top = g.sh > g.ch ? container.scrollTop / (g.sh - g.ch) * (g.H - h) : 0;
+    const h = Math.max(THUMB_MIN, g.ch / g.sh * g.H), top = g.sh > g.ch ? container.vTop / (g.sh - g.ch) * (g.H - h) : 0;
     thumb.style.top = top + 'px'; thumb.style.height = h + 'px';
 }
 /* Pointer y → the row there, and the scroll that centres the viewport on it. */
@@ -95,8 +95,8 @@ function stripJump(e) {
     const at = stripRowAt(t, e), g = stripGeom(t);
     if (el._s.grab != null) {                 // dragging the thumb: its top follows the pointer, offset kept
         const h = Math.max(THUMB_MIN, g.ch / g.sh * g.H), top = Math.min(g.H - h, Math.max(0, at.y - el._s.grab));
-        container.scrollTop = g.H > h ? top / (g.H - h) * (g.sh - g.ch) : 0;
-    } else container.scrollTop = at.scroll;
+        container.vTop = g.H > h ? top / (g.H - h) * (g.sh - g.ch) : 0;
+    } else container.vTop = at.scroll;
     renderOnScroll();                         // now, not at the scroll event: the tip below reads the new position
     stripTip(e);
 }

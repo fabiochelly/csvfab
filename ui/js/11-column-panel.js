@@ -178,7 +178,7 @@ function colPanelGo(col, x) {
     }
     if (best < 0) return setStats('No row shown holds that value.');
     if (t.hiddenCols.has(col)) { t.hiddenCols.delete(col); applyColStyles(); render(); }
-    container.scrollTop = Math.max(0, thead.offsetHeight + best * ROW_H - container.clientHeight / 2);
+    container.vTop = Math.max(0, thead.offsetHeight + best * ROW_H - container.clientHeight / 2);
     setSel(t, best, col, best, col); revealCell(best, col);
 }
 

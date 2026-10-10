@@ -235,11 +235,11 @@ function groupTag(t, L) {
     if (!groupBox) groupBox = container.getBoundingClientRect();
     L = L || colLayout(t); if (!L) return;
     const k = L.vis.indexOf(c), th = thead.offsetHeight;
-    const top = Math.max(0, Math.min(t.filteredData.length - 1, Math.floor((container.scrollTop - th) / ROW_H) + 1));
+    const top = Math.max(0, Math.min(t.filteredData.length - 1, Math.floor((container.vTop - th) / ROW_H) + 1));
     const v = cellStr(cellOf(t.filteredData[top], c)).trim();
     const x = k < L.F ? L.x[k] : L.x[k] - container.scrollLeft, w = L.x[k + 1] - L.x[k];
     const left = groupBox.left + Math.max(idxColW, x) + 6, right = groupBox.left + x + w - 6;
-    if (container.scrollTop < ROW_H || right - left < 40 || right < groupBox.left + idxColW) { if (el.style.display !== 'none') el.style.display = 'none'; return; }
+    if (container.vTop < ROW_H || right - left < 40 || right < groupBox.left + idxColW) { if (el.style.display !== 'none') el.style.display = 'none'; return; }
     const pos = `${groupBox.top + th + 4}|${left}|${right - left}`;   // written only when it moved: a scroll step changes nothing there
     if (el.style.display === 'none') el.style.display = '';
     if (el._pos !== pos) { el._pos = pos; el.style.top = (groupBox.top + th + 4) + 'px'; el.style.left = left + 'px'; el.style.maxWidth = (right - left) + 'px'; }

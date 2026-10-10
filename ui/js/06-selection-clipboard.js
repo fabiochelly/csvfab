@@ -127,8 +127,8 @@ function selSums(t, rg, cols, msg) {
 function revealCell(r, c) {
     const top = thead.offsetHeight, y = top + r * ROW_H;   // row r's top in content coordinates, below the sticky header
     const vw = container._vw || container.clientWidth, vh = container._vh || container.clientHeight;   // the grid's visible size (syncSpace: the strips may take some)
-    if (y < container.scrollTop + top) container.scrollTop = y - top;
-    else if (y + ROW_H > container.scrollTop + vh - totHeight()) container.scrollTop = y + ROW_H - vh + totHeight();   // above the totals row (54-…)
+    if (y < container.vTop + top) container.vTop = y - top;
+    else if (y + ROW_H > container.vTop + vh - totHeight()) container.vTop = y + ROW_H - vh + totHeight();   // above the totals row (54-…)
     /* Sideways from the pinned widths: the cell may be outside the columns
        drawn. Left of it, the sticky row numbers cover what scrolls under them;
        the first column goes all the way left, nothing cut off. */
@@ -182,16 +182,16 @@ document.addEventListener('mousemove', e => {
     if (fillDrag) {
         if (!(e.buttons & 1)) { fillDrag = null; render(); return; }
         const box = container.getBoundingClientRect();
-        if (e.clientY > box.bottom - 24) container.scrollTop += 20;
-        else if (e.clientY < box.top + thead.offsetHeight + 12) container.scrollTop -= 20;
+        if (e.clientY > box.bottom - 24) container.vTop += 20;
+        else if (e.clientY < box.top + thead.offsetHeight + 12) container.vTop -= 20;
         const cell = document.elementFromPoint(e.clientX, e.clientY), td = cell && cell.closest && cell.closest('#tbody .cell[data-c]');
         if (td) { const r = +td.parentElement.dataset.idx, c = +td.dataset.c; if (r !== fillDrag.r || c !== fillDrag.c) { fillDrag.r = r; fillDrag.c = c; render(); } }
         return;
     }
     if (!selDragging || !(e.buttons & 1)) { selDragging = false; return; }
     const t = T(), box = container.getBoundingClientRect();
-    if (e.clientY > box.bottom - 24) container.scrollTop += 20;
-    else if (e.clientY < box.top + thead.offsetHeight + 12) container.scrollTop -= 20;
+    if (e.clientY > box.bottom - 24) container.vTop += 20;
+    else if (e.clientY < box.top + thead.offsetHeight + 12) container.vTop -= 20;
     const td = document.elementFromPoint(e.clientX, e.clientY);
     const cell = td && td.closest && td.closest('#tbody .cell[data-c]');
     if (!cell) return;
@@ -337,9 +337,9 @@ function writeCells(t, grid, fillOnly, verb) {
        written are redrawn (Delete, a paste). Otherwise the filters decide. */
     const quiet = !added.length && !hasFilter(t) && !t.dupSpec;
     if (!quiet) {
-        const keepTop = container.scrollTop;
+        const keepTop = container.vTop;
         keepSel = true; applyFilters(); keepSel = false;
-        container.scrollTop = keepTop;
+        container.vTop = keepTop;
     }
     sel = { tab: t.id, ar: rg.r0, ac: rg.c0, fr: Math.min(fill ? rg.r1 : r1, t.filteredData.length - 1), fc: fill ? rg.c1 : c1 };
     updateSaveBtn(); renderTabBar();

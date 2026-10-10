@@ -172,7 +172,7 @@ function findStep(dir) {
     const [mr, mc, wrapped] = m;
     /* A row outside the view lands in the middle of it. */
     const top = thead.offsetHeight, y = top + mr * ROW_H;
-    if (y < container.scrollTop + top || y + ROW_H > container.scrollTop + container.clientHeight) container.scrollTop = Math.max(0, y - container.clientHeight / 2);
+    if (y < container.vTop + top || y + ROW_H > container.vTop + container.clientHeight) container.vTop = Math.max(0, y - container.clientHeight / 2);
     setSel(t, mr, mc, mr, mc); revealCell(mr, mc);
     if (wrapped) setStats(`${t.name} | Wrapped to the ${dir > 0 ? 'top' : 'bottom'} of the rows shown.`);
     findPos(t);

@@ -21,7 +21,7 @@ function toggleTail(e) {
     if (!t.path && !t.handle) { uiAlert('This tab is a read-only copy.\n\nOpen the file itself to follow it.'); return; }
     if (t.base && t.base.transcoded) { uiAlert('A UTF-16 file cannot be followed.'); return; }
     t.tail = !t.tail; t.tailPaused = ''; t.tailDirty = false;
-    if (t.tail) { container.scrollTop = container.scrollHeight; tailStart(); }
+    if (t.tail) { container.vTop = container.vHeight; tailStart(); }
     refreshParseOpts();
     setStats(`${t.name} | ${t.tail ? 'Following the end of the file: new lines appear as they are written.' : 'No longer following the file.'}`);
 }
@@ -64,16 +64,16 @@ async function tailStep(t) {
     const Row = B.Row, id0 = t.allData.length, rows = new Array(k);
     for (let j = 0; j < k; j++) { const r = new Row(n0 + j, n0 + j, null); r.id = id0 + j + 1; rows[j] = r; }
     t.allData = t.allData.concat(rows); t.rowCount = t.allData.length;      // a new array: an undo closure may hold the old one
-    const bottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2 * ROW_H, st = container.scrollTop;
+    const bottom = container.vTop + container.clientHeight >= container.vHeight - 2 * ROW_H, st = container.vTop;
     const keep = keepSel; keepSel = true;
     try { applyFilters(); } finally { keepSel = keep; }                       // the filters apply to the new lines too
-    container.scrollTop = bottom ? container.scrollHeight : st;
+    container.vTop = bottom ? container.vHeight : st;
     render(); renderTabBar();
 }
 function tailReload(t) {
-    const follow = container.scrollTop + container.clientHeight >= container.scrollHeight - 2 * ROW_H;
+    const follow = container.vTop + container.clientHeight >= container.vHeight - 2 * ROW_H;
     reloadKeepingView(t);
-    if (follow) tabRows(t).then(() => { if (T() === t) { container.scrollTop = container.scrollHeight; render(); } });
+    if (follow) tabRows(t).then(() => { if (T() === t) { container.vTop = container.vHeight; render(); } });
 }
 /* The fingerprint the file now has (as fingerprint() computes it, 14-…), from the bytes held — no
    re-read: the BOM put back in front, the first, middle and last MB past 64 MB. */

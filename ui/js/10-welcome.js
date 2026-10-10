@@ -167,9 +167,9 @@ function insertRow(id, below) {
     t.rowCount = t.allData.length;
     t.modificationsLog.push({ id: index + below + 1, col: '---', old: '---', new: 'Row inserted', what: `row inserted ${below ? 'below' : 'above'} row ${id}`,
         undo: t => { t.allData = t.allData.filter(r => r !== row); } });   // a new array, never a splice (redo, 15-…)
-    const keepTop = container.scrollTop;
+    const keepTop = container.vTop;
     updateSaveBtn(); applyFilters(); renderTabBar();
-    container.scrollTop = keepTop; render();
+    container.vTop = keepTop; render();
     setStats(`${t.name} | Empty row inserted as row ${index + below + 1}${hasFilter(t) ? ' — the filters may hide it' : ''} — not written yet, use Save.`);
 }
 
@@ -181,9 +181,9 @@ async function deleteSelectedRows() {
     if (!await uiConfirm(`Delete the ${fmt(doomed.size)} selected rows?`, { ok: `Delete ${fmt(doomed.size)} rows`, danger: true })) return;
     const kept = t.allData.filter(r => !doomed.has(r)), n = t.allData.length - kept.length;
     sel = null;
-    const keepTop = container.scrollTop;
+    const keepTop = container.vTop;
     commitRows(t, kept, { id: '-', col: '---', old: `${n} rows`, new: 'Deleted', what: `${fmt(n)} rows deleted` });
-    container.scrollTop = keepTop; render();
+    container.vTop = keepTop; render();
     setStats(`${t.name} | ${fmt(n)} rows deleted — not written yet, use Save.`);
 }
 

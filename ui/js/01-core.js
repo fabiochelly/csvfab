@@ -23,6 +23,25 @@ let keepSel = false, selDragging = false;
 let idxColW = 0;   // outer width of the row-number column, the same for every tab
 
 const container = document.getElementById('view-container');
+/* The grid's vertical scroll position in its own pixels (the header, then rows × ROW_H) is
+   container.vTop, read and written where scrollTop was; container.vHeight is its scrollHeight.
+   Chromium lays a page out in device pixels, capped at 2^25: at a display scale of 2 an extent
+   past 2^24 CSS px — 479 349 rows of 35 px — was cut, the last rows could not be reached and the
+   totals row fell below the view (the user, 540 000 rows, 2026-10-10). Past the cap the scroll
+   space is held at the cap and mapped onto the grid (12-…, SCROLLING): small moves 1:1, the
+   thumb dragged to the same share of the file; the rows sit in #tbody from a base (vscroll.base)
+   so no coordinate grows past a few million pixels. Under the cap vTop is scrollTop itself.
+   Here, not in 12-…: syncSpace() runs at boot, before that file's top level. */
+const vscroll = { on: false, v: 0, s: 0, vmax: 0, smax: 0, base: 0, mute: null, cap: 0, block: 32768, geo: null };
+Object.defineProperty(container, 'vTop', {
+    get() { return vscroll.on ? vscroll.v : container.scrollTop; },
+    set(y) {
+        if (!vscroll.on) { container.scrollTop = y; return; }
+        vscroll.v = Math.min(Math.max(0, +y || 0), vscroll.vmax);
+        vscrollAnchor(true);
+    },
+});
+Object.defineProperty(container, 'vHeight', { get() { return vscroll.on ? vscroll.vmax + container.clientHeight : container.scrollHeight; } });
 const tbody = document.getElementById('tbody');
 const thead = document.getElementById('thead');
 const progressBar = document.getElementById('progress-bar');
@@ -112,7 +131,7 @@ function activateTab(id) {
            two full redraws, ~11 ms of the ~36 a switch took. */
         renderHeader(); applyColStyles();
         tbody.innerHTML = ''; drawn = null; syncSpace(t);
-        container.scrollTop = t.scrollTop; renderFirst();
+        container.vTop = t.scrollTop; renderFirst();
         updateStats();
         if (t.filterPending || t.refilter) { t.refilter = false; applyFilters(); }   // left while the filter workers were answering (44-…), or its filter row's boxes emptied (05-…)
     } else {
@@ -165,7 +184,7 @@ function collectUIState(t) {
     t.useSlug = document.getElementById('use-slug').checked;
     t.useReverse = document.getElementById('use-reverse').checked;
     t.useExpr = document.getElementById('use-expr').checked;
-    t.scrollTop = container.scrollTop;
+    t.scrollTop = container.vTop;
 }
 
 function restoreUIState(t) {

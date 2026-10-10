@@ -181,7 +181,7 @@ async function goToRow() {
         if (i < 0) return;
     }
     const vis = visibleCols(t), c = sel && sel.tab === t.id && vis.includes(sel.fc) ? sel.fc : (vis[0] || 0);
-    container.scrollTop = Math.max(0, thead.offsetHeight + i * ROW_H - container.clientHeight / 2);   // the row in the middle of the view
+    container.vTop = Math.max(0, thead.offsetHeight + i * ROW_H - container.clientHeight / 2);   // the row in the middle of the view
     setSel(t, i, c, i, c); revealCell(i, c);
 }
 

@@ -33,7 +33,7 @@ function filterMotionAfter(t, m) {
 }
 function filterMotionRun(t, m) {
     for (const g of filterGhosts) g.remove();
-    const top = container.scrollTop, h = container.clientHeight, before = new Map(m.on.map(o => [o.r, o.y])), stay = new Set();
+    const top = container.vTop, h = container.clientHeight, before = new Map(m.on.map(o => [o.r, o.y])), stay = new Set();
     const ease = 'cubic-bezier(.2, .8, .3, 1)';
     for (const el of tbody.children) {
         if (el.dataset.idx == null) continue;
@@ -49,7 +49,7 @@ function filterMotionRun(t, m) {
     /* The rows gone, where they were, fading under the others. */
     filterGhosts = m.on.filter(o => !stay.has(o.r)).map(o => {
         const el = o.el;
-        el.removeAttribute('data-idx'); el.classList.add('leaving'); el.style.top = (o.y + top) + 'px';
+        el.removeAttribute('data-idx'); el.classList.add('leaving'); el.style.top = (o.y + top - vscroll.base) + 'px';
         return el;
     });
     if (!filterGhosts.length) return;

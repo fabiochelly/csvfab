@@ -296,7 +296,7 @@ function sortBy(col, forceDir, add) {
     const all = t.allData, sorted = new Array(n);
     for (let i = 0; i < n; i++) sorted[i] = all[order[i]];
     t.sort = keys;
-    container.scrollTop = 0;
+    container.vTop = 0;
     const desc = specs.map(sp => `${t.headers[sp.col]} ${sp.dir > 0 ? '↑' : '↓'}`).join(', then ');
     cols.length = 0; order.length = 0;    // the undo closure below shares this scope: don't let it keep them
     motionSort = true;                        // the sort's own motion (50-…), not the filter's (52-…)
@@ -401,7 +401,7 @@ function colLayout(t) {
 function viewRows(t) {
     /* The scroll read kept (viewRows.st): the motions of a sort or a filter (50-, 52-…) note the rows
        on screen when the DOM is dirty, where a read of scrollTop forced a layout (~3 ms a filter). */
-    const top = Math.max(0, Math.floor(((viewRows.st = container.scrollTop) - thead.offsetHeight) / ROW_H));   // rows start below the header
+    const top = Math.max(0, Math.floor(((viewRows.st = container.vTop) - thead.offsetHeight) / ROW_H));   // rows start below the header
     return [top, top + Math.ceil(container.clientHeight / ROW_H)];
 }
 function viewCols(L) {
@@ -498,7 +498,7 @@ function rowsHtml(t, i0, i1, w) {
     let html = '';
     for (let i = i0; i <= i1; i++) {
         const r = data[i], mk = markedCells(t, r), d = r.data;
-        html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}${gc >= 0 && groupStart(t, gc, i, d) ? ' gs' : ''}${i === xr ? ' xr' : ''}" style="top:${i * ROW_H}px;width:${W}px" data-idx="${i}">
+        html += `<div class="row ${(r.id % 2 === 0) ? 'row-even' : 'row-odd'}${r.len !== t.headers.length ? ' irr' : ''}${dupCls(t, r, data[i - 1])}${t.rowMark && t.rowMark.rows.has(r) ? ' mk' : ''}${gc >= 0 && groupStart(t, gc, i, d) ? ' gs' : ''}${i === xr ? ' xr' : ''}" style="top:${i * ROW_H - vscroll.base}px;width:${W}px" data-idx="${i}">
             <div class="cell col-idx" draggable="true" style="width:${idxColW}px" title="Drag: move">
                 <span class="row-num">${r.id.toLocaleString('fr-FR')}</span>
                 <span class="row-btn" onclick="openRowMenu(event, ${r.id})" title="Insert, duplicate or delete this row"></span>
@@ -584,7 +584,9 @@ function renderOnScroll() {
        the striped background in their place (the last 3 rows of a 31-row file, 2026-10-07). */
     const rowsMove = Math.abs(w.r0 - drawn.r0) >= ROW_STEP || Math.abs(w.r1 - drawn.r1) >= ROW_STEP || w.v0 < drawn.r0 || w.v1 > drawn.r1;
     const colsMove = Math.abs(w.c0 - drawn.c0) >= COL_STEP || Math.abs(w.c1 - drawn.c1) >= COL_STEP || w.k0 < drawn.c0 || w.k1 > drawn.c1;
-    if ((rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) {   // a jump: nothing to keep, a lean redraw
+    /* Past the scroll cap the rows are placed from a base (vscroll, 01-…): a new one moves them all, a jump too. */
+    const rebase = vscroll.on && gridBase() !== vscroll.base;
+    if (rebase || (rowsMove && (w.r0 > drawn.r1 || w.r1 < drawn.r0)) || (colsMove && (w.c0 > drawn.c1 || w.c1 < drawn.c0))) {   // a jump: nothing to keep, a lean redraw
         const now = performance.now();
         if (lastJumpMs > JUMP_BUDGET && now - lastJumpAt < lastJumpMs) {
             /* Skipped: the layer is NOT moved either — moved without its rows redrawn, it
@@ -628,8 +630,11 @@ function render(lean) {
     if (data.length === 0) { tbody.innerHTML = '<div class="empty-msg">No results found</div>'; tbody.style.height = ''; tbody.classList.add('no-rows'); totDraw(null); syncSpace(t); return; }
     tbody.classList.remove('no-rows');
     pinColWidths(t);                          // every cell is placed by the widths: they come first
-    const w = drawWindow(t, lean), L = w.L;
-    tbody.style.height = data.length * ROW_H + 'px'; tbody.style.width = L.x[L.x.length - 1] + 'px';
+    vscrollSize(thead.offsetHeight + data.length * ROW_H + totHeight(), true);   // past the cap or not, before the window is read from the scroll
+    const base = vscroll.base = gridBase(), w = drawWindow(t, lean), L = w.L;
+    /* Past the cap #tbody is only as tall as the rows from the base need (3 blocks: the viewport
+       is within one block of it) — its full height would be cut as the extent was. */
+    tbody.style.height = (vscroll.on ? Math.min(data.length * ROW_H - base, 3 * vscroll.block * ROW_H) : data.length * ROW_H) + 'px'; tbody.style.width = L.x[L.x.length - 1] + 'px';
     tbody.innerHTML = rowsHtml(t, w.r0, w.r1, w);
     drawn = { t, n: data.length, r0: w.r0, r1: w.r1, c0: w.c0, c1: w.c1, vis: L.vis.join(',') + '|' + L.F };
     totDraw(t, L, true);                      // the totals row (54-…), part of the extent syncSpace gives
@@ -727,10 +732,73 @@ function resetColWidths() {
 /* Looked up at each call, not consts: resizeContainer() calls syncSpace() at boot, before this file's top level has run. */
 function syncLayer() {
     const gridLayer = document.getElementById('grid-layer');
-    if (gridLayer.scrollTop !== container.scrollTop) gridLayer.scrollTop = container.scrollTop;
+    const y = container.vTop - vscroll.base;   // the rows are placed from the base (vscroll, 01-…), 0 under the cap
+    if (gridLayer.scrollTop !== y) gridLayer.scrollTop = y;
     if (gridLayer.scrollLeft !== container.scrollLeft) gridLayer.scrollLeft = container.scrollLeft;
     stripFollow();                        // the scroll strip's thumb (28-…)
 }
+/* The scroll extent for a grid h px tall (vscroll, 01-…): the spacer gives the container that
+   extent — or, past the cap, the cap's, the grid mapped onto it. The container's last scroll
+   position is the layer (ch, less padB) + the spacer − ch, for the grid's extent as for the
+   cap's. lazy (render(), before the window is read): only when past the cap, or just back
+   under it — syncSpace() sizes the spacer at the end of every render. */
+function vscrollSize(h, lazy) {
+    const V = vscroll, g = V.geo || { ch: container.clientHeight, padB: 0 }, ext = h + g.padB;
+    const cap = V.cap || Math.floor(2 ** 24 / Math.max(1, window.devicePixelRatio || 1));
+    if (ext <= cap) {
+        if (lazy && !V.on) return;
+        document.getElementById('scroll-space').style.height = Math.max(0, ext - g.ch) + 'px';
+        if (V.on) { V.on = false; V.base = 0; container.scrollTop = V.v; }
+        return;
+    }
+    const vmax = ext - g.ch - g.padB, smax = cap - g.ch - g.padB;
+    /* The scrollbar is put back only when the extent changed: set during a smooth wheel scroll,
+       scrollTop stops its animation — a redraw (a jump, a new base) must not. */
+    if (V.on && vmax === V.vmax && smax === V.smax) return;
+    if (!V.on) { V.on = true; V.v = container.scrollTop; }
+    V.vmax = vmax; V.smax = smax;
+    document.getElementById('scroll-space').style.height = (cap - g.ch) + 'px';
+    V.v = Math.min(V.v, V.vmax);
+    vscrollAnchor(false);
+}
+/* Past the cap, the rows are placed in #tbody from the start of the block of vscroll.block rows
+   (an even count: the stripes of #tbody's background stay in step) holding the scroll position. */
+function gridBase() {
+    if (!vscroll.on) return 0;
+    const b = vscroll.block * ROW_H;
+    return Math.floor(vscroll.v / b) * b;
+}
+/* The scrollbar where the grid's position puts it. kick: when it does not move (a step smaller
+   than one of its pixels), no scroll event comes — the window is drawn anyway. */
+function vscrollAnchor(kick) {
+    const V = vscroll, s = V.vmax > 0 ? Math.round(V.v * V.smax / V.vmax) : 0;
+    V.s = s;
+    if (Math.abs(container.scrollTop - s) >= 1) { V.mute = s; container.scrollTop = s; }
+    else if (kick) requestAnimationFrame(() => container.onscroll());
+}
+/* A scroll event past the cap: the scrollbar moved by us (vscrollAnchor) changes nothing; a
+   step up to two screens (wheel, keys, a click on the track) moves the grid as much; a longer
+   one is the thumb dragged or Home / End, which land at the same share of the grid. The drift
+   that 1:1 steps leave between the two is taken back once the scroll ends (below). */
+function vscrollFollow() {
+    const V = vscroll; if (!V.on) return;
+    const s = container.scrollTop;
+    if (V.mute !== null && Math.abs(s - V.mute) < 1) { V.mute = null; V.s = s; return; }
+    V.mute = null;
+    const d = s - V.s; V.s = s;
+    if (!d) return;
+    V.v = Math.abs(d) <= 2 * container.clientHeight ? Math.min(Math.max(0, V.v + d), V.vmax) : s / V.smax * V.vmax;
+}
+container.addEventListener('scrollend', () => { if (vscroll.on) vscrollAnchor(false); });
+/* The scrollbar at its end while the grid is not (a long wheel scroll, drift not yet taken
+   back): the wheel moves the grid itself. Passive — a blocking wheel listener on the scroller
+   would put every scroll through the main thread. */
+container.addEventListener('wheel', e => {
+    const V = vscroll; if (!V.on || !e.deltaY) return;
+    const s = container.scrollTop;
+    if (e.deltaY > 0 ? s < V.smax - 1 || V.v >= V.vmax : s > 0 || V.v <= 0) return;
+    container.vTop = V.v + (e.deltaMode === 1 ? e.deltaY * ROW_H : e.deltaMode === 2 ? e.deltaY * container.clientHeight : e.deltaY);
+}, { passive: true });
 /* The layer the size of the viewport, the spacer the rest of the table's extent
    (rows × ROW_H + the header + the totals row, and the pinned widths' sum — measured
    only while widths are still unknown). */
@@ -747,14 +815,14 @@ function syncSpace(t) {
     const padR = sbw >= 16 ? 0 : 24 - sbw, vw = cw - padR;
     gridLayer.style.width = vw + 'px'; gridLayer.style.height = ch + 'px';
     container._vw = vw; container._vh = ch;
-    if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; stripLayout(null); return; }
+    if (!t || !t.loaded) { scrollSpace.style.height = '0px'; scrollSpace.style.width = '1px'; vscroll.on = false; vscroll.base = 0; stripLayout(null); return; }
     const L = colLayout(t), w = L ? L.x[L.x.length - 1] : document.getElementById('mainTable').offsetWidth;
     const nohs = !!L && w <= vw;              // no sideways scroll: the row numbers need not stick (app.css)
     if (gridLayer.classList.contains('nohs') !== nohs) gridLayer.classList.toggle('nohs', nohs);
     const sbh = container.offsetHeight - ch, padB = !nohs && sbh < 16 ? 24 - sbh : 0;
     if (padB) { gridLayer.style.height = (ch - padB) + 'px'; container._vh = ch - padB; }
-    const h = thead.offsetHeight + t.filteredData.length * ROW_H + totHeight();
-    scrollSpace.style.height = Math.max(0, h + padB - ch) + 'px';
+    vscroll.geo = { ch, padB };
+    vscrollSize(thead.offsetHeight + t.filteredData.length * ROW_H + totHeight());
     scrollSpace.style.width = Math.max(1, nohs ? w : w + padR) + 'px';
     syncLayer();
     stripLayout(t);

@@ -445,7 +445,7 @@ function applyFilters() {
     t.exprRun = null;
 
     const motion = filterMotionBefore(t, prevView);   // the rows on screen before the view changes (52-…)
-    container.scrollTop = 0; t.scrollTop = 0; renderFirst();
+    container.vTop = 0; t.scrollTop = 0; renderFirst();
     filterMotionAfter(t, motion);             // …the gaps close in the next frame
     updateStats();
     lastFilterMs = performance.now() - t0;
@@ -516,7 +516,8 @@ function updateStats() {
 /* The column panel is position: fixed under its header, which only moves sideways (the header row is sticky). */
 let lastScrollLeft = 0;
 container.onscroll = () => {
-    const t = T(); if (t) t.scrollTop = container.scrollTop;
+    vscrollFollow();                      // past the scroll cap: the grid's position from the scrollbar's (12-…)
+    const t = T(); if (t) t.scrollTop = container.vTop;
     if (colPanel && container.scrollLeft !== lastScrollLeft) closeColPanel();
     lastScrollLeft = container.scrollLeft;
     renderOnScroll();

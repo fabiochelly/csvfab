@@ -16,7 +16,7 @@ function titleClick(e, i) {
             const { entry, top, left } = titleSort;
             undo();
             document.querySelectorAll('#toasts .toast').forEach(x => { if (x._entry === entry) x.remove(); });
-            container.scrollTop = top; container.scrollLeft = left; t.scrollTop = top; render();
+            container.vTop = top; container.scrollLeft = left; t.scrollTop = top; render();
             setStats(t.name);
         }
         titleSort = null;
@@ -25,7 +25,7 @@ function titleClick(e, i) {
         return;
     }
     if (e.detail > 2) return;
-    const top = container.scrollTop, left = container.scrollLeft, n = t.modificationsLog.length;
+    const top = container.vTop, left = container.scrollLeft, n = t.modificationsLog.length;
     sortBy(i, 0, e.shiftKey);
     titleSort = t.modificationsLog.length > n ? { t, entry: t.modificationsLog[t.modificationsLog.length - 1], top, left } : null;
 }
@@ -333,8 +333,8 @@ tbody.addEventListener('dragover', e => {
     if (!dragRow) return;
     e.preventDefault(); e.dataTransfer.dropEffect = 'move';
     const box = container.getBoundingClientRect(), edge = 48;
-    if (e.clientY < box.top + thead.offsetHeight + edge) container.scrollTop -= 24;   // below the sticky header
-    else if (e.clientY > box.bottom - edge) container.scrollTop += 24;
+    if (e.clientY < box.top + thead.offsetHeight + edge) container.vTop -= 24;   // below the sticky header
+    else if (e.clientY > box.bottom - edge) container.vTop += 24;
     const tr = e.target.closest && e.target.closest('.row[data-idx]');
     tbody.querySelectorAll('.drop-above, .drop-below').forEach(x => x.classList.remove('drop-above', 'drop-below'));
     if (!tr) return;
@@ -355,13 +355,13 @@ tbody.addEventListener('drop', e => {
     t.allData.splice(to, 0, src);
     if (to === from) { return; }
     const prevSort = t.sort; t.sort = null;
-    const keepTop = container.scrollTop;
+    const keepTop = container.vTop;
     t.allData.forEach((r, i) => r.id = i + 1);
     t.modificationsLog.push({ id: '-', col: '---', old: 'row moved', new: `${from + 1} → ${to + 1}`, what: `row ${from + 1} moved to ${to + 1}`, undo: t => {
         t.allData = t.allData.filter(r => r !== src).toSpliced(from, 0, src); t.sort = prevSort;   // a new array, never a splice (redo, 15-…)
     } });
     updateSaveBtn(); renderHeader(); applyColStyles(); applyFilters(); renderTabBar();
-    container.scrollTop = keepTop; render();              // stay where the row was dropped
+    container.vTop = keepTop; render();              // stay where the row was dropped
     setStats(`${t.name} | Row ${from + 1} moved to ${to + 1} — not written yet, use Save.`);
 });
 

@@ -51,7 +51,7 @@ function sortMotionAfter(t, m) {
 const sortOff = d => ROW_H * (.5 + 1.3 * Math.log2(1 + Math.max(0, d) / ROW_H));
 function sortMotionRun(t, m) {
     if (!drawn || drawn.t !== t) return;
-    const top = container.scrollTop, h = container.clientHeight, fresh = new Set();
+    const top = container.vTop, h = container.clientHeight, fresh = new Set();
     const onScreen = y => y > -ROW_H && y < h;
     const screen = (y, k) => y == null ? h + sortOff(ROW_H * (4 + k)) : y >= h ? h + sortOff(y - h) : y < 0 ? -ROW_H - sortOff(-y) : y;
     /* The new rows on screen, from their old place: on screen before, or beyond the edge they
@@ -70,7 +70,7 @@ function sortMotionRun(t, m) {
     }
     /* Under it all, the screen as it was, faint and fading: rows crossing leave gaps, which show it
        rather than the empty grid. */
-    const ghost = m.on.map(o => { const g = o.el.cloneNode(true); g.removeAttribute('data-idx'); g.classList.add('leaving'); g.style.top = (o.y + top) + 'px'; return g; });
+    const ghost = m.on.map(o => { const g = o.el.cloneNode(true); g.removeAttribute('data-idx'); g.classList.add('leaving'); g.style.top = (o.y + top - vscroll.base) + 'px'; return g; });
     tbody.prepend(...ghost);
     for (const g of ghost) g.animate([{ opacity: .5 }, { opacity: 0 }], { duration: SORT_MS + 100, easing: 'ease-in', fill: 'forwards' });
     const dur = d => SORT_MS + Math.min(120, Math.abs(d) / h * 90);
@@ -80,7 +80,7 @@ function sortMotionRun(t, m) {
     const out = m.on.filter(o => !fresh.has(o.r));
     out.forEach((o, n) => {
         const el = o.el, d = screen(m.all ? (o.r.id - 1) * ROW_H - top : null, n) - o.y;
-        el.removeAttribute('data-idx'); el.classList.add('leaving'); el.style.top = (o.y + top) + 'px';
+        el.removeAttribute('data-idx'); el.classList.add('leaving'); el.style.top = (o.y + top - vscroll.base) + 'px';
         el.style.zIndex = n % 2 ? 2 : 3;      // woven: see below
         at.after(el); at = el;
         el.animate([{ transform: 'none' }, { transform: `translateY(${d}px)` }], { duration: dur(d), easing: SORT_OUT, fill: 'forwards' });

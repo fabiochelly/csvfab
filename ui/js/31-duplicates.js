@@ -440,7 +440,7 @@ function dupBarAt(rowEl) {
     dupBar.classList.add('open');
     dupBar.style.left = (idx.right + 4) + 'px';
     dupBar.style.top = (rr.top + (rr.height - dupBar.offsetHeight) / 2) + 'px';
-    dupBar._top = container.scrollTop;
+    dupBar._top = container.vTop;
     dupGroupBox(t, g);
 }
 /* The merge button's explanation, shown at once (no title delay) and clear of the rows it
@@ -524,15 +524,15 @@ tbody.addEventListener('mouseleave', e => {
 dupBar.addEventListener('mouseleave', e => { if (!tbody.contains(e.relatedTarget)) dupBarHide(); });
 dupCell.addEventListener('mouseleave', e => { if (!tbody.contains(e.relatedTarget)) { dupCellHide(); dupBarHide(); } });
 container.addEventListener('scroll', () => {
-    if (dupBar.classList.contains('open') && container.scrollTop !== dupBar._top) dupBarHide();   // sideways: the bar stays by the row numbers
+    if (dupBar.classList.contains('open') && container.vTop !== dupBar._top) dupBarHide();   // sideways: the bar stays by the row numbers
     if (dupCell.classList.contains('open')) dupCellHide();                                          // the arrows belong to a cell, which moves
 }, { passive: true });
 
 /* Edits from the bar keep the view where it is: a row operation re-filters, which scrolls to the top. */
 function dupKeepView(t, fn) {
-    const st = container.scrollTop, sl = container.scrollLeft;
+    const st = container.vTop, sl = container.scrollLeft;
     fn();
-    container.scrollTop = st; container.scrollLeft = sl; t.scrollTop = st; render();
+    container.vTop = st; container.scrollLeft = sl; t.scrollTop = st; render();
 }
 function dupBarDelete() {
     const t = T(), r = t && t.filteredData[dupBar._i]; if (!r) return;
