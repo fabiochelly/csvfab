@@ -54,6 +54,12 @@ jobs:
         if: env.WINGET_TOKEN != '' && !cancelled()   # a channel's failure does not skip the others
         env: { GITHUB_TOKEN: '${{ secrets.WINGET_TOKEN }}' }
         run: |
+          # Until the package is accepted, each version would open one more "new package"
+          # pull request beside the one waiting for review (thirty piled up that way): skip.
+          if ! gh api repos/microsoft/winget-pkgs/contents/manifests/f/FabioChelly/csvfab --silent 2>/dev/null; then
+            n=$(gh pr list -R microsoft/winget-pkgs --author "$GITHUB_REPOSITORY_OWNER" --state open --search 'FabioChelly.csvfab in:title' --json number --jq length)
+            if [ "$n" != 0 ]; then echo "::notice::winget: FabioChelly.csvfab not accepted yet and a pull request is open, skipped"; exit 0; fi
+          fi
           curl -fsSL https://github.com/russellbanks/Komac/releases/download/v2.16.0/komac-2.16.0-x86_64-unknown-linux-gnu.tar.gz | tar xz komac
           ./komac submit --yes "packaging/winget/manifests/f/FabioChelly/csvfab/${TAG#v}"
       - name: AUR

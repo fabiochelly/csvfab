@@ -1,10 +1,12 @@
 # On a v* tag: the source archives (for install.sh / install.ps1), the Windows
 # installer (Inno Setup), a build check of the macOS bundle, SHA256SUMS, a GitHub release holding them all — then
 # the package channels (AUR, Homebrew tap, winget: packages.yml).
+# Run by hand (gh workflow run release.yml), it only builds and checks: no release, no packages.
 name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: write
 
@@ -14,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check the version
+        if: github.ref_type == 'tag'
         run: |
           V="${GITHUB_REF_NAME#v}"
           grep -q "VERSION = \"$V\"" bridge/config.py \
@@ -28,17 +31,65 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: archives, path: dist/ }
 
+  # Self-contained: Python's embeddable distribution (pinned, checksum checked) and
+  # csvfab.exe, the native launcher winget requires (it refuses a script as entry point).
   windows:
     runs-on: windows-latest
+    env:
+      PY_EMBED: 3.14.9
+      PY_EMBED_SHA256: 3C01D7CFC666F746A6F064F60FB2156AB0EC464D3D738AB796371A46A9BB24A2
     steps:
       - uses: actions/checkout@v4
       - name: Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: Bundled Python
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { "$env:GITHUB_REF_NAME".TrimStart('v') }
+               else { (Select-String -Path bridge\config.py -Pattern 'VERSION = "(.+)"').Matches[0].Groups[1].Value }
+          "APP_VERSION=$v" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory build | Out-Null
+          Invoke-WebRequest "https://www.python.org/ftp/python/$env:PY_EMBED/python-$env:PY_EMBED-embed-amd64.zip" -OutFile build\py.zip
+          if ((Get-FileHash build\py.zip -Algorithm SHA256).Hash -ne $env:PY_EMBED_SHA256) { throw "python-$env:PY_EMBED-embed-amd64.zip: checksum mismatch" }
+          Expand-Archive build\py.zip build\python
+          Remove-Item build\py.zip
+          "#define VER_COMMA $($v.Split('.') -join ','),0`n#define VER_STR `"$v`"" | Set-Content build\version.h -Encoding ascii
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          "VCVARS=$vs\VC\Auxiliary\Build\vcvars64.bat" >> $env:GITHUB_ENV
+      - name: Build csvfab.exe
+        shell: cmd
+        run: |
+          call "%VCVARS%" || exit /b 1
+          cd packaging\windows
+          rc /nologo /I ..\..\build /fo ..\..\build\csvfab.res csvfab.rc || exit /b 1
+          cl /nologo /O1 /MT /W3 csvfab.c ..\..\build\csvfab.res user32.lib /Fe..\..\build\csvfab.exe /Fo..\..\build\ /link /SUBSYSTEM:WINDOWS || exit /b 1
+      - name: Check csvfab.exe and the bundled Python
+        shell: pwsh
+        run: |
+          build\python\python.exe csvfab.py --version
+          build\python\python.exe -S -c "import sys; sys.path.insert(0, '.'); import bridge.app, bridge.routes.files, sqlite3, ctypes, winreg"
+          if ($LASTEXITCODE) { throw "the bundled Python cannot import the bridge" }
+          # The launcher must hand its command line to pythonw untouched: a probe csvfab.py records it.
+          New-Item -ItemType Directory probe | Out-Null
+          Copy-Item build\csvfab.exe probe\; Copy-Item -Recurse build\python probe\python
+          'import sys, json; open(sys.argv[0] + ".json", "w").write(json.dumps(sys.argv[1:]))' | Set-Content probe\csvfab.py
+          Start-Process probe\csvfab.exe -ArgumentList '"a b.csv"', 'c.tsv'
+          for ($i = 0; $i -lt 50 -and -not (Test-Path probe\csvfab.py.json); $i++) { Start-Sleep -Milliseconds 200 }
+          $got = Get-Content probe\csvfab.py.json -Raw
+          if ($got -ne '["a b.csv", "c.tsv"]') { throw "csvfab.exe passed: $got" }
       - name: Build the installer
         shell: pwsh
         run: |
-          $v = "$env:GITHUB_REF_NAME".TrimStart('v')
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" packaging\windows\csvfab.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:APP_VERSION" packaging\windows\csvfab.iss
+          if ($LASTEXITCODE) { throw "ISCC failed" }
+      - name: Install it and run it
+        shell: pwsh
+        run: |
+          Start-Process "dist\csvfab-setup-$env:APP_VERSION.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          $app = "$env:LOCALAPPDATA\Programs\csvfab"
+          if (-not (Test-Path "$app\csvfab.exe")) { throw "csvfab.exe not installed" }
+          $out = & "$app\python\python.exe" "$app\csvfab.py" --version
+          if ($out -ne "csvfab $env:APP_VERSION") { throw "installed csvfab answers: $out" }
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: dist/ }
 
@@ -58,6 +109,7 @@ jobs:
 
   release:
     needs: [archives, windows, macos]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

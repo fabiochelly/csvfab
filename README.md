@@ -62,7 +62,7 @@ At 1 million rows (153 MB), csvfab opens the file in 0.6 s, filters it in 0.2 s 
 | **Linux / macOS** (script) | `curl -fsSL https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.sh \| sh` |
 | **Windows** (script) | `irm https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.ps1 \| iex` |
 
-Requirements: **Python 3.8+** and a **Chromium-based browser** (Chrome, Chromium, Brave or Edge) — csvfab opens in its own app window with a dedicated profile, so your usual browser is untouched. The scripts install per user, without admin rights; `install.sh --uninstall` / `install.ps1 -Uninstall` remove it. On macOS, `install.sh` also builds `csvfab.app` in `~/Applications` and offers to make it the default app for CSV files (with [duti](https://github.com/moretension/duti); otherwise: select a `.csv`, File › Get Info › Open with › csvfab › Change All…).
+Requirements: **Python 3.8+** (the Windows installer, used by winget, bundles its own) and a **Chromium-based browser** (Chrome, Chromium, Brave or Edge) — csvfab opens in its own app window with a dedicated profile, so your usual browser is untouched. The scripts install per user, without admin rights; `install.sh --uninstall` / `install.ps1 -Uninstall` remove it. On macOS, `install.sh` also builds `csvfab.app` in `~/Applications` and offers to make it the default app for CSV files (with [duti](https://github.com/moretension/duti); otherwise: select a `.csv`, File › Get Info › Open with › csvfab › Change All…).
 
 ## Use
 

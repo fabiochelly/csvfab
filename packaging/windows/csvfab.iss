@@ -1,6 +1,8 @@
 ; Inno Setup script: a per-user installer (no admin rights) for winget and direct download.
-; Python is required and not bundled: the winget manifest declares it as a dependency.
-; Built by .github/workflows/release.yml:  iscc /DAppVersion=1.2.3 packaging\windows\csvfab.iss
+; Self-contained: Python's embeddable distribution ships in {app}\python, and csvfab.exe
+; (csvfab.c) runs csvfab.py with it — winget refuses a package whose entry point is a
+; script, which csvfab.cmd was. Both come from build\, filled by .github/workflows/release.yml:
+;   iscc /DAppVersion=1.2.3 packaging\windows\csvfab.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -19,17 +21,30 @@ PrivilegesRequired=lowest
 OutputDir=..\..\dist
 OutputBaseFilename=csvfab-setup-{#AppVersion}
 SetupIconFile=..\..\icons\csvfab.ico
-UninstallDisplayIcon={app}\icons\csvfab.ico
+UninstallDisplayIcon={app}\csvfab.exe
 LicenseFile=..\..\LICENSE
 Compression=lzma2
 SolidCompression=yes
 ChangesEnvironment=yes
 ChangesAssociations=yes
 WizardStyle=modern
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[InstallDelete]
+; Left by the versions that needed a system Python; and a bundled Python of another
+; version would leave its pythonXY.dll and .zip behind.
+Type: files;          Name: "{app}\csvfab.cmd"
+Type: filesandordirs; Name: "{app}\python"
+
+[UninstallDelete]
+; The __pycache__ folders Python writes there at run time.
+Type: filesandordirs; Name: "{app}\bridge"
 
 [Files]
+Source: "..\..\build\csvfab.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\build\python\*";  DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs
 Source: "..\..\csvfab.py";         DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\csvfab.cmd";        DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\server.py";         DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\viewer.htm";        DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\papaparse.min.js";  DestDir: "{app}"; Flags: ignoreversion
@@ -40,16 +55,15 @@ Source: "..\..\bridge\*";         DestDir: "{app}\bridge"; Flags: ignoreversion 
 Source: "..\..\icons\csvfab.ico";  DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
-; Minimised: csvfab.cmd hands over to pyw at once, so its console only flickers in the taskbar.
-Name: "{userprograms}\csvfab"; Filename: "{app}\csvfab.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\icons\csvfab.ico"; Flags: runminimized
+Name: "{userprograms}\csvfab"; Filename: "{app}\csvfab.exe"; WorkingDir: "{app}"
 
 [Registry]
-; csvfab.cmd reachable from any new terminal.
+; csvfab.exe reachable from any new terminal.
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 ; "Open with" for .csv / .tsv, without taking over the default application.
 Root: HKCU; Subkey: "Software\Classes\csvfab.table"; ValueType: string; ValueData: "CSV table (csvfab)"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\csvfab.table\DefaultIcon"; ValueType: string; ValueData: "{app}\icons\csvfab.ico"
-Root: HKCU; Subkey: "Software\Classes\csvfab.table\shell\open\command"; ValueType: string; ValueData: """{app}\csvfab.cmd"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\csvfab.table\shell\open\command"; ValueType: string; ValueData: """{app}\csvfab.exe"" ""%1"""
 Root: HKCU; Subkey: "Software\Classes\.csv\OpenWithProgids"; ValueType: string; ValueName: "csvfab.table"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.tsv\OpenWithProgids"; ValueType: string; ValueName: "csvfab.table"; ValueData: ""; Flags: uninsdeletevalue
 
@@ -59,12 +73,4 @@ var Path: string;
 begin
   if not RegQueryStringValue(HKCU, 'Environment', 'Path', Path) then begin Result := True; exit; end;
   Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Path) + ';') = 0;
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-  if not (RegKeyExists(HKCU, 'Software\Python\PythonCore') or RegKeyExists(HKLM, 'Software\Python\PythonCore')) then
-    MsgBox('csvfab needs Python 3, which was not found.' + #13#10#13#10 +
-           'Install it with "winget install Python.Python.3.12" or from python.org, then start csvfab.', mbInformation, MB_OK);
 end;
