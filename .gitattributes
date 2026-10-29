@@ -1,6 +1,5 @@
-# Kept out of the release archives (git archive, GitHub tag tarballs): only the app ships.
+# Kept out of the source archives (GitHub tag tarballs, which the AUR and Homebrew build from): only the app ships.
 /packaging export-ignore
-/tests export-ignore
 /benchmark export-ignore
 /.github export-ignore
 /.gitattributes export-ignore

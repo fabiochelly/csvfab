@@ -1,10 +1,10 @@
 # csvfab installer for Windows — per user, no administrator rights needed.
 #
 #   irm https://raw.githubusercontent.com/fabiochelly/csvfab/main/install.ps1 | iex
-#   .\install.ps1                 from a checkout or an unpacked release
+#   .\install.ps1                 from an unpacked release, or a checkout (built with cargo)
 #   .\install.ps1 -Uninstall      removes the app (your settings are kept)
 #
-# Environment: $env:CSVFAB_VERSION = "1.2.3" installs that release instead of the latest;
+# Environment: $env:CSVFAB_VERSION = "2.0.0" installs that release instead of the latest;
 # $env:CSVFAB_UNINSTALL = 1 uninstalls when the script is piped into iex.
 param([switch]$Uninstall)
 $ErrorActionPreference = 'Stop'
@@ -16,7 +16,6 @@ $Link    = Join-Path ([Environment]::GetFolderPath('Programs')) 'csvfab.lnk'
 $Classes = 'HKCU:\Software\Classes'
 
 function Say($m)  { Write-Host "==> $m" -ForegroundColor Cyan }
-function Warn($m) { Write-Host "warning: $m" -ForegroundColor Yellow }
 
 function Set-UserPath([switch]$Remove) {
     $p = [Environment]::GetEnvironmentVariable('Path', 'User'); if (-not $p) { $p = '' }
@@ -31,50 +30,50 @@ if ($Uninstall -or $env:CSVFAB_UNINSTALL) {
     Remove-Item -Recurse -Force "$Classes\csvfab.table" -ErrorAction SilentlyContinue
     foreach ($ext in '.csv', '.tsv') { Remove-ItemProperty "$Classes\$ext\OpenWithProgids" -Name 'csvfab.table' -ErrorAction SilentlyContinue }
     Set-UserPath -Remove
-    Say 'Done. Settings and the browser profile stay in %LOCALAPPDATA%\csvfab.'
+    Say 'Done. Settings stay in %LOCALAPPDATA%\csvfab.'
     return
 }
 
-# --- requirements -----------------------------------------------------------
-$pyw = (Get-Command pyw.exe -ErrorAction SilentlyContinue).Source
-if (-not $pyw) { $pyw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source }
-if (-not $pyw) { throw 'Python 3 is required: winget install Python.Python.3.12 (then open a new terminal).' }
-
-# --- sources: this folder, or the release archive ---------------------------
-$Src = $null
-if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'csvfab.py')) -and (Test-Path (Join-Path $PSScriptRoot 'viewer.htm'))) { $Src = $PSScriptRoot }
+# --- the program: this folder's, or the release's -----------------------------
+$Src = $null; $Exe = $null
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'csvfab.exe'))) {
+    $Src = $PSScriptRoot; $Exe = Join-Path $Src 'csvfab.exe'                  # an unpacked release
+} elseif ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'Cargo.toml'))) {
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw 'Building from the sources needs Rust (https://rustup.rs), or: winget install FabioChelly.csvfab' }
+    Say 'Building csvfab (cargo build --release): a few minutes the first time'
+    Push-Location $PSScriptRoot
+    try { cargo build --release --locked -p csvfab; if ($LASTEXITCODE) { throw 'the build failed' } } finally { Pop-Location }
+    $Src = $PSScriptRoot; $Exe = Join-Path $Src 'target\release\csvfab.exe'   # a checkout
+}
 if (-not $Src) {
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("csvfab-" + [guid]::NewGuid())
     New-Item -ItemType Directory $tmp | Out-Null
-    $url = if ($Version -eq 'latest') { "https://github.com/$Repo/releases/latest/download/csvfab.zip" }
-           else { "https://github.com/$Repo/releases/download/v$Version/csvfab-$Version.zip" }
+    $url = if ($Version -eq 'latest') { "https://github.com/$Repo/releases/latest/download/csvfab-windows-x86_64.zip" }
+           else { "https://github.com/$Repo/releases/download/v$Version/csvfab-$Version-windows-x86_64.zip" }
     Say "Downloading $url"
     Invoke-WebRequest $url -OutFile "$tmp\csvfab.zip" -UseBasicParsing
     Expand-Archive "$tmp\csvfab.zip" $tmp
-    $Src = Join-Path $tmp 'csvfab'
+    $Src = Join-Path $tmp 'csvfab'; $Exe = Join-Path $Src 'csvfab.exe'
 }
 
 # --- install ----------------------------------------------------------------
 Say "Installing into $Dest"
-Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue   # also what csvfab 1.x installed there
 New-Item -ItemType Directory "$Dest\icons" -Force | Out-Null
-foreach ($f in 'csvfab.py', 'csvfab.cmd', 'server.py', 'viewer.htm', 'papaparse.min.js', 'LICENSE') { Copy-Item (Join-Path $Src $f) $Dest }
-Copy-Item (Join-Path $Src 'icons\csvfab.svg'), (Join-Path $Src 'icons\csvfab.ico') "$Dest\icons"
-Copy-Item -Recurse (Join-Path $Src 'ui') "$Dest\ui"
-Copy-Item -Recurse (Join-Path $Src 'bridge') "$Dest\bridge"   # the local server's code
-Get-ChildItem "$Dest\bridge" -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+Copy-Item $Exe "$Dest\csvfab.exe"
+Copy-Item (Join-Path $Src 'LICENSE') $Dest
+Copy-Item (Join-Path $Src 'icons\csvfab.ico') "$Dest\icons"
 
-# Start menu shortcut: pythonw, so no console window flashes.
+# Start menu shortcut.
 $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($Link)
-$sh.TargetPath = $pyw
-$sh.Arguments = "`"$Dest\csvfab.py`""
+$sh.TargetPath = "$Dest\csvfab.exe"
 $sh.WorkingDirectory = $Dest
 $sh.IconLocation = "$Dest\icons\csvfab.ico"
 $sh.Description = 'csvfab — CSV editor'
 $sh.Save()
 
 # "Open with" for .csv and .tsv (it does not take over the default app).
-$cmd = "`"$pyw`" `"$Dest\csvfab.py`" `"%1`""
+$cmd = "`"$Dest\csvfab.exe`" `"%1`""
 New-Item -Force "$Classes\csvfab.table\shell\open\command" | Out-Null
 Set-Item "$Classes\csvfab.table" 'CSV table (csvfab)'
 Set-Item "$Classes\csvfab.table\shell\open\command" $cmd
@@ -85,7 +84,5 @@ foreach ($ext in '.csv', '.tsv') {
     New-ItemProperty -Force "$Classes\$ext\OpenWithProgids" -Name 'csvfab.table' -Value '' -PropertyType String | Out-Null
 }
 
-Set-UserPath        # csvfab.cmd from any new terminal
-$ok = @('chrome.exe', 'msedge.exe', 'brave.exe') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }
-if (-not $ok -and -not (Test-Path "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe")) { Warn 'No Chromium-based browser found: csvfab needs Chrome, Edge, Brave or Chromium.' }
+Set-UserPath        # csvfab from any new terminal
 Say 'csvfab installed: Start menu > csvfab, or `csvfab file.csv` in a new terminal.'

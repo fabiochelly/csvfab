@@ -1,82 +1,134 @@
-# On a v* tag: the source archives (for install.sh / install.ps1), the Windows
-# installer (Inno Setup), a build check of the macOS bundle, SHA256SUMS, a GitHub release holding them all — then
+# The programs for Linux, macOS and Windows, built, checked and packed: on a v* tag,
+# a GitHub release holding them all (with the Windows installer and SHA256SUMS), then
 # the package channels (AUR, Homebrew tap, winget: packages.yml).
-# Run by hand (gh workflow run release.yml), it only builds and checks: no release, no packages.
+# On a push to a branch, a pull request, or by hand (gh workflow run release.yml), it
+# only builds and checks: no release, no packages.
 name: release
 on:
   push:
     tags: ['v*']
+    branches: ['**']
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: write
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  archives:
-    runs-on: ubuntu-latest
+  # Built on the oldest supported Ubuntu: the program then runs on any distribution
+  # with that glibc (2.35) or newer. Everything else it loads at run time.
+  linux:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Check the version
         if: github.ref_type == 'tag'
         run: |
           V="${GITHUB_REF_NAME#v}"
-          grep -q "VERSION = \"$V\"" bridge/config.py \
-            || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION in bridge/config.py"; exit 1; }
+          grep -q "^version = \"$V\"" Cargo.toml \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match the version in Cargo.toml"; exit 1; }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Engine tests
+        run: cargo test --locked -p csvfab-engine
       - name: Build
+        run: cargo build --locked --release -p csvfab
+      - name: Pack
         run: |
-          V="${GITHUB_REF_NAME#v}"; mkdir dist
-          git archive --format=tar.gz --prefix=csvfab/ -o "dist/csvfab-$V.tar.gz" HEAD
-          git archive --format=zip    --prefix=csvfab/ -o "dist/csvfab-$V.zip" HEAD
-          cp "dist/csvfab-$V.tar.gz" dist/csvfab.tar.gz      # stable names: releases/latest/download/…
-          cp "dist/csvfab-$V.zip" dist/csvfab.zip
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "$(./target/release/csvfab --version)" = "csvfab $V"
+          mkdir -p dist pkg/csvfab
+          cp target/release/csvfab install.sh csvfab.desktop LICENSE README.md pkg/csvfab/
+          cp -R icons pkg/csvfab/
+          echo "$V" > pkg/csvfab/VERSION
+          tar -C pkg -czf "dist/csvfab-$V-linux-x86_64.tar.gz" csvfab
+          cp "dist/csvfab-$V-linux-x86_64.tar.gz" dist/csvfab-linux-x86_64.tar.gz   # stable name: releases/latest/download/…
+      - name: Install it and run it
+        run: |
+          sh pkg/csvfab/install.sh < /dev/null
+          "$HOME/.local/bin/csvfab" --version
+          grep -q "^Exec=$HOME/.local/share/csvfab/csvfab %F" "$HOME/.local/share/applications/csvfab.desktop"
       - uses: actions/upload-artifact@v4
-        with: { name: archives, path: dist/ }
+        with: { name: linux, path: dist/ }
 
-  # Self-contained: Python's embeddable distribution (pinned, checksum checked) and
-  # csvfab.exe, the native launcher winget requires (it refuses a script as entry point).
-  windows:
-    runs-on: windows-latest
+  # One program for Apple silicon and Intel (lipo). The bundle itself is assembled on the
+  # user's Mac (install.sh, the cask) by macos/build-app.sh: proved here, then thrown away.
+  macos:
+    runs-on: macos-latest
     env:
-      PY_EMBED: 3.14.9
-      PY_EMBED_SHA256: 3C01D7CFC666F746A6F064F60FB2156AB0EC464D3D738AB796371A46A9BB24A2
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          cargo build --locked --release -p csvfab --target aarch64-apple-darwin
+          cargo build --locked --release -p csvfab --target x86_64-apple-darwin
+          mkdir -p pkg/csvfab
+          lipo -create -output pkg/csvfab/csvfab target/aarch64-apple-darwin/release/csvfab target/x86_64-apple-darwin/release/csvfab
+          lipo -info pkg/csvfab/csvfab
+      - name: Pack
+        run: |
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "$(pkg/csvfab/csvfab --version)" = "csvfab $V"
+          cp install.sh LICENSE README.md pkg/csvfab/
+          cp -R icons macos pkg/csvfab/
+          echo "$V" > pkg/csvfab/VERSION
+          mkdir -p dist
+          tar -C pkg -czf "dist/csvfab-$V-macos.tar.gz" csvfab
+          cp "dist/csvfab-$V-macos.tar.gz" dist/csvfab-macos.tar.gz
+      - name: Build the app bundle
+        run: |
+          sh pkg/csvfab/macos/build-app.sh pkg/csvfab bundle
+          plutil -lint bundle/csvfab.app/Contents/Info.plist
+          codesign --verify --deep --strict bundle/csvfab.app
+          bundle/csvfab.app/Contents/Resources/csvfab --version
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' bundle/csvfab.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' bundle/csvfab.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes' bundle/csvfab.app/Contents/Info.plist
+      - name: Install script, macOS branch
+        run: |
+          sh pkg/csvfab/install.sh < /dev/null
+          ls "$HOME/Applications/csvfab.app/Contents/Resources"
+          "$HOME/.local/bin/csvfab" --version
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: dist/ }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Inno Setup
         run: choco install innosetup -y --no-progress
-      - name: Bundled Python
+      - name: Build
+        run: cargo build --locked --release -p csvfab
+      - name: Check it and pack it
         shell: pwsh
         run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { "$env:GITHUB_REF_NAME".TrimStart('v') }
-               else { (Select-String -Path bridge\config.py -Pattern 'VERSION = "(.+)"').Matches[0].Groups[1].Value }
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           "APP_VERSION=$v" >> $env:GITHUB_ENV
-          New-Item -ItemType Directory build | Out-Null
-          Invoke-WebRequest "https://www.python.org/ftp/python/$env:PY_EMBED/python-$env:PY_EMBED-embed-amd64.zip" -OutFile build\py.zip
-          if ((Get-FileHash build\py.zip -Algorithm SHA256).Hash -ne $env:PY_EMBED_SHA256) { throw "python-$env:PY_EMBED-embed-amd64.zip: checksum mismatch" }
-          Expand-Archive build\py.zip build\python
-          Remove-Item build\py.zip
-          "#define VER_COMMA $($v.Split('.') -join ','),0`n#define VER_STR `"$v`"" | Set-Content build\version.h -Encoding ascii
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
-          "VCVARS=$vs\VC\Auxiliary\Build\vcvars64.bat" >> $env:GITHUB_ENV
-      - name: Build csvfab.exe
-        shell: cmd
-        run: |
-          call "%VCVARS%" || exit /b 1
-          cd packaging\windows
-          rc /nologo /I ..\..\build /fo ..\..\build\csvfab.res csvfab.rc || exit /b 1
-          cl /nologo /O1 /MT /W3 csvfab.c ..\..\build\csvfab.res user32.lib /Fe..\..\build\csvfab.exe /Fo..\..\build\ /link /SUBSYSTEM:WINDOWS || exit /b 1
-      - name: Check csvfab.exe and the bundled Python
+          New-Item -ItemType Directory build, dist, pkg\csvfab\icons | Out-Null
+          Copy-Item target\release\csvfab.exe build\
+          # A window program (no console of its own): its answer read from a redirected stdout.
+          Start-Process build\csvfab.exe -ArgumentList '--version' -Wait -NoNewWindow -RedirectStandardOutput build\v.txt
+          $got = (Get-Content build\v.txt -Raw).Trim()
+          if ($got -ne "csvfab $v") { throw "csvfab.exe --version answers: $got" }
+          Copy-Item build\csvfab.exe, install.ps1, LICENSE, README.md pkg\csvfab\
+          Copy-Item icons\csvfab.ico pkg\csvfab\icons\
+          Compress-Archive pkg\csvfab "dist\csvfab-$v-windows-x86_64.zip"
+          Copy-Item "dist\csvfab-$v-windows-x86_64.zip" dist\csvfab-windows-x86_64.zip
+      - name: Install script
         shell: pwsh
         run: |
-          build\python\python.exe csvfab.py --version
-          build\python\python.exe -S -c "import sys; sys.path.insert(0, '.'); import bridge.app, bridge.routes.files, sqlite3, ctypes, winreg"
-          if ($LASTEXITCODE) { throw "the bundled Python cannot import the bridge" }
-          # The launcher must hand its command line to pythonw untouched: a probe csvfab.py records it.
-          New-Item -ItemType Directory probe | Out-Null
-          Copy-Item build\csvfab.exe probe\; Copy-Item -Recurse build\python probe\python
-          'import sys, json; open(sys.argv[0] + ".json", "w").write(json.dumps(sys.argv[1:]))' | Set-Content probe\csvfab.py
-          Start-Process probe\csvfab.exe -ArgumentList '"a b.csv"', 'c.tsv'
-          for ($i = 0; $i -lt 50 -and -not (Test-Path probe\csvfab.py.json); $i++) { Start-Sleep -Milliseconds 200 }
-          $got = Get-Content probe\csvfab.py.json -Raw
-          if ($got -ne '["a b.csv", "c.tsv"]') { throw "csvfab.exe passed: $got" }
+          & .\pkg\csvfab\install.ps1
+          $app = "$env:LOCALAPPDATA\Programs\csvfab"
+          if (-not (Test-Path "$app\csvfab.exe")) { throw "csvfab.exe not installed" }
+          & .\pkg\csvfab\install.ps1 -Uninstall
       - name: Build the installer
         shell: pwsh
         run: |
@@ -88,37 +140,29 @@ jobs:
           Start-Process "dist\csvfab-setup-$env:APP_VERSION.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
           $app = "$env:LOCALAPPDATA\Programs\csvfab"
           if (-not (Test-Path "$app\csvfab.exe")) { throw "csvfab.exe not installed" }
-          $out = & "$app\python\python.exe" "$app\csvfab.py" --version
+          Start-Process "$app\csvfab.exe" -ArgumentList '--version' -Wait -NoNewWindow -RedirectStandardOutput installed.txt
+          $out = (Get-Content installed.txt -Raw).Trim()
           if ($out -ne "csvfab $env:APP_VERSION") { throw "installed csvfab answers: $out" }
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: dist/ }
 
-  # The macOS bundle is built on the user's Mac (install.sh, the cask); this only
-  # proves that macos/build-app.sh still builds and that the result answers.
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build the app bundle
-        run: |
-          sh macos/build-app.sh . dist
-          plutil -lint dist/csvfab.app/Contents/Info.plist
-          codesign --verify --deep --strict dist/csvfab.app
-          python3 dist/csvfab.app/Contents/Resources/csvfab/csvfab.py --version
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes' dist/csvfab.app/Contents/Info.plist
-
   release:
-    needs: [archives, windows, macos]
+    needs: [linux, macos, windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
       - name: Publish
         env: { GH_TOKEN: '${{ github.token }}' }
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "csvfab ${GITHUB_REF_NAME#v}" --generate-notes
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          # The version's section of whatsnew.md, then the generated list of changes.
+          awk -v v="$V" '/^## /{on = index($0, "## " v " ") == 1; next} on' whatsnew.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "csvfab $V" --notes-file notes.md --generate-notes
 
   packages:
     needs: release

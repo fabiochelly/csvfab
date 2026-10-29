@@ -1,0 +1,110 @@
+# The native app: how it is built, how to add to it
+
+csvfab is being rewritten from a web app (`/home/fabio/Work/csvfab/viewer.htm`, `ui/`,
+`bridge/`) into pure Rust: `engine/` (data, no GUI, 211 tests) and `app/` (egui 0.37,
+glow). The user's requirements, in their words: **the fastest and most efficient app
+possible, the same look as the web app, perfect rendering** — font quality, vertical
+centring, every padding, the original SVG icons, silky instant scrolling, no flicker.
+
+## Layout of `app/src`
+
+| file | what | owner |
+|---|---|---|
+| `main.rs` | entry, module list | lead |
+| `app.rs` | `App`: tabs, tools open, save, undo, grid actions, shell dialogs | lead |
+| `chrome.rs` | tab bar, toolbar (search, toggles, chips, Save), status bar, main menu, command palette, toasts, welcome | lead |
+| `tab.rs` | `Tab`: table, view (filters/sort run as a background `Job`), `restrict`, `marks`, `find`, `ghost`, band toggles | lead |
+| `grid.rs` | the grid, drawn by hand; scroll kept as f64 pixels (`GridState::scroll`) | grid agent |
+| `spark_ui.rs`, `totals_ui.rs`, `colpanel.rs` | charts band, totals row, column panel (called by grid.rs) | grid agent |
+| `widgets.rs` | menu items (`Item`, `head`, `sep`, `width`, `row_buttons`), `centered_edit` | lead (use them) |
+| `icons.rs` + `assets/icons/` | the web app's SVG icons, tinted, crisp | icons agent |
+| `theme.rs` | `Palette` (every CSS variable, 6 themes), `Metrics`, `apply`, `menu_frame`, `dialog_frame`, `tooltip_frame` | done |
+| `fonts.rs` | system fonts as the web picked them; `UI_MEDIUM`, `UI_SEMIBOLD`, `MONO_BOLD` families | done |
+| `job.rs` | `Job::spawn(ctx, |cancel, progress| …)`, `poll()`, `cancel()`; cancelled on drop; a panic in the job is caught: the job returns `Failed::failed()` (implement `job::Failed` for a new result type) and a toast tells it | done |
+| `recovery.rs` | unsaved edits copied to `<state>/recovery/` 3 s after the last edit (big files every 30 s), offered back after a crash; the panic hook (`crash.log`, and on a UI-thread panic every unsaved table written at once) | lead |
+| `tools/mod.rs` | `Tool` trait, `Cx`, `Cmd`, `Command` registry, `dialog()` helper | lead |
+| `tools/<name>.rs` | one tool family per file | tool agents |
+| `shot.rs` | `CSVFAB_SHOT=menu,col:3,cell,scroll:PX` screenshot hooks | lead |
+
+## Adding a tool
+
+1. `app/src/tools/<name>.rs`: a struct implementing `Tool` (`fn show(&mut self, cx: &mut Cx) -> bool`,
+   false once closed), drawn as an `egui::Window`/`egui::Modal` with `theme::dialog_frame`
+   (or the `tools::dialog` helper). State lives in the struct.
+2. `pub fn commands() -> Vec<Command>`: name, group, keys ("Ctrl+H"), `enabled: fn(&Tab) -> bool`,
+   `run: fn(&mut Cx)` — `run` usually does `cx.out.push(Cmd::Tool(Box::new(MyTool::new(cx.tab))))`.
+3. In `tools/mod.rs`: add `pub mod <name>;` and `v.extend(<name>::commands());` in `commands()`.
+   That file is shared: re-read it right before editing, change only those lines.
+4. The main menu looks commands up **by exact name** for its fixed items: `File profile…`,
+   `Map`, `Insights`, `Create a schema…`, `Validate against a schema…`, `Review changes…`,
+   `Find & replace`; and lists by **group** the submenus `Transform the file`, `Columns`, `Rows`;
+   group `Save` goes in the Save button's ▾ menu. Everything is also in the command palette.
+
+`Cx` gives the tab (`cx.tab.st()` → `&State` snapshot, `cx.tab.table` to edit,
+`tab.apply_changes(&changes, ctx)` = one undo step and the grid updated,
+`tab.table.batch(|t| …)` for several edits as one step, then `tab.after_edit(true, ctx)` after
+structural changes; `tab.restrict_to(label, ids, ctx)` shows these rows (a chip lets the user
+leave); `tab.marks` marks rows/cells; `tab.hide_values(col, set, ctx)`; `tab.shown_ids()`,
+`tab.shown_id(pos)`, `tab.kinds`), `cx.p`/`cx.m` (palette, metrics), `cx.out` (open a file,
+a tab from bytes, a toast, another tool).
+
+Heavy work: `Job::spawn` with a `State` clone (cheap: Arcs), poll in `show`, show progress,
+cancel on close. Never block the UI thread on anything that grows with the file.
+
+## Look rules
+
+- Read `docs/look.md` (the web app measured, zone by zone) and compare with the reference
+  screenshots in `/tmp/claude-1000/-home-fabio-Work-csvfab/265a7873-924b-40c6-bc8e-62b45251ed0e/scratchpad/ref/`.
+  Also read the web app's own CSS/JS for what you build (`ui/app.css`, `ui/js/NN-*.js`, `viewer.htm`).
+- Colours only from `cx.p` (Palette); sizes from `Metrics` or look.md. Fonts: `FontId::proportional`
+  (Inter), `grid::semibold(size)`, `FontFamily::Name(fonts::UI_MEDIUM)`, monospace for data.
+- Menus: `widgets::Item` / `head` / `sep` / `width` in a popup with `theme::menu_frame`.
+- Text fields: `widgets::centered_edit` (egui otherwise draws the text at the top of a taller box);
+  set the hint's font explicitly (egui's default hint size is 14).
+- Positions of text and 1 px rules on whole physical pixels (`(x * ppp).round() / ppp`), rules at +0.5.
+- Icons: `icons::…` (the original SVGs, being wired by the icons agent — use `icons::paint(painter, Icon::X, rect, color)`
+  if it exists when you start, else the wrapper functions).
+
+## Checking your work
+
+- Unit-test the logic you add (engine functions are already tested).
+- **Look at it off screen — never open windows on the user's desktop** (they are working on it;
+  screenshots of the screen would capture their private windows):
+  `cargo build --release -p csvfab --example shot` then
+  `./target/release/examples/shot out.png file.csv "<CSVFAB_SHOT spec>" [hover x,y]`
+  renders the real app through wgpu into a PNG (1400×860 logical at ppp 2 by default:
+  `SHOT_SIZE=WxH`, `SHOT_PPP`, `SHOT_MS` = how long it runs frames before rendering).
+  Specs: `menu`, `col:3`, `cell`, `edit`, `search:text`, `scroll:PX`, `sort:N`, `filter:C=text`,
+  `select:r.c-r.c`, `freeze:N`, `totals`, `heat:C`, `bars:C`, `xoff:PX`, `cmd:<command name>`,
+  `run:<command prefix>`, the tools' own (`tool:split`…). Add `crate::shot::take("mine")` hooks
+  for your states. Read the PNG and compare with the web app's references.
+- Test files: `~/.cache/csvfab-bench/customers-1m.csv`, `customers-5m.csv`,
+  `/home/fabio/Work/csvfab/Companies.csv`, `Contacts.csv`.
+
+## Robustness (keep these true)
+
+- **Files cut short by another program**: the engine maps files (`engine/src/mapguard.rs`); a SIGBUS from
+  a read past the new end is caught, zero pages put in place, `Base::cut_short()` set. The app tells the
+  user (`Dialog::OnDisk`), and `save` refuses (`SaveError::CutShort`): zeros are never written as data.
+- **Changed / removed on disk**: looked at when the window comes back to the front and at most every 2 s
+  while it is used (`App::check_disk`) — never by waking an idle window. Our own saves are expected
+  (`App::written`), so they are not reported.
+- **Panics**: in jobs, caught (`job::guarded`); on the UI thread, the hook writes the unsaved tables and
+  `crash.log` before the process ends. The next start offers the copies back (`Dialog::Recover`).
+- **Toasts** that follow an edit carry Undo (only while that edit is still the last of its tab).
+
+## Process
+
+- **The user shares this machine: never hog the CPU.** Every cargo command and heavy test binary runs as
+  `nice -n 19` with `CARGO_BUILD_JOBS=4` (tests: `-- --test-threads=4`, `RAYON_NUM_THREADS=4`), one cargo
+  command at a time. Release builds use fat LTO: iterate with debug test runs, release once at the end.
+
+- Work in your own copy only when several agents edit the same files at once: `cp -r
+  /home/fabio/Work/csvfab/native ~/.cache/csvfab-agents/<you>-ws` (skip `target/`, never under /tmp: it is
+  nearly full). A separate target dir rebuilds everything (fat LTO, minutes of every core): share the
+  workspace's `target/` whenever you can, and never run two builds at once.
+- Touch in the real tree **only your files** (+ the two lines in `tools/mod.rs`). Engine changes: only
+  new files or clearly additive functions; say so in your report.
+- At the end copy your files to the real tree, check `cargo build -p csvfab` there (your target dir);
+  if it fails in someone else's file, report it, don't fix it. Delete your target dir.
+- Code style: concise, idiomatic Rust; comments say *why*; English for code and UI text (as the web app).

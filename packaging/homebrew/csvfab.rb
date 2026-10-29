@@ -1,28 +1,21 @@
 # Formula for the tap fabiochelly/homebrew-csvfab:  brew install fabiochelly/csvfab/csvfab
-# The command line alone; the cask of the same name (brew install --cask …) is the
-# application bundle for the Finder. Both cannot be installed at once.
+# The command line alone, built from the sources; the cask of the same name
+# (brew install --cask …) is the application bundle for the Finder.
 class Csvfab < Formula
-  include Language::Python::Shebang
-
   desc "Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
   homepage "https://github.com/fabiochelly/csvfab"
-  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v1.25.1.tar.gz"
-  sha256 "c126614e4cada2cd040808218858656e98e418776394b0daf12745a6b6fe20fb"
+  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v2.0.0.tar.gz"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 
-  depends_on "python@3.13"
+  depends_on "rust" => :build
 
   def install
-    libexec.install "csvfab.py", "server.py", "viewer.htm", "papaparse.min.js", "icons", "ui", "bridge"
-    rewrite_shebang detected_python_shebang, libexec/"csvfab.py"
-    bin.install_symlink libexec/"csvfab.py" => "csvfab"
+    system "cargo", "install", *std_cargo_args(path: "app")
   end
 
   def caveats
     <<~EOS
-      csvfab opens its window in a Chromium-based browser (Chrome, Chromium, Brave or Edge).
-      If none is installed:  brew install --cask google-chrome
-
       This is the command line only. For an application in /Applications that the Finder
       can open CSV files with (and make the default):  brew install --cask fabiochelly/csvfab/csvfab
     EOS

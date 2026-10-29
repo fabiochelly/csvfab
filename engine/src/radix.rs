@@ -1,0 +1,235 @@
+//! Stable sorts of row positions by u64 keys, in parallel: one bucket pass on
+//! the keys' high bits (a counting sort when the keys are few), then each
+//! bucket sorted on its own, in cache. Ties keep their order, so sorting by
+//! several keys is sorting by each, last key first.
+
+use rayon::prelude::*;
+
+/// Positions 0..w.len() ordered by their key, ties in position order.
+pub fn sort_perm(w: &[u64]) -> Vec<u32> {
+    let n = w.len();
+    if n < 2 {
+        return (0..n as u32).collect();
+    }
+    let (lo, hi) = w
+        .par_iter()
+        .with_min_len(1 << 16)
+        .fold(|| (u64::MAX, 0), |(a, b), &x| (a.min(x), b.max(x)))
+        .reduce(|| (u64::MAX, 0), |x, y| (x.0.min(y.0), x.1.max(y.1)));
+    if lo == hi {
+        return (0..n as u32).collect();
+    }
+    let width = 64 - (hi - lo).leading_zeros();
+    if n < 1 << 15 {
+        // Small: one sort of (key, position) pairs; positions are distinct, so unstable is stable.
+        if width <= 32 {
+            let mut v: Vec<u64> = w.iter().enumerate().map(|(i, &x)| ((x - lo) << 32) | i as u64).collect();
+            v.sort_unstable();
+            return v.into_iter().map(|x| x as u32).collect();
+        }
+        let mut v: Vec<(u64, u32)> = w.iter().enumerate().map(|(i, &x)| (x, i as u32)).collect();
+        v.sort_unstable();
+        return v.into_iter().map(|x| x.1).collect();
+    }
+    // Bucket on the top bits: about 512 rows a bucket, at most 2^16 buckets.
+    let bits = (usize::BITS - (n >> 9).leading_zeros()).clamp(4, 16).min(width);
+    let shift = width - bits;
+    if width <= 32 {
+        let items = |i: usize| ((w[i] - lo) << 32) | i as u64;
+        let pairs = scatter(n, 1 << bits, |i| ((w[i] - lo) >> shift) as usize, items);
+        finish(pairs, shift, n, |x: &u64| *x as u32)
+    } else {
+        let items = |i: usize| (w[i], i as u32);
+        let pairs = scatter(n, 1 << bits, |i| ((w[i] - lo) >> shift) as usize, items);
+        finish(pairs, shift, n, |x: &(u64, u32)| x.1)
+    }
+}
+
+/// The items in bucket order, each bucket's items in position order (a stable
+/// counting pass, in parallel over slices of positions), and where each bucket starts.
+fn scatter<T: Copy + Send + Sync>(n: usize, nb: usize, bucket: impl Fn(usize) -> usize + Sync, item: impl Fn(usize) -> T + Sync) -> (Vec<T>, Vec<usize>) {
+    let parts = (rayon::current_num_threads() * 2).clamp(1, 64).min(n.div_ceil(1 << 14));
+    let size = n.div_ceil(parts);
+    let mut counts: Vec<Vec<u32>> = (0..parts)
+        .into_par_iter()
+        .map(|p| {
+            let mut c = vec![0u32; nb];
+            for i in p * size..((p + 1) * size).min(n) {
+                c[bucket(i)] += 1;
+            }
+            c
+        })
+        .collect();
+    // Bucket b of slice p goes after bucket b of the slices before it.
+    let mut starts = Vec::with_capacity(nb + 1);
+    let mut at = 0usize;
+    for b in 0..nb {
+        starts.push(at);
+        for c in counts.iter_mut() {
+            let k = c[b] as usize;
+            c[b] = at as u32;
+            at += k;
+        }
+    }
+    starts.push(at);
+    let mut out: Vec<T> = Vec::with_capacity(n);
+    let dst = SendPtr(out.as_mut_ptr());
+    counts.into_par_iter().enumerate().for_each(|(p, mut off)| {
+        let dst = &dst;
+        for i in p * size..((p + 1) * size).min(n) {
+            let b = bucket(i);
+            // SAFETY: each (slice, bucket) owns a disjoint range of out, all of 0..n covered once.
+            unsafe { dst.0.add(off[b] as usize).write(item(i)) };
+            off[b] += 1;
+        }
+    });
+    // SAFETY: every index below n was written above.
+    unsafe { out.set_len(n) };
+    (out, starts)
+}
+
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Sync for SendPtr<T> {}
+unsafe impl<T> Send for SendPtr<T> {}
+
+/// Sorts each bucket (unless all its keys are equal: shift 0) and returns the positions.
+fn finish<T: Ord + Copy + Send + Sync>((mut v, starts): (Vec<T>, Vec<usize>), shift: u32, n: usize, pos: impl Fn(&T) -> u32 + Sync + Send) -> Vec<u32> {
+    if shift > 0 {
+        let mut rest = v.as_mut_slice();
+        let mut slices = Vec::with_capacity(starts.len());
+        for k in 1..starts.len() {
+            let (a, b) = rest.split_at_mut(starts[k] - starts[k - 1]);
+            if a.len() > 1 { slices.push(a); }
+            rest = b;
+        }
+        slices.into_par_iter().for_each(|s| if s.len() > n / 16 { s.par_sort_unstable() } else { s.sort_unstable() });
+    }
+    v.par_iter().with_min_len(1 << 14).map(|x| pos(x)).collect()
+}
+
+/// A key's first 8 bytes, big-endian, zero padded: ordered as the bytes are
+/// (equal prefixes still need the whole keys compared).
+#[inline]
+pub fn prefix(k: &[u8]) -> u64 {
+    let mut b = [0u8; 8];
+    let m = k.len().min(8);
+    b[..m].copy_from_slice(&k[..m]);
+    u64::from_be_bytes(b)
+}
+
+/// The order of n text keys (byte order, empty keys last, ties in position
+/// order) and each one's dense rank in it (equal keys share a rank; empty:
+/// the number of distinct non-empty keys).
+pub fn text_order<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync) -> (Vec<u32>, Vec<u32>, u32) {
+    let words: Vec<u64> = (0..n).into_par_iter().with_min_len(1 << 14).map(|i| {
+        let k = key(i);
+        // Text is UTF-8: no byte is 0xFF, so no prefix of a key reaches u64::MAX.
+        if k.is_empty() { u64::MAX } else { prefix(k) }
+    }).collect();
+    let mut perm = sort_perm(&words);
+    // Equal first 8 bytes: ordered on the next 8, and so on.
+    perm.par_chunk_by_mut(|&a, &b| words[a as usize] == words[b as usize])
+        .for_each(|run| {
+            if run.len() > 1 && words[run[0] as usize] != u64::MAX {
+                refine(run, 8, &key);
+            }
+        });
+    // Ranks: a new one where the key changes.
+    let mut rank = vec![0u32; n];
+    let mut r = 0u32;
+    let mut prev: Option<&[u8]> = None;
+    for &p in &perm {
+        let k = key(p as usize);
+        if k.is_empty() { break; }
+        if prev.is_some_and(|q| q != k) { r += 1; }
+        prev = Some(k);
+        rank[p as usize] = r;
+    }
+    let distinct = if prev.is_some() { r + 1 } else { 0 };
+    for &p in perm.iter().rev() {
+        if !key(p as usize).is_empty() { break; }
+        rank[p as usize] = distinct;
+    }
+    (perm, rank, distinct)
+}
+
+/// Orders a run of keys equal on their first `d` bytes (in stable order) on
+/// the rest: 8 more bytes at a time, radix sorted, down to the runs still equal.
+fn refine<'a>(run: &mut [u32], d: usize, key: &(impl Fn(usize) -> &'a [u8] + Sync)) {
+    let tail = |p: u32| { let k = key(p as usize); &k[d.min(k.len())..] };
+    if run.len() <= 32 || run.iter().all(|&p| tail(p).is_empty()) {
+        // Few, or nothing left to cut into words (keys may still differ in length): compare.
+        run.sort_by(|&a, &b| key(a as usize).cmp(key(b as usize)));
+        return;
+    }
+    let big = run.len() > 1 << 15;
+    let w: Vec<u64> = if big { run.par_iter().map(|&p| prefix(tail(p))).collect() } else { run.iter().map(|&p| prefix(tail(p))).collect() };
+    let order = sort_perm(&w);
+    let sorted: Vec<(u64, u32)> = order.iter().map(|&j| (w[j as usize], run[j as usize])).collect();
+    for (r, &(_, p)) in run.iter_mut().zip(&sorted) { *r = p; }
+    let next = |sub: &mut [u32]| if sub.len() > 1 { refine(sub, d + 8, key) };
+    // Sub-runs: equal words.
+    let mut subs = Vec::new();
+    let mut rest = &mut run[..];
+    let mut k = 0;
+    while k < sorted.len() {
+        let mut e = k + 1;
+        while e < sorted.len() && sorted[e].0 == sorted[k].0 { e += 1; }
+        let (a, b) = rest.split_at_mut(e - k);
+        if a.len() > 1 { subs.push(a); }
+        rest = b;
+        k = e;
+    }
+    if big { subs.into_par_iter().for_each(next) } else { subs.into_iter().for_each(next) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(w: &[u64]) {
+        let mut want: Vec<u32> = (0..w.len() as u32).collect();
+        want.sort_by_key(|&i| w[i as usize]);
+        assert_eq!(sort_perm(w), want);
+    }
+
+    #[test]
+    fn sorts_stably() {
+        let mut x = 0x9E3779B97F4A7C15u64;
+        let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        for &n in &[0usize, 1, 2, 100, 40_000, 300_000] {
+            check(&(0..n).map(|_| next()).collect::<Vec<_>>());
+            check(&(0..n).map(|_| next() % 7).collect::<Vec<_>>());
+            check(&(0..n).map(|_| next() >> 20).collect::<Vec<_>>());
+            check(&(0..n).map(|i| if i % 3 == 0 { u64::MAX } else { next() % 1000 << 40 }).collect::<Vec<_>>());
+            check(&(0..n).map(|_| 5).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn text_long_keys() {
+        // Long shared prefixes, keys differing only in length or trailing NULs, ties.
+        let mut x = 7u64;
+        let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let parts = ["", "a", "ab", "\0", "abcdefgh", "zz", "abcdefghabcdefgh"];
+        let keys: Vec<String> = (0..20_000).map(|_| (0..1 + next() % 5).map(|_| parts[(next() % 7) as usize]).collect()).collect();
+        let (perm, _, _) = text_order(keys.len(), |i| keys[i].as_bytes());
+        let mut want: Vec<u32> = (0..keys.len() as u32).collect();
+        want.sort_by(|&a, &b| {
+            let (x, y) = (&keys[a as usize], &keys[b as usize]);
+            (x.is_empty(), x).cmp(&(y.is_empty(), y))
+        });
+        assert_eq!(perm, want);
+    }
+
+    #[test]
+    fn text() {
+        let keys = ["b", "", "ab", "a", "ab\0", "b", "", "abcdefghij", "abcdefghi"];
+        let (perm, rank, d) = text_order(keys.len(), |i| keys[i].as_bytes());
+        let got: Vec<&str> = perm.iter().map(|&p| keys[p as usize]).collect();
+        assert_eq!(got, ["a", "ab", "ab\0", "abcdefghi", "abcdefghij", "b", "b", "", ""]);
+        assert_eq!(perm[5..7], [0, 5]);
+        assert_eq!(d, 6);
+        assert_eq!(rank, [5, 6, 1, 0, 2, 5, 6, 4, 3]);
+    }
+}

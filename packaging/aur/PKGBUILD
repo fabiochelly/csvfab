@@ -1,33 +1,43 @@
 # Maintainer: Fabio Chelly
 pkgname=csvfab
-pkgver=1.25.1
+pkgver=2.0.0
 pkgrel=1
 pkgdesc="Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
-arch=('any')
+arch=('x86_64' 'aarch64')
 url="https://github.com/fabiochelly/csvfab"
 license=('MIT')
-depends=('python')
-optdepends=('chromium: the app window (any Chromium-based browser works)'
-            'google-chrome: the app window'
-            'brave-bin: the app window'
-            'microsoft-edge-stable-bin: the app window')
+# The window toolkit loads xkbcommon, EGL / OpenGL and Wayland or X11 at run time.
+depends=('gcc-libs' 'glibc' 'libxkbcommon' 'libglvnd' 'hicolor-icon-theme')
+optdepends=('wayland: Wayland sessions'
+            'libxcursor: X11 sessions'
+            'libxrandr: X11 sessions'
+            'libxi: X11 sessions'
+            'xdg-desktop-portal: the Open and Save dialogs'
+            'curl: installing a font from the font menu')
+makedepends=('cargo')
+options=('!lto')   # the workspace's release profile does its own
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('c126614e4cada2cd040808218858656e98e418776394b0daf12745a6b6fe20fb')
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+    cargo build --frozen --release -p csvfab
+}
 
 package() {
     cd "$pkgname-$pkgver"
-    install -Dm755 csvfab.py -t "$pkgdir/usr/share/csvfab/"
-    install -Dm644 server.py viewer.htm papaparse.min.js -t "$pkgdir/usr/share/csvfab/"
-    install -Dm644 icons/csvfab.svg -t "$pkgdir/usr/share/csvfab/icons/"
-    cp -r ui bridge "$pkgdir/usr/share/csvfab/"
-    # /usr/share is not writable at run time: compiled here, or every launch would compile anew.
-    python -m compileall -q -d /usr/share/csvfab/bridge "$pkgdir/usr/share/csvfab/bridge"
+    install -Dm755 target/release/csvfab "$pkgdir/usr/bin/csvfab"
     install -Dm644 icons/csvfab.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/csvfab.svg"
     for s in 16 24 32 48 64 128 256 512; do
         install -Dm644 "icons/csvfab-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/csvfab.png"
     done
     install -Dm644 csvfab.desktop -t "$pkgdir/usr/share/applications/"
     install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
-    install -dm755 "$pkgdir/usr/bin"
-    ln -s /usr/share/csvfab/csvfab.py "$pkgdir/usr/bin/csvfab"   # the launcher follows the link back to its files
 }

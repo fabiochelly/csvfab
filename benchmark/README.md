@@ -1,5 +1,7 @@
 # csvfab benchmark
 
+> **These figures are csvfab 1.x**, the web app (Python server and a page in Chromium). The scripts here drive it, so they run from the [v1.25.1](https://github.com/fabiochelly/csvfab/tree/v1.25.1) sources. csvfab 2, the native app, against 1.x: [native-vs-web.md](native-vs-web.md).
+
 Measure it yourself: one script generates the files, runs every tool on them, checks every result, and prints the tables.
 
 ```sh

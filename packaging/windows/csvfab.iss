@@ -1,7 +1,6 @@
 ; Inno Setup script: a per-user installer (no admin rights) for winget and direct download.
-; Self-contained: Python's embeddable distribution ships in {app}\python, and csvfab.exe
-; (csvfab.c) runs csvfab.py with it — winget refuses a package whose entry point is a
-; script, which csvfab.cmd was. Both come from build\, filled by .github/workflows/release.yml:
+; csvfab.exe is the whole app (one program, nothing else to install); it comes from build\,
+; filled by .github/workflows/release.yml:
 ;   iscc /DAppVersion=1.2.3 packaging\windows\csvfab.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -30,32 +29,27 @@ ChangesAssociations=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; csvfab.exe is replaced while csvfab may be open: closed first, as any app being updated.
+CloseApplications=yes
 
 [InstallDelete]
-; Left by the versions that needed a system Python; and a bundled Python of another
-; version would leave its pythonXY.dll and .zip behind.
+; Left by csvfab 1.x (Python and its page, run in a browser window).
 Type: files;          Name: "{app}\csvfab.cmd"
+Type: files;          Name: "{app}\csvfab.py"
+Type: files;          Name: "{app}\server.py"
+Type: files;          Name: "{app}\viewer.htm"
+Type: files;          Name: "{app}\papaparse.min.js"
 Type: filesandordirs; Name: "{app}\python"
-
-[UninstallDelete]
-; The __pycache__ folders Python writes there at run time.
 Type: filesandordirs; Name: "{app}\bridge"
+Type: filesandordirs; Name: "{app}\ui"
 
 [Files]
 Source: "..\..\build\csvfab.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\build\python\*";  DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs
-Source: "..\..\csvfab.py";         DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\server.py";         DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\viewer.htm";        DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\papaparse.min.js";  DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\LICENSE";           DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\icons\csvfab.svg";  DestDir: "{app}\icons"; Flags: ignoreversion
-Source: "..\..\ui\*";             DestDir: "{app}\ui";    Flags: ignoreversion recursesubdirs
-Source: "..\..\bridge\*";         DestDir: "{app}\bridge"; Flags: ignoreversion recursesubdirs; Excludes: "__pycache__"
-Source: "..\..\icons\csvfab.ico";  DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "..\..\LICENSE";          DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\icons\csvfab.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\csvfab"; Filename: "{app}\csvfab.exe"; WorkingDir: "{app}"
+Name: "{userprograms}\csvfab"; Filename: "{app}\csvfab.exe"; WorkingDir: "{app}"; IconFilename: "{app}\icons\csvfab.ico"
 
 [Registry]
 ; csvfab.exe reachable from any new terminal.

@@ -2,6 +2,16 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.0 · 29 October 2026
+
+**csvfab is now a native app.** It was a small Python server and a page in a Chromium window; it is now a single program written in Rust, with the same features. Nothing else to install: no Python, no browser.
+- **Much faster**: faster at every operation measured, usually 10 to 50 times — opening 5 million rows takes 38 ms to the first rows shown instead of 2.0 s — with 2.5 to 8 times less memory. Every figure, and how it was measured: [benchmark/native-vs-web.md](benchmark/native-vs-web.md).
+- **Nothing lost in a crash**: tables with unsaved edits are kept aside as you work (a few seconds after the last edit) and offered back at the next start. On Linux, a file another program cuts short while it is open is caught, said, and never written back damaged.
+- **Write the sorted order to the file**: a click on a title sorts the view only, the file keeps its order; *Rows › Write the sorted order to the file* makes the sort the file's order, as one undo step.
+- **Rename a column in place**: double-click its title.
+- **Enter and Tab keep the cell** after an edit, and *Invert* flips the whole filter (search, column filters and formula together). A column filter of several words keeps the rows holding all of them, in any order; "quotes" keep a phrase whole.
+- **Installing over 1.x**: the Windows installer (and winget) replaces it in place; on Linux and macOS, `install.sh` and Homebrew do.
+
 ## 1.18.0 · 3 October 2026
 
 - **Pivot table** (☰ › Rows, or the command palette). Pick a column for the rows and another for the columns, then show in each cell a number of rows, a sum, an average, the smallest or largest value, or a number of distinct values. Dates are grouped by month, quarter, year or day. You get totals, a colour scale, and a click on a title sorts the rows. The table is computed live on the rows shown: a million rows in under a second. Click any number to see, in the grid, the rows it counts. Copy the table into a spreadsheet, or open it as a new tab.

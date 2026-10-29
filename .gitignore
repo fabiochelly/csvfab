@@ -5,18 +5,19 @@
 *.xlsx
 *.part
 
-__pycache__/
-*.pyc
-
-# Benchmark files, generated (benchmark/gen.py), and the video made from them
-/benchmark/data/
-
 # Build outputs
+/target/
 /dist/
 /build/
+/pkg/
 /packaging/aur/pkg/
 /packaging/aur/src/
 /packaging/aur/*.tar.*
+
+# Benchmark files, generated (benchmark/gen.py), and the video made from them
+/benchmark/data/
+__pycache__/
+*.pyc
 
 # Local notes for Claude Code: they describe this machine, not the project.
 CLAUDE.md

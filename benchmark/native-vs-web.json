@@ -1,0 +1,8255 @@
+{
+ "machine": {
+  "date": "2026-10-28 06:50 CET",
+  "cpu": "Intel(R) Core(TM) Ultra X7 358H",
+  "threads": 16,
+  "ram_gb": 30.9,
+  "disk": "PCB01 SED SK hynix 2048GB  1,9T 0 (/dev/mapper/omarchy_root[/@home])",
+  "epp": "balance_performance",
+  "kernel": "7.2.8-9-omarchy",
+  "os": "Linux",
+  "python": "3.14.8",
+  "browser": "Chromium 155.0.8059.84 Arch Linux",
+  "web_version": "1.25.1",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "native_bin": "/home/fabio/.cache/csvfab-agents/bench-ws/target/release/examples/bench_ui",
+  "native_built": "2026-10-28 06:24"
+ },
+ "repeat": 3,
+ "apps": [
+  "web",
+  "native"
+ ],
+ "argv": "--rows 100000,1000000,5000000 --limits 10000000,20000000,50000000 --repeat 3 --resume --native-bin /home/fabio/.cache/csvfab-agents/bench-ws/target/release/examples --json benchmark/native-vs-web.json --markdown /home/fabio/.cache/csvfab-bench/compare/tables.md",
+ "results": [
+  {
+   "rows": 100000,
+   "bytes": 15979226,
+   "file": "customers-100k.csv",
+   "apps": {
+    "web": {
+     "ops": {
+      "open": {
+       "runs": [
+        141.0999999642372,
+        102.39999997615814,
+        88.80000001192093
+       ],
+       "out": {
+        "rows": 100000,
+        "cols": 15
+       },
+       "ms": 102.39999997615814,
+       "value": 100000
+      },
+      "filter_global": {
+       "runs": [
+        49.59999996423721,
+        25.80000001192093,
+        38.60000002384186
+       ],
+       "out": {
+        "n": 1521,
+        "par": false,
+        "par_pool": false
+       },
+       "ms": 38.60000002384186,
+       "value": 1521
+      },
+      "filter_col": {
+       "runs": [
+        37.39999997615814,
+        36.89999997615814,
+        25
+       ],
+       "out": {
+        "n": 1521,
+        "par": false,
+        "par_pool": false
+       },
+       "ms": 36.89999997615814,
+       "value": 1521
+      },
+      "filter_expr": {
+       "runs": [
+        70.80000001192093,
+        58.5,
+        62.60000002384186
+       ],
+       "out": {
+        "n": 69284,
+        "how": "search box, expression mode: {total_spent}.num() > 1000",
+        "err": ""
+       },
+       "ms": 62.60000002384186,
+       "value": 69284
+      },
+      "sort_num": {
+       "runs": [
+        84.40000003576279,
+        100.19999998807907,
+        87.80000001192093
+       ],
+       "out": {
+        "first": "32567.92"
+       },
+       "ms": 87.80000001192093,
+       "value": "32567.92"
+      },
+      "sort_text": {
+       "runs": [
+        63.200000047683716,
+        52.80000001192093,
+        48.90000003576279
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 52.80000001192093,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        68.89999997615814,
+        81.19999998807907,
+        63.40000003576279
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 68.89999997615814,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        97.60000002384186,
+        100,
+        89.5
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.65"
+        ],
+        "sort": [
+         [
+          "country",
+          false
+         ],
+         [
+          "total_spent",
+          true
+         ]
+        ],
+        "ms_first_key": 55.299999952316284
+       },
+       "ms": 97.60000002384186,
+       "value": [
+        "France",
+        32567.65
+       ]
+      },
+      "clear": {
+       "runs": [
+        35.30000001192093,
+        36.30000001192093,
+        28.600000023841858
+       ],
+       "out": {
+        "n": 100000,
+        "before": 1521,
+        "sorted": false,
+        "log": 0
+       },
+       "ms": 35.30000001192093,
+       "value": 100000
+      },
+      "find": {
+       "runs": [
+        78.40000003576279,
+        80,
+        47.30000001192093
+       ],
+       "out": {
+        "n": 1521,
+        "shown": "1 521 matches"
+       },
+       "ms": 78.40000003576279,
+       "value": 1521
+      },
+      "totals": {
+       "runs": [
+        224.20000004768372,
+        211,
+        229.30000001192093
+       ],
+       "out": {
+        "values": {
+         "total_spent": "554 806 342,19"
+        },
+        "fns": {
+         "total_spent": "sum"
+        },
+        "quiet_ms": 150
+       },
+       "ms": 224.20000004768372,
+       "value": [
+        55480634219
+       ]
+      },
+      "col_values": {
+       "runs": [
+        49.5,
+        48.30000001192093,
+        31.299999952316284
+       ],
+       "out": {
+        "distinct": 85,
+        "values": 85,
+        "top": [
+         "Austin",
+         1618
+        ],
+        "listed": 85,
+        "head": "Text85 distinct values on 100 000"
+       },
+       "ms": 48.30000001192093,
+       "value": [
+        85,
+        "Austin",
+        1618
+       ]
+      },
+      "group_by": {
+       "runs": [
+        116.60000002384186,
+        121.10000002384186,
+        115.5
+       ],
+       "out": {
+        "groups": 85,
+        "header": [
+         "city",
+         "Count",
+         "total_spent (sum)"
+        ],
+        "aggs": [
+         "total_spent: sum"
+        ],
+        "first": [
+         "Austin",
+         "1618",
+         "8856835.1"
+        ]
+       },
+       "ms": 116.60000002384186,
+       "value": 85
+      },
+      "pivot": {
+       "runs": [
+        120.30000001192093,
+        93.59999996423721,
+        75
+       ],
+       "out": {
+        "spec": {
+         "rows": "country",
+         "cols": "status",
+         "fun": "sum",
+         "value": "total_spent",
+         "rows_dates": "m",
+         "cols_dates": "m"
+        },
+        "rows": 6,
+        "cols": 5,
+        "grand": 554806342.1899956,
+        "grand_shown": "554 806 342,19",
+        "stats": "6 × 5 from 100 000 rows · click a number to see its rows"
+       },
+       "ms": 93.59999996423721,
+       "value": [
+        6,
+        5
+       ]
+      },
+      "dupes": {
+       "runs": [
+        290,
+        285.9000000357628,
+        283
+       ],
+       "out": {
+        "spec": [
+         "last_name (slug) + first_name (slug) + postal_code (digits)",
+         "email (email)",
+         "phone (phone)"
+        ],
+        "groups": 9171,
+        "rows": 28270,
+        "removable": 19099,
+        "note": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not)."
+       },
+       "ms": 285.9000000357628,
+       "value": [
+        9171,
+        28270,
+        19099
+       ]
+      },
+      "insights": {
+       "runs": [
+        1319.5,
+        1328.4000000357628,
+        1299.7999999523163
+       ],
+       "out": {
+        "items": 4,
+        "titles": [
+         "email identifies every row but 7 915 values that come back",
+         "email: 600 values written otherwise than the others",
+         "total_spent: 44 values far from all the others",
+         "id is filled and different on every row: it identifies them"
+        ],
+        "sampled": false,
+        "read": 100000,
+        "cards": 4
+       },
+       "ms": 1319.5,
+       "value": 4
+      },
+      "profile": {
+       "runs": [
+        928,
+        930.8999999761581,
+        937
+       ],
+       "out": {
+        "cols": 15,
+        "distinct": [
+         20000,
+         100,
+         138,
+         20000,
+         20000,
+         3379,
+         8556,
+         20000,
+         85,
+         6,
+         3360,
+         3891,
+         80,
+         20000,
+         5
+        ],
+        "capped": [
+         true,
+         false,
+         false,
+         true,
+         true,
+         false,
+         false,
+         true,
+         false,
+         false,
+         false,
+         false,
+         false,
+         true,
+         false
+        ],
+        "sampled": false,
+        "rows": 100000,
+        "drawn": 15
+       },
+       "ms": 930.8999999761581,
+       "value": 15
+      },
+      "formula": {
+       "runs": [
+        142.70000004768372,
+        171.10000002384186,
+        125.39999997615814
+       ],
+       "out": {
+        "first": "5054.28",
+        "cols": 16,
+        "added": 1,
+        "err": ""
+       },
+       "ms": 142.70000004768372,
+       "value": 5054.28
+      },
+      "save_csv": {
+       "runs": [
+        61.700000047683716,
+        71.5,
+        64.89999997615814
+       ],
+       "out": {
+        "bytes": 15979226,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.csv"
+       },
+       "ms": 64.89999997615814,
+       "value": 15979226
+      },
+      "export_xlsx": {
+       "runs": [
+        1763.5,
+        1759.3999999761581,
+        1766
+       ],
+       "out": {
+        "bytes": 14817280,
+        "rows": 100001,
+        "cols": 15,
+        "truncated": false,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.xlsx"
+       },
+       "ms": 1763.5,
+       "value": 100001
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 794047488,
+        "anon": 612773888,
+        "rss": 1440284672,
+        "priv": 596070400,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 803197952,
+        "anon": 608456704,
+        "rss": 1418616832,
+        "priv": 597114880,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 729730048,
+        "anon": 506691584,
+        "rss": 1373794304,
+        "priv": 491859968,
+        "swap": 0
+       },
+       "filter_expr": {
+        "pss": 719867904,
+        "anon": 495013888,
+        "rss": 1363628032,
+        "priv": 482308096,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 662568960,
+        "anon": 450330624,
+        "rss": 1291968512,
+        "priv": 439476224,
+        "swap": 0
+       },
+       "sort_text": {
+        "pss": 678468608,
+        "anon": 462438400,
+        "rss": 1314340864,
+        "priv": 449531904,
+        "swap": 0
+       },
+       "sort_date": {
+        "pss": 692747264,
+        "anon": 471654400,
+        "rss": 1331765248,
+        "priv": 460664832,
+        "swap": 0
+       },
+       "sort_multi": {
+        "pss": 756842496,
+        "anon": 525889536,
+        "rss": 1406218240,
+        "priv": 514580480,
+        "swap": 0
+       },
+       "clear": {
+        "pss": 793598976,
+        "anon": 559144960,
+        "rss": 1444970496,
+        "priv": 549322752,
+        "swap": 0
+       },
+       "find": {
+        "pss": 790353920,
+        "anon": 581849088,
+        "rss": 1442340864,
+        "priv": 567324672,
+        "swap": 0
+       },
+       "totals": {
+        "pss": 768040960,
+        "anon": 582475776,
+        "rss": 1375510528,
+        "priv": 575225856,
+        "swap": 0
+       },
+       "col_values": {
+        "pss": 756111360,
+        "anon": 577646592,
+        "rss": 1358262272,
+        "priv": 562589696,
+        "swap": 0
+       },
+       "group_by": {
+        "pss": 836276224,
+        "anon": 636956672,
+        "rss": 1457401856,
+        "priv": 622952448,
+        "swap": 0
+       },
+       "pivot": {
+        "pss": 800768000,
+        "anon": 585297920,
+        "rss": 1436086272,
+        "priv": 573579264,
+        "swap": 0
+       },
+       "dupes": {
+        "pss": 869564416,
+        "anon": 668672000,
+        "rss": 1507971072,
+        "priv": 652169216,
+        "swap": 0
+       },
+       "insights": {
+        "pss": 1017425920,
+        "anon": 819154944,
+        "rss": 1637453824,
+        "priv": 805527552,
+        "swap": 0
+       },
+       "profile": {
+        "pss": 1025368064,
+        "anon": 828837888,
+        "rss": 1646014464,
+        "priv": 812851200,
+        "swap": 0
+       },
+       "formula": {
+        "pss": 1070739456,
+        "anon": 880599040,
+        "rss": 1681727488,
+        "priv": 867880960,
+        "swap": 0
+       },
+       "save_csv": {
+        "pss": 1000285184,
+        "anon": 820850688,
+        "rss": 1617133568,
+        "priv": 804790272,
+        "swap": 0
+       },
+       "export_xlsx": {
+        "pss": 750002176,
+        "anon": 575795200,
+        "rss": 1347895296,
+        "priv": 560541696,
+        "swap": 0
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 11528376320,
+      "peak": {
+       "pss": 1070739456,
+       "anon": 880599040,
+       "rss": 1681727488,
+       "priv": 867880960,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 727258112,
+       "anon": 546377728,
+       "rss": 1350594560,
+       "priv": 530255872,
+       "pss_file": 235304960,
+       "procs": 11
+      },
+      "end": {
+       "pss": 733544448,
+       "anon": 555540480,
+       "rss": 1332363264,
+       "priv": 543133696,
+       "pss_file": 240923648,
+       "procs": 11
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "ms": 141.0999999642372,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "run": 0,
+        "cpu_busy_before": 0.14
+       },
+       {
+        "op": "open",
+        "ms": 102.39999997615814,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "run": 1,
+        "cpu_busy_before": 0.148
+       },
+       {
+        "op": "open",
+        "ms": 88.80000001192093,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "run": 2,
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "ms": 49.59999996423721,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 0,
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "filter_global",
+        "ms": 25.80000001192093,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 1,
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "filter_global",
+        "ms": 38.60000002384186,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 2,
+        "cpu_busy_before": 0.146
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "ms": 37.39999997615814,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 0,
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "filter_col",
+        "ms": 36.89999997615814,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 1,
+        "cpu_busy_before": 0.085
+       },
+       {
+        "op": "filter_col",
+        "ms": 25,
+        "out": {
+         "n": 1521,
+         "par": false,
+         "par_pool": false
+        },
+        "run": 2,
+        "cpu_busy_before": 0.085
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "ms": 70.80000001192093,
+        "out": {
+         "n": 69284,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 0,
+        "cpu_busy_before": 0.094
+       },
+       {
+        "op": "filter_expr",
+        "ms": 58.5,
+        "out": {
+         "n": 69284,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 1,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "filter_expr",
+        "ms": 62.60000002384186,
+        "out": {
+         "n": 69284,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 2,
+        "cpu_busy_before": 0.085
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "ms": 84.40000003576279,
+        "out": {
+         "first": "32567.92"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.081
+       },
+       {
+        "op": "sort_num",
+        "ms": 100.19999998807907,
+        "out": {
+         "first": "32567.92"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.084
+       },
+       {
+        "op": "sort_num",
+        "ms": 87.80000001192093,
+        "out": {
+         "first": "32567.92"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.089
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "ms": 63.200000047683716,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "sort_text",
+        "ms": 52.80000001192093,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.093
+       },
+       {
+        "op": "sort_text",
+        "ms": 48.90000003576279,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.119
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "ms": 68.89999997615814,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "sort_date",
+        "ms": 81.19999998807907,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "sort_date",
+        "ms": 63.40000003576279,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.1
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "ms": 97.60000002384186,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 55.299999952316284
+        },
+        "run": 0,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "sort_multi",
+        "ms": 100,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 75.39999997615814
+        },
+        "run": 1,
+        "cpu_busy_before": 0.104
+       },
+       {
+        "op": "sort_multi",
+        "ms": 89.5,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 52.19999998807907
+        },
+        "run": 2,
+        "cpu_busy_before": 0.084
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "ms": 35.30000001192093,
+        "out": {
+         "n": 100000,
+         "before": 1521,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 0,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "clear",
+        "ms": 36.30000001192093,
+        "out": {
+         "n": 100000,
+         "before": 1521,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 1,
+        "cpu_busy_before": 0.027
+       },
+       {
+        "op": "clear",
+        "ms": 28.600000023841858,
+        "out": {
+         "n": 100000,
+         "before": 1521,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 2,
+        "cpu_busy_before": 0.04
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "ms": 78.40000003576279,
+        "out": {
+         "n": 1521,
+         "shown": "1 521 matches"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "find",
+        "ms": 80,
+        "out": {
+         "n": 1521,
+         "shown": "1 521 matches"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "find",
+        "ms": 47.30000001192093,
+        "out": {
+         "n": 1521,
+         "shown": "1 521 matches"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.091
+       }
+      ],
+      "totals": [
+       {
+        "op": "totals",
+        "ms": 224.20000004768372,
+        "out": {
+         "values": {
+          "total_spent": "554 806 342,19"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 0,
+        "cpu_busy_before": 0.085
+       },
+       {
+        "op": "totals",
+        "ms": 211,
+        "out": {
+         "values": {
+          "total_spent": "554 806 342,19"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 1,
+        "cpu_busy_before": 0.079
+       },
+       {
+        "op": "totals",
+        "ms": 229.30000001192093,
+        "out": {
+         "values": {
+          "total_spent": "554 806 342,19"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 2,
+        "cpu_busy_before": 0.087
+       }
+      ],
+      "col_values": [
+       {
+        "op": "col_values",
+        "ms": 49.5,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "Austin",
+          1618
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 100 000"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.081
+       },
+       {
+        "op": "col_values",
+        "ms": 48.30000001192093,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "Austin",
+          1618
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 100 000"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.081
+       },
+       {
+        "op": "col_values",
+        "ms": 31.299999952316284,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "Austin",
+          1618
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 100 000"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.081
+       }
+      ],
+      "group_by": [
+       {
+        "op": "group_by",
+        "ms": 116.60000002384186,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "Austin",
+          "1618",
+          "8856835.1"
+         ]
+        },
+        "run": 0,
+        "cpu_busy_before": 0.083
+       },
+       {
+        "op": "group_by",
+        "ms": 121.10000002384186,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "Austin",
+          "1618",
+          "8856835.1"
+         ]
+        },
+        "run": 1,
+        "cpu_busy_before": 0.085
+       },
+       {
+        "op": "group_by",
+        "ms": 115.5,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "Austin",
+          "1618",
+          "8856835.1"
+         ]
+        },
+        "run": 2,
+        "cpu_busy_before": 0.094
+       }
+      ],
+      "pivot": [
+       {
+        "op": "pivot",
+        "ms": 120.30000001192093,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 554806342.1899956,
+         "grand_shown": "554 806 342,19",
+         "stats": "6 × 5 from 100 000 rows · click a number to see its rows"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.087
+       },
+       {
+        "op": "pivot",
+        "ms": 93.59999996423721,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 554806342.1899956,
+         "grand_shown": "554 806 342,19",
+         "stats": "6 × 5 from 100 000 rows · click a number to see its rows"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.085
+       },
+       {
+        "op": "pivot",
+        "ms": 75,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 554806342.1899956,
+         "grand_shown": "554 806 342,19",
+         "stats": "6 × 5 from 100 000 rows · click a number to see its rows"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.088
+       }
+      ],
+      "dupes": [
+       {
+        "op": "dupes",
+        "ms": 290,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 9171,
+         "rows": 28270,
+         "removable": 19099,
+         "note": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not)."
+        },
+        "run": 0,
+        "cpu_busy_before": 0.079
+       },
+       {
+        "op": "dupes",
+        "ms": 285.9000000357628,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 9171,
+         "rows": 28270,
+         "removable": 19099,
+         "note": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not)."
+        },
+        "run": 1,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "dupes",
+        "ms": 283,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 9171,
+         "rows": 28270,
+         "removable": 19099,
+         "note": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not)."
+        },
+        "run": 2,
+        "cpu_busy_before": 0.093
+       }
+      ],
+      "insights": [
+       {
+        "op": "insights",
+        "ms": 1319.5,
+        "out": {
+         "items": 4,
+         "titles": [
+          "email identifies every row but 7 915 values that come back",
+          "email: 600 values written otherwise than the others",
+          "total_spent: 44 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": false,
+         "read": 100000,
+         "cards": 4
+        },
+        "run": 0,
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "insights",
+        "ms": 1328.4000000357628,
+        "out": {
+         "items": 4,
+         "titles": [
+          "email identifies every row but 7 915 values that come back",
+          "email: 600 values written otherwise than the others",
+          "total_spent: 44 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": false,
+         "read": 100000,
+         "cards": 4
+        },
+        "run": 1,
+        "cpu_busy_before": 0.096
+       },
+       {
+        "op": "insights",
+        "ms": 1299.7999999523163,
+        "out": {
+         "items": 4,
+         "titles": [
+          "email identifies every row but 7 915 values that come back",
+          "email: 600 values written otherwise than the others",
+          "total_spent: 44 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": false,
+         "read": 100000,
+         "cards": 4
+        },
+        "run": 2,
+        "cpu_busy_before": 0.096
+       }
+      ],
+      "profile": [
+       {
+        "op": "profile",
+        "ms": 928,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8556,
+          20000,
+          85,
+          6,
+          3360,
+          3891,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": false,
+         "rows": 100000,
+         "drawn": 15
+        },
+        "run": 0,
+        "cpu_busy_before": 0.092
+       },
+       {
+        "op": "profile",
+        "ms": 930.8999999761581,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8556,
+          20000,
+          85,
+          6,
+          3360,
+          3891,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": false,
+         "rows": 100000,
+         "drawn": 15
+        },
+        "run": 1,
+        "cpu_busy_before": 0.108
+       },
+       {
+        "op": "profile",
+        "ms": 937,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8556,
+          20000,
+          85,
+          6,
+          3360,
+          3891,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": false,
+         "rows": 100000,
+         "drawn": 15
+        },
+        "run": 2,
+        "cpu_busy_before": 0.091
+       }
+      ],
+      "formula": [
+       {
+        "op": "formula",
+        "ms": 142.70000004768372,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 0,
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "formula",
+        "ms": 171.10000002384186,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 1,
+        "cpu_busy_before": 0.096
+       },
+       {
+        "op": "formula",
+        "ms": 125.39999997615814,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 2,
+        "cpu_busy_before": 0.104
+       }
+      ],
+      "save_csv": [
+       {
+        "op": "save_csv",
+        "ms": 61.700000047683716,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.csv"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.096
+       },
+       {
+        "op": "save_csv",
+        "ms": 71.5,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.csv"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.093
+       },
+       {
+        "op": "save_csv",
+        "ms": 64.89999997615814,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.csv"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.091
+       }
+      ],
+      "export_xlsx": [
+       {
+        "op": "export_xlsx",
+        "ms": 1763.5,
+        "out": {
+         "bytes": 14817280,
+         "rows": 100001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.xlsx"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.091
+       },
+       {
+        "op": "export_xlsx",
+        "ms": 1759.3999999761581,
+        "out": {
+         "bytes": 14817280,
+         "rows": 100001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.xlsx"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.092
+       },
+       {
+        "op": "export_xlsx",
+        "ms": 1766,
+        "out": {
+         "bytes": 14817280,
+         "rows": 100001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-100k.xlsx"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.102
+       }
+      ]
+     }
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        13.234,
+        7.101,
+        8.238
+       ],
+       "out": {
+        "rows": 100000,
+        "cols": 15
+       },
+       "ms": 8.238,
+       "value": 100000
+      },
+      "filter_global": {
+       "runs": [
+        7.651,
+        6.916,
+        7.723
+       ],
+       "out": {
+        "n": 1521
+       },
+       "ms": 7.651,
+       "value": 1521
+      },
+      "filter_col": {
+       "runs": [
+        5.337,
+        4.957,
+        4.309
+       ],
+       "out": {
+        "n": 1521
+       },
+       "ms": 4.957,
+       "value": 1521
+      },
+      "filter_expr": {
+       "runs": [
+        5.078,
+        4.576,
+        4.995
+       ],
+       "out": {
+        "n": 69284
+       },
+       "ms": 4.995,
+       "value": 69284
+      },
+      "filter_num": {
+       "runs": [
+        7.576,
+        9.186,
+        9.469
+       ],
+       "out": {
+        "n": 69284
+       },
+       "ms": 9.186,
+       "value": 69284
+      },
+      "sort_num": {
+       "runs": [
+        7.263,
+        6.913,
+        7.303
+       ],
+       "out": {
+        "first": "32567.92"
+       },
+       "ms": 7.263,
+       "value": "32567.92"
+      },
+      "sort_text": {
+       "runs": [
+        7.297,
+        7.328,
+        7.175
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 7.297,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        7.056,
+        6.537,
+        6.316
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 6.537,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        10.34,
+        10.493,
+        10.786
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.65"
+        ]
+       },
+       "ms": 10.493,
+       "value": [
+        "France",
+        32567.65
+       ]
+      },
+      "clear": {
+       "runs": [
+        8.447,
+        6.286,
+        3.327
+       ],
+       "out": {
+        "n": 100000
+       },
+       "ms": 6.286,
+       "value": 100000
+      },
+      "find": {
+       "runs": [
+        4.581,
+        3.922,
+        3.925
+       ],
+       "out": {
+        "listed": 1521,
+        "n": 1521,
+        "text": "1 521 matches"
+       },
+       "ms": 3.925,
+       "value": 1521
+      },
+      "totals": {
+       "runs": [
+        160.152,
+        160.77,
+        159.507
+       ],
+       "out": {
+        "values": [
+         "554 806 342,19"
+        ]
+       },
+       "ms": 160.152,
+       "value": [
+        55480634219
+       ]
+      },
+      "col_values": {
+       "runs": [
+        3.555,
+        4.378,
+        3.494
+       ],
+       "out": {
+        "distinct": 85,
+        "text": "85 distinct values on 100 000",
+        "top": [
+         "Austin",
+         "1 618"
+        ],
+        "top_n": 1618
+       },
+       "ms": 3.555,
+       "value": [
+        85,
+        "Austin",
+        1618
+       ]
+      },
+      "group_by": {
+       "runs": [
+        8.27,
+        8.378,
+        7.978
+       ],
+       "out": {
+        "groups": 85,
+        "header": [
+         "city",
+         "Count",
+         "total_spent (sum)"
+        ]
+       },
+       "ms": 8.27,
+       "value": 85
+      },
+      "pivot": {
+       "runs": [
+        12.509,
+        10.892,
+        11.291
+       ],
+       "out": {
+        "text": "6 × 5 from 100 000 rows · click a number to see its rows",
+        "spec": [
+         "country",
+         "status",
+         "Sum",
+         "total_spent"
+        ],
+        "rows": 6,
+        "cols": 5
+       },
+       "ms": 11.291,
+       "value": [
+        6,
+        5
+       ]
+      },
+      "dupes": {
+       "runs": [
+        20.347,
+        17.717,
+        16.351
+       ],
+       "out": {
+        "text": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not).",
+        "rows": 28270,
+        "groups": 9171,
+        "removable": 19099
+       },
+       "ms": 17.717,
+       "value": [
+        9171,
+        28270,
+        19099
+       ]
+      },
+      "insights": {
+       "runs": [
+        199.232,
+        198.181,
+        194.741
+       ],
+       "out": {
+        "text": "100 000 rows read · 4 things noticed, 3 to look at",
+        "items": 4
+       },
+       "ms": 198.181,
+       "value": 4
+      },
+      "profile": {
+       "runs": [
+        48.979,
+        46.477,
+        50.572
+       ],
+       "out": {
+        "cols": 15
+       },
+       "ms": 48.979,
+       "value": 15
+      },
+      "formula": {
+       "runs": [
+        12.724,
+        13.158,
+        12.225
+       ],
+       "out": {
+        "first": "5054.28",
+        "header": "Computed"
+       },
+       "ms": 12.724,
+       "value": 5054.28
+      },
+      "save_csv": {
+       "runs": [
+        21.399,
+        13.929,
+        20.149
+       ],
+       "out": {
+        "bytes": 15979226,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-100k.csv"
+       },
+       "ms": 20.149,
+       "value": 15979226
+      },
+      "export_xlsx": {
+       "runs": [
+        487.372,
+        481.761,
+        486.683
+       ],
+       "out": {
+        "text": "customers-100k.csv | Workbook written: customers-100k.xlsx — 100 001 rows.",
+        "bytes": 17115614,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/customers-100k.xlsx"
+       },
+       "ms": 486.683,
+       "value": 100001
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 43036672,
+        "anon": 14716928,
+        "rss": 46374912,
+        "priv": 42782720,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 43380736,
+        "anon": 14798848,
+        "rss": 46718976,
+        "priv": 43126784,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 43536384,
+        "anon": 14970880,
+        "rss": 46874624,
+        "priv": 43282432,
+        "swap": 0
+       },
+       "filter_expr": {
+        "pss": 44081152,
+        "anon": 15351808,
+        "rss": 47468544,
+        "priv": 43810816,
+        "swap": 0
+       },
+       "filter_num": {
+        "pss": 44699648,
+        "anon": 15970304,
+        "rss": 48087040,
+        "priv": 44429312,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 46510080,
+        "anon": 17780736,
+        "rss": 49897472,
+        "priv": 46239744,
+        "swap": 0
+       },
+       "sort_text": {
+        "pss": 45744128,
+        "anon": 17014784,
+        "rss": 49131520,
+        "priv": 45473792,
+        "swap": 0
+       },
+       "sort_date": {
+        "pss": 46735360,
+        "anon": 18006016,
+        "rss": 50122752,
+        "priv": 46465024,
+        "swap": 0
+       },
+       "sort_multi": {
+        "pss": 46768128,
+        "anon": 18038784,
+        "rss": 50155520,
+        "priv": 46497792,
+        "swap": 0
+       },
+       "clear": {
+        "pss": 44901376,
+        "anon": 16171008,
+        "rss": 48287744,
+        "priv": 44630016,
+        "swap": 0
+       },
+       "find": {
+        "pss": 45711360,
+        "anon": 16850944,
+        "rss": 49098752,
+        "priv": 45441024,
+        "swap": 0
+       },
+       "totals": {
+        "pss": 45805568,
+        "anon": 17244160,
+        "rss": 49225728,
+        "priv": 45502464,
+        "swap": 0
+       },
+       "col_values": {
+        "pss": 45977600,
+        "anon": 17252352,
+        "rss": 49397760,
+        "priv": 45674496,
+        "swap": 0
+       },
+       "group_by": {
+        "pss": 47386624,
+        "anon": 18137088,
+        "rss": 50806784,
+        "priv": 47083520,
+        "swap": 0
+       },
+       "pivot": {
+        "pss": 47702016,
+        "anon": 18227200,
+        "rss": 51122176,
+        "priv": 47398912,
+        "swap": 0
+       },
+       "dupes": {
+        "pss": 53280768,
+        "anon": 23691264,
+        "rss": 56700928,
+        "priv": 52977664,
+        "swap": 0
+       },
+       "insights": {
+        "pss": 133931008,
+        "anon": 103747584,
+        "rss": 137351168,
+        "priv": 133627904,
+        "swap": 0
+       },
+       "profile": {
+        "pss": 113225728,
+        "anon": 82927616,
+        "rss": 116645888,
+        "priv": 112922624,
+        "swap": 0
+       },
+       "formula": {
+        "pss": 120233984,
+        "anon": 89841664,
+        "rss": 123654144,
+        "priv": 119930880,
+        "swap": 0
+       },
+       "save_csv": {
+        "pss": 120304640,
+        "anon": 89841664,
+        "rss": 123723776,
+        "priv": 120000512,
+        "swap": 0
+       },
+       "export_xlsx": {
+        "pss": 121360384,
+        "anon": 89899008,
+        "rss": 124780544,
+        "priv": 121057280,
+        "swap": 0
+       }
+      },
+      "map_peak": 15982592,
+      "mem_available_low": 11528376320,
+      "peak": {
+       "pss": 133931008,
+       "anon": 103747584,
+       "rss": 137351168,
+       "priv": 133627904,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 42438656,
+       "anon": 14118912,
+       "rss": 45776896,
+       "priv": 42184704,
+       "pss_file": 28319744,
+       "procs": 1
+      },
+      "end": {
+       "pss": 121307136.0,
+       "anon": 89845760.0,
+       "rss": 124727296.0,
+       "priv": 121004032.0,
+       "pss_file": 31461376.0,
+       "procs": 1.0
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 13.234,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.149
+       },
+       {
+        "op": "open",
+        "run": 1,
+        "ms": 7.101,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.148
+       },
+       {
+        "op": "open",
+        "run": 2,
+        "ms": 8.238,
+        "out": {
+         "rows": 100000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.15
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "run": 0,
+        "ms": 7.651,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.148
+       },
+       {
+        "op": "filter_global",
+        "run": 1,
+        "ms": 6.916,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "filter_global",
+        "run": 2,
+        "ms": 7.723,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.149
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 5.337,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.148
+       },
+       {
+        "op": "filter_col",
+        "run": 1,
+        "ms": 4.957,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.139
+       },
+       {
+        "op": "filter_col",
+        "run": 2,
+        "ms": 4.309,
+        "out": {
+         "n": 1521
+        },
+        "cpu_busy_before": 0.102
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "run": 0,
+        "ms": 5.078,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.09
+       },
+       {
+        "op": "filter_expr",
+        "run": 1,
+        "ms": 4.576,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.125
+       },
+       {
+        "op": "filter_expr",
+        "run": 2,
+        "ms": 4.995,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.083
+       }
+      ],
+      "filter_num": [
+       {
+        "op": "filter_num",
+        "run": 0,
+        "ms": 7.576,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "filter_num",
+        "run": 1,
+        "ms": 9.186,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.091
+       },
+       {
+        "op": "filter_num",
+        "run": 2,
+        "ms": 9.469,
+        "out": {
+         "n": 69284
+        },
+        "cpu_busy_before": 0.083
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 7.263,
+        "out": {
+         "first": "32567.92"
+        },
+        "cpu_busy_before": 0.085
+       },
+       {
+        "op": "sort_num",
+        "run": 1,
+        "ms": 6.913,
+        "out": {
+         "first": "32567.92"
+        },
+        "cpu_busy_before": 0.086
+       },
+       {
+        "op": "sort_num",
+        "run": 2,
+        "ms": 7.303,
+        "out": {
+         "first": "32567.92"
+        },
+        "cpu_busy_before": 0.112
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "run": 0,
+        "ms": 7.297,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.097
+       },
+       {
+        "op": "sort_text",
+        "run": 1,
+        "ms": 7.328,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.096
+       },
+       {
+        "op": "sort_text",
+        "run": 2,
+        "ms": 7.175,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.096
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "run": 0,
+        "ms": 7.056,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.09
+       },
+       {
+        "op": "sort_date",
+        "run": 1,
+        "ms": 6.537,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.095
+       },
+       {
+        "op": "sort_date",
+        "run": 2,
+        "ms": 6.316,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.082
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "run": 0,
+        "ms": 10.34,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ]
+        },
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "sort_multi",
+        "run": 1,
+        "ms": 10.493,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ]
+        },
+        "cpu_busy_before": 0.092
+       },
+       {
+        "op": "sort_multi",
+        "run": 2,
+        "ms": 10.786,
+        "out": {
+         "first": [
+          "France",
+          "32567.65"
+         ]
+        },
+        "cpu_busy_before": 0.087
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "run": 0,
+        "ms": 8.447,
+        "out": {
+         "n": 100000
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "clear",
+        "run": 1,
+        "ms": 6.286,
+        "out": {
+         "n": 100000
+        },
+        "cpu_busy_before": 0.04
+       },
+       {
+        "op": "clear",
+        "run": 2,
+        "ms": 3.327,
+        "out": {
+         "n": 100000
+        },
+        "cpu_busy_before": 0.046
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "run": 0,
+        "ms": 4.581,
+        "out": {
+         "listed": 1521,
+         "n": 1521,
+         "text": "1 521 matches"
+        },
+        "cpu_busy_before": 0.035
+       },
+       {
+        "op": "find",
+        "run": 1,
+        "ms": 3.922,
+        "out": {
+         "listed": 1521,
+         "n": 1521,
+         "text": "1 521 matches"
+        },
+        "cpu_busy_before": 0.089
+       },
+       {
+        "op": "find",
+        "run": 2,
+        "ms": 3.925,
+        "out": {
+         "listed": 1521,
+         "n": 1521,
+         "text": "1 521 matches"
+        },
+        "cpu_busy_before": 0.087
+       }
+      ],
+      "totals": [
+       {
+        "op": "totals",
+        "run": 0,
+        "ms": 160.152,
+        "out": {
+         "values": [
+          "554 806 342,19"
+         ]
+        },
+        "cpu_busy_before": 0.098
+       },
+       {
+        "op": "totals",
+        "run": 1,
+        "ms": 160.77,
+        "out": {
+         "values": [
+          "554 806 342,19"
+         ]
+        },
+        "cpu_busy_before": 0.097
+       },
+       {
+        "op": "totals",
+        "run": 2,
+        "ms": 159.507,
+        "out": {
+         "values": [
+          "554 806 342,19"
+         ]
+        },
+        "cpu_busy_before": 0.095
+       }
+      ],
+      "col_values": [
+       {
+        "op": "col_values",
+        "run": 0,
+        "ms": 3.555,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 100 000",
+         "top": [
+          "Austin",
+          "1 618"
+         ],
+         "top_n": 1618
+        },
+        "cpu_busy_before": 0.104
+       },
+       {
+        "op": "col_values",
+        "run": 1,
+        "ms": 4.378,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 100 000",
+         "top": [
+          "Austin",
+          "1 618"
+         ],
+         "top_n": 1618
+        },
+        "cpu_busy_before": 0.091
+       },
+       {
+        "op": "col_values",
+        "run": 2,
+        "ms": 3.494,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 100 000",
+         "top": [
+          "Austin",
+          "1 618"
+         ],
+         "top_n": 1618
+        },
+        "cpu_busy_before": 0.085
+       }
+      ],
+      "group_by": [
+       {
+        "op": "group_by",
+        "run": 0,
+        "ms": 8.27,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.094
+       },
+       {
+        "op": "group_by",
+        "run": 1,
+        "ms": 8.378,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.079
+       },
+       {
+        "op": "group_by",
+        "run": 2,
+        "ms": 7.978,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.095
+       }
+      ],
+      "pivot": [
+       {
+        "op": "pivot",
+        "run": 0,
+        "ms": 12.509,
+        "out": {
+         "text": "6 × 5 from 100 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.079
+       },
+       {
+        "op": "pivot",
+        "run": 1,
+        "ms": 10.892,
+        "out": {
+         "text": "6 × 5 from 100 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.098
+       },
+       {
+        "op": "pivot",
+        "run": 2,
+        "ms": 11.291,
+        "out": {
+         "text": "6 × 5 from 100 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.093
+       }
+      ],
+      "dupes": [
+       {
+        "op": "dupes",
+        "run": 0,
+        "ms": 20.347,
+        "out": {
+         "text": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not).",
+         "rows": 28270,
+         "groups": 9171,
+         "removable": 19099
+        },
+        "cpu_busy_before": 0.09
+       },
+       {
+        "op": "dupes",
+        "run": 1,
+        "ms": 17.717,
+        "out": {
+         "text": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not).",
+         "rows": 28270,
+         "groups": 9171,
+         "removable": 19099
+        },
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "dupes",
+        "run": 2,
+        "ms": 16.351,
+        "out": {
+         "text": "28 270 rows in 9 171 groups — key 1: 12 137 rows · key 2: 16 643 rows · key 3: 375 rows. Delete keeps one row per group: 19 099 deleted (all 100 000 rows are checked, filtered or not).",
+         "rows": 28270,
+         "groups": 9171,
+         "removable": 19099
+        },
+        "cpu_busy_before": 0.091
+       }
+      ],
+      "insights": [
+       {
+        "op": "insights",
+        "run": 0,
+        "ms": 199.232,
+        "out": {
+         "text": "100 000 rows read · 4 things noticed, 3 to look at",
+         "items": 4
+        },
+        "cpu_busy_before": 0.092
+       },
+       {
+        "op": "insights",
+        "run": 1,
+        "ms": 198.181,
+        "out": {
+         "text": "100 000 rows read · 4 things noticed, 3 to look at",
+         "items": 4
+        },
+        "cpu_busy_before": 0.091
+       },
+       {
+        "op": "insights",
+        "run": 2,
+        "ms": 194.741,
+        "out": {
+         "text": "100 000 rows read · 4 things noticed, 3 to look at",
+         "items": 4
+        },
+        "cpu_busy_before": 0.091
+       }
+      ],
+      "profile": [
+       {
+        "op": "profile",
+        "run": 0,
+        "ms": 48.979,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.088
+       },
+       {
+        "op": "profile",
+        "run": 1,
+        "ms": 46.477,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.09
+       },
+       {
+        "op": "profile",
+        "run": 2,
+        "ms": 50.572,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.095
+       }
+      ],
+      "formula": [
+       {
+        "op": "formula",
+        "run": 0,
+        "ms": 12.724,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.09
+       },
+       {
+        "op": "formula",
+        "run": 1,
+        "ms": 13.158,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.098
+       },
+       {
+        "op": "formula",
+        "run": 2,
+        "ms": 12.225,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.085
+       }
+      ],
+      "save_csv": [
+       {
+        "op": "save_csv",
+        "run": 0,
+        "ms": 21.399,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-100k.csv"
+        },
+        "cpu_busy_before": 0.096
+       },
+       {
+        "op": "save_csv",
+        "run": 1,
+        "ms": 13.929,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-100k.csv"
+        },
+        "cpu_busy_before": 0.095
+       },
+       {
+        "op": "save_csv",
+        "run": 2,
+        "ms": 20.149,
+        "out": {
+         "bytes": 15979226,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-100k.csv"
+        },
+        "cpu_busy_before": 0.089
+       }
+      ],
+      "export_xlsx": [
+       {
+        "op": "export_xlsx",
+        "run": 0,
+        "ms": 487.372,
+        "out": {
+         "text": "customers-100k.csv | Workbook written: customers-100k.xlsx — 100 001 rows.",
+         "bytes": 17115614,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-100k.xlsx"
+        },
+        "cpu_busy_before": 0.094
+       },
+       {
+        "op": "export_xlsx",
+        "run": 1,
+        "ms": 481.761,
+        "out": {
+         "text": "customers-100k.csv | Workbook written: customers-100k.xlsx — 100 001 rows.",
+         "bytes": 17115614,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-100k.xlsx"
+        },
+        "cpu_busy_before": 0.092
+       },
+       {
+        "op": "export_xlsx",
+        "run": 2,
+        "ms": 486.683,
+        "out": {
+         "text": "customers-100k.csv | Workbook written: customers-100k.xlsx — 100 001 rows.",
+         "bytes": 17115614,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-100k.xlsx"
+        },
+        "cpu_busy_before": 0.089
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "bytes": 15979226,
+    "rows": 100000,
+    "ncols": 15,
+    "lyon_any": 1521,
+    "lyon_city": 1521,
+    "gt1000": 69284,
+    "find_cells": 1521,
+    "max_total": 32567.92,
+    "max_total_france": 32567.65,
+    "first_country": "France",
+    "min_signup": "2015-01-01",
+    "first_last": "Adams",
+    "sum_total_cents": 55480634219,
+    "cities": 85,
+    "top_city": [
+     "Austin",
+     1618
+    ],
+    "countries": 6,
+    "statuses": 5,
+    "first_double": 5054.28
+   },
+   "cross": {},
+   "engine": {
+    "open": 2.0,
+    "filter_global": 6.0,
+    "filter_col": 2.0,
+    "filter_num": 6.0,
+    "sort_num": 5.0,
+    "sort_text": 5.0,
+    "sort_date": 4.0,
+    "save_csv": 0.0,
+    "pivot": 9.0,
+    "group_by": 11.0,
+    "dupes": 17.0,
+    "insights": 252.311063
+   },
+   "startup": {
+    "web": {
+     "cold": {
+      "ms": 495.247314453125,
+      "runs": [
+       {
+        "ms": 552.842041015625,
+        "rows": 100000
+       },
+       {
+        "ms": 495.247314453125,
+        "rows": 100000
+       },
+       {
+        "ms": 466.3037109375,
+        "rows": 100000
+       }
+      ]
+     },
+     "warm": {
+      "ms": 461.825439453125,
+      "runs": [
+       {
+        "ms": 461.825439453125,
+        "rows": 100000
+       },
+       {
+        "ms": 467.157470703125,
+        "rows": 100000
+       },
+       {
+        "ms": 458.653564453125,
+        "rows": 100000
+       }
+      ]
+     }
+    },
+    "native": {
+     "cold": {
+      "ms": 17.703629040624946,
+      "runs": [
+       {
+        "ms": 27.996094955597073,
+        "ms_in_process": 26.72,
+        "rows": 100000,
+        "error": null
+       },
+       {
+        "ms": 16.877215006388724,
+        "ms_in_process": 15.677,
+        "rows": 100000,
+        "error": null
+       },
+       {
+        "ms": 17.703629040624946,
+        "ms_in_process": 16.414,
+        "rows": 100000,
+        "error": null
+       }
+      ]
+     },
+     "warm": {
+      "ms": 16.5233250008896,
+      "runs": [
+       {
+        "ms": 17.22120796330273,
+        "ms_in_process": 15.826,
+        "rows": 100000,
+        "error": null
+       },
+       {
+        "ms": 16.5233250008896,
+        "ms_in_process": 15.221,
+        "rows": 100000,
+        "error": null
+       },
+       {
+        "ms": 15.998828981537372,
+        "ms_in_process": 14.59,
+        "rows": 100000,
+        "error": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "rows": 1000000,
+   "bytes": 160821398,
+   "file": "customers-1m.csv",
+   "apps": {
+    "web": {
+     "ops": {
+      "open": {
+       "runs": [
+        351,
+        316.9000000357628,
+        322.2000000476837
+       ],
+       "out": {
+        "rows": 1000000,
+        "cols": 15
+       },
+       "ms": 322.2000000476837,
+       "value": 1000000
+      },
+      "filter_global": {
+       "runs": [
+        134.89999997615814,
+        78.19999998807907,
+        47.5
+       ],
+       "out": {
+        "n": 15006,
+        "par": true,
+        "par_pool": false
+       },
+       "ms": 78.19999998807907,
+       "value": 15006
+      },
+      "filter_col": {
+       "runs": [
+        52.19999998807907,
+        60.09999996423721,
+        63
+       ],
+       "out": {
+        "n": 15006,
+        "par": true,
+        "par_pool": true
+       },
+       "ms": 60.09999996423721,
+       "value": 15006
+      },
+      "filter_expr": {
+       "runs": [
+        520,
+        462.30000001192093,
+        463
+       ],
+       "out": {
+        "n": 693248,
+        "how": "search box, expression mode: {total_spent}.num() > 1000",
+        "err": ""
+       },
+       "ms": 463,
+       "value": 693248
+      },
+      "sort_num": {
+       "runs": [
+        498,
+        484.60000002384186,
+        550.8999999761581
+       ],
+       "out": {
+        "first": "32567.98"
+       },
+       "ms": 498,
+       "value": "32567.98"
+      },
+      "sort_text": {
+       "runs": [
+        323.69999998807907,
+        283.0999999642372,
+        287.19999998807907
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 287.19999998807907,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        451,
+        420.69999998807907,
+        478.30000001192093
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 451,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        671.5,
+        697.1000000238419,
+        655.3000000119209
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.98"
+        ],
+        "sort": [
+         [
+          "country",
+          false
+         ],
+         [
+          "total_spent",
+          true
+         ]
+        ],
+        "ms_first_key": 424.89999997615814
+       },
+       "ms": 671.5,
+       "value": [
+        "France",
+        32567.98
+       ]
+      },
+      "clear": {
+       "runs": [
+        64.79999995231628,
+        41.30000001192093,
+        41.30000001192093
+       ],
+       "out": {
+        "n": 1000000,
+        "before": 15006,
+        "sorted": false,
+        "log": 0
+       },
+       "ms": 41.30000001192093,
+       "value": 1000000
+      },
+      "find": {
+       "runs": [
+        405.89999997615814,
+        445.5,
+        401.60000002384186
+       ],
+       "out": {
+        "n": 15006,
+        "shown": "15 006 matches"
+       },
+       "ms": 405.89999997615814,
+       "value": 15006
+      },
+      "totals": {
+       "runs": [
+        475.19999998807907,
+        428.7999999523163,
+        428.9000000357628
+       ],
+       "out": {
+        "values": {
+         "total_spent": "5 519 967 696,54"
+        },
+        "fns": {
+         "total_spent": "sum"
+        },
+        "quiet_ms": 150
+       },
+       "ms": 428.9000000357628,
+       "value": [
+        551996769654
+       ]
+      },
+      "col_values": {
+       "runs": [
+        228,
+        252.19999998807907,
+        228.4000000357628
+       ],
+       "out": {
+        "distinct": 85,
+        "values": 85,
+        "top": [
+         "New York",
+         15829
+        ],
+        "listed": 85,
+        "head": "Text85 distinct values on 1 000 000"
+       },
+       "ms": 228.4000000357628,
+       "value": [
+        85,
+        "New York",
+        15829
+       ]
+      },
+      "group_by": {
+       "runs": [
+        534.8999999761581,
+        536.5,
+        535
+       ],
+       "out": {
+        "groups": 85,
+        "header": [
+         "city",
+         "Count",
+         "total_spent (sum)"
+        ],
+        "aggs": [
+         "total_spent: sum"
+        ],
+        "first": [
+         "New York",
+         "15829",
+         "87226108.27"
+        ]
+       },
+       "ms": 535,
+       "value": 85
+      },
+      "pivot": {
+       "runs": [
+        769.8999999761581,
+        757.6000000238419,
+        775.3999999761581
+       ],
+       "out": {
+        "spec": {
+         "rows": "country",
+         "cols": "status",
+         "fun": "sum",
+         "value": "total_spent",
+         "rows_dates": "m",
+         "cols_dates": "m"
+        },
+        "rows": 6,
+        "cols": 5,
+        "grand": 5519967696.540052,
+        "grand_shown": "5 519 967 696,54",
+        "stats": "6 × 5 from 1 000 000 rows · click a number to see its rows"
+       },
+       "ms": 769.8999999761581,
+       "value": [
+        6,
+        5
+       ]
+      },
+      "dupes": {
+       "runs": [
+        3047.2000000476837,
+        2986.599999964237,
+        2841
+       ],
+       "out": {
+        "spec": [
+         "last_name (slug) + first_name (slug) + postal_code (digits)",
+         "email (email)",
+         "phone (phone)"
+        ],
+        "groups": 202616,
+        "rows": 800151,
+        "removable": 597535,
+        "note": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not)."
+       },
+       "ms": 2986.599999964237,
+       "value": [
+        202616,
+        800151,
+        597535
+       ]
+      },
+      "insights": {
+       "runs": [
+        4591.900000035763,
+        3524.7000000476837,
+        4088.900000035763
+       ],
+       "out": {
+        "items": 3,
+        "titles": [
+         "email: ≈ 5 620 values written otherwise than the others",
+         "total_spent: ≈ 520 values far from all the others",
+         "id is filled and different on every row: it identifies them"
+        ],
+        "sampled": true,
+        "read": 100000,
+        "cards": 3
+       },
+       "ms": 4088.900000035763,
+       "value": 3
+      },
+      "profile": {
+       "runs": [
+        4347.899999976158,
+        1911.800000011921,
+        1244.3999999761581
+       ],
+       "out": {
+        "cols": 15,
+        "distinct": [
+         20000,
+         100,
+         138,
+         20000,
+         20000,
+         3379,
+         8557,
+         20000,
+         85,
+         6,
+         3360,
+         3913,
+         80,
+         20000,
+         5
+        ],
+        "capped": [
+         true,
+         false,
+         false,
+         true,
+         true,
+         false,
+         false,
+         true,
+         false,
+         false,
+         false,
+         false,
+         false,
+         true,
+         false
+        ],
+        "sampled": true,
+        "rows": 200000,
+        "drawn": 15
+       },
+       "ms": 1911.800000011921,
+       "value": 15
+      },
+      "formula": {
+       "runs": [
+        1473.6000000238419,
+        1179.3999999761581,
+        1173.9000000357628
+       ],
+       "out": {
+        "first": "5054.28",
+        "cols": 16,
+        "added": 1,
+        "err": ""
+       },
+       "ms": 1179.3999999761581,
+       "value": 5054.28
+      },
+      "save_csv": {
+       "runs": [
+        261,
+        273.2000000476837,
+        246.5
+       ],
+       "out": {
+        "bytes": 160821398,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.csv"
+       },
+       "ms": 261,
+       "value": 160821398
+      },
+      "export_xlsx": {
+       "runs": [
+        15657.300000011921,
+        15455.399999976158,
+        15444.5
+       ],
+       "out": {
+        "bytes": 148640163,
+        "rows": 1000001,
+        "cols": 15,
+        "truncated": false,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.xlsx"
+       },
+       "ms": 15455.399999976158,
+       "value": 1000001
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 1904522240,
+        "anon": 1732534272,
+        "rss": 2614890496,
+        "priv": 1701883904,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 2242134016,
+        "anon": 2019381248,
+        "rss": 2886418432,
+        "priv": 2005397504,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 2311004160,
+        "anon": 2081955840,
+        "rss": 2966179840,
+        "priv": 2069774336,
+        "swap": 0
+       },
+       "filter_expr": {
+        "pss": 2340068352,
+        "anon": 2110779392,
+        "rss": 2989867008,
+        "priv": 2098057216,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 1486999552,
+        "anon": 1268420608,
+        "rss": 2122452992,
+        "priv": 1259999232,
+        "swap": 0
+       },
+       "sort_text": {
+        "pss": 1523854336,
+        "anon": 1307906048,
+        "rss": 2158825472,
+        "priv": 1298186240,
+        "swap": 0
+       },
+       "sort_date": {
+        "pss": 1499945984,
+        "anon": 1280417792,
+        "rss": 2138890240,
+        "priv": 1270325248,
+        "swap": 0
+       },
+       "sort_multi": {
+        "pss": 1583593472,
+        "anon": 1351118848,
+        "rss": 2236424192,
+        "priv": 1340854272,
+        "swap": 0
+       },
+       "clear": {
+        "pss": 1601533952,
+        "anon": 1366401024,
+        "rss": 2256130048,
+        "priv": 1357029376,
+        "swap": 0
+       },
+       "find": {
+        "pss": 1561381888,
+        "anon": 1327706112,
+        "rss": 2216337408,
+        "priv": 1316630528,
+        "swap": 0
+       },
+       "totals": {
+        "pss": 1489970176,
+        "anon": 1303719936,
+        "rss": 2099023872,
+        "priv": 1291304960,
+        "swap": 0
+       },
+       "col_values": {
+        "pss": 1479694336,
+        "anon": 1297883136,
+        "rss": 2085519360,
+        "priv": 1284427776,
+        "swap": 0
+       },
+       "group_by": {
+        "pss": 1550746624,
+        "anon": 1358065664,
+        "rss": 2180567040,
+        "priv": 1341292544,
+        "swap": 0
+       },
+       "pivot": {
+        "pss": 1550253056,
+        "anon": 1353871360,
+        "rss": 2183450624,
+        "priv": 1338552320,
+        "swap": 0
+       },
+       "dupes": {
+        "pss": 1849383936,
+        "anon": 1658744832,
+        "rss": 2477715456,
+        "priv": 1642287104,
+        "swap": 0
+       },
+       "insights": {
+        "pss": 2212948992,
+        "anon": 2027835392,
+        "rss": 2833649664,
+        "priv": 2013483008,
+        "swap": 0
+       },
+       "profile": {
+        "pss": 1973001216,
+        "anon": 1785430016,
+        "rss": 2593071104,
+        "priv": 1779548160,
+        "swap": 0
+       },
+       "formula": {
+        "pss": 3160476672,
+        "anon": 2972917760,
+        "rss": 3785461760,
+        "priv": 2956861440,
+        "swap": 0
+       },
+       "save_csv": {
+        "pss": 3669558272,
+        "anon": 3494473728,
+        "rss": 4283924480,
+        "priv": 3476729856,
+        "swap": 0
+       },
+       "export_xlsx": {
+        "pss": 3822203904,
+        "anon": 3650859008,
+        "rss": 4434268160,
+        "priv": 3634417664,
+        "swap": 0
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 10039525376,
+      "peak": {
+       "pss": 3822203904,
+       "anon": 3650859008,
+       "rss": 4434268160,
+       "priv": 3634417664,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 1644879872.0,
+       "anon": 1474656256.0,
+       "rss": 2352732160.0,
+       "priv": 1444710400.0,
+       "pss_file": 238942208.0,
+       "procs": 12.0
+      },
+      "end": {
+       "pss": 2404719616.0,
+       "anon": 2236186624.0,
+       "rss": 3012390912.0,
+       "priv": 2219057152.0,
+       "pss_file": 235339776.0,
+       "procs": 11.0
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "ms": 351,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "run": 0,
+        "cpu_busy_before": 0.068
+       },
+       {
+        "op": "open",
+        "ms": 316.9000000357628,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "run": 1,
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "open",
+        "ms": 322.2000000476837,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "run": 2,
+        "cpu_busy_before": 0.037
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "ms": 134.89999997615814,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": false
+        },
+        "run": 0,
+        "cpu_busy_before": 0.029
+       },
+       {
+        "op": "filter_global",
+        "ms": 78.19999998807907,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 1,
+        "cpu_busy_before": 0.031
+       },
+       {
+        "op": "filter_global",
+        "ms": 47.5,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 2,
+        "cpu_busy_before": 0.042
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "ms": 52.19999998807907,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 0,
+        "cpu_busy_before": 0.035
+       },
+       {
+        "op": "filter_col",
+        "ms": 60.09999996423721,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 1,
+        "cpu_busy_before": 0.033
+       },
+       {
+        "op": "filter_col",
+        "ms": 63,
+        "out": {
+         "n": 15006,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 2,
+        "cpu_busy_before": 0.025
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "ms": 520,
+        "out": {
+         "n": 693248,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 0,
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "filter_expr",
+        "ms": 462.30000001192093,
+        "out": {
+         "n": 693248,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 1,
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "filter_expr",
+        "ms": 463,
+        "out": {
+         "n": 693248,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 2,
+        "cpu_busy_before": 0.041
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "ms": 498,
+        "out": {
+         "first": "32567.98"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.04
+       },
+       {
+        "op": "sort_num",
+        "ms": 484.60000002384186,
+        "out": {
+         "first": "32567.98"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.052
+       },
+       {
+        "op": "sort_num",
+        "ms": 550.8999999761581,
+        "out": {
+         "first": "32567.98"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.029
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "ms": 323.69999998807907,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "sort_text",
+        "ms": 283.0999999642372,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.027
+       },
+       {
+        "op": "sort_text",
+        "ms": 287.19999998807907,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.041
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "ms": 451,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "sort_date",
+        "ms": 420.69999998807907,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "sort_date",
+        "ms": 478.30000001192093,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.033
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "ms": 671.5,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 424.89999997615814
+        },
+        "run": 0,
+        "cpu_busy_before": 0.052
+       },
+       {
+        "op": "sort_multi",
+        "ms": 697.1000000238419,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 424.0999999642372
+        },
+        "run": 1,
+        "cpu_busy_before": 0.035
+       },
+       {
+        "op": "sort_multi",
+        "ms": 655.3000000119209,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 413.89999997615814
+        },
+        "run": 2,
+        "cpu_busy_before": 0.046
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "ms": 64.79999995231628,
+        "out": {
+         "n": 1000000,
+         "before": 15006,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 0,
+        "cpu_busy_before": 0.043
+       },
+       {
+        "op": "clear",
+        "ms": 41.30000001192093,
+        "out": {
+         "n": 1000000,
+         "before": 15006,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 1,
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "clear",
+        "ms": 41.30000001192093,
+        "out": {
+         "n": 1000000,
+         "before": 15006,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 2,
+        "cpu_busy_before": 0.043
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "ms": 405.89999997615814,
+        "out": {
+         "n": 15006,
+         "shown": "15 006 matches"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.04
+       },
+       {
+        "op": "find",
+        "ms": 445.5,
+        "out": {
+         "n": 15006,
+         "shown": "15 006 matches"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.04
+       },
+       {
+        "op": "find",
+        "ms": 401.60000002384186,
+        "out": {
+         "n": 15006,
+         "shown": "15 006 matches"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "totals": [
+       {
+        "op": "totals",
+        "ms": 475.19999998807907,
+        "out": {
+         "values": {
+          "total_spent": "5 519 967 696,54"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 0,
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "totals",
+        "ms": 428.7999999523163,
+        "out": {
+         "values": {
+          "total_spent": "5 519 967 696,54"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 1,
+        "cpu_busy_before": 0.099
+       },
+       {
+        "op": "totals",
+        "ms": 428.9000000357628,
+        "out": {
+         "values": {
+          "total_spent": "5 519 967 696,54"
+         },
+         "fns": {
+          "total_spent": "sum"
+         },
+         "quiet_ms": 150
+        },
+        "run": 2,
+        "cpu_busy_before": 0.031
+       }
+      ],
+      "col_values": [
+       {
+        "op": "col_values",
+        "ms": 228,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "New York",
+          15829
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 1 000 000"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.071
+       },
+       {
+        "op": "col_values",
+        "ms": 252.19999998807907,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "New York",
+          15829
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 1 000 000"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.048
+       },
+       {
+        "op": "col_values",
+        "ms": 228.4000000357628,
+        "out": {
+         "distinct": 85,
+         "values": 85,
+         "top": [
+          "New York",
+          15829
+         ],
+         "listed": 85,
+         "head": "Text85 distinct values on 1 000 000"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.07
+       }
+      ],
+      "group_by": [
+       {
+        "op": "group_by",
+        "ms": 534.8999999761581,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "New York",
+          "15829",
+          "87226108.27"
+         ]
+        },
+        "run": 0,
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "group_by",
+        "ms": 536.5,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "New York",
+          "15829",
+          "87226108.27"
+         ]
+        },
+        "run": 1,
+        "cpu_busy_before": 0.05
+       },
+       {
+        "op": "group_by",
+        "ms": 535,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ],
+         "aggs": [
+          "total_spent: sum"
+         ],
+         "first": [
+          "New York",
+          "15829",
+          "87226108.27"
+         ]
+        },
+        "run": 2,
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "pivot": [
+       {
+        "op": "pivot",
+        "ms": 769.8999999761581,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 5519967696.540052,
+         "grand_shown": "5 519 967 696,54",
+         "stats": "6 × 5 from 1 000 000 rows · click a number to see its rows"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.149
+       },
+       {
+        "op": "pivot",
+        "ms": 757.6000000238419,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 5519967696.540052,
+         "grand_shown": "5 519 967 696,54",
+         "stats": "6 × 5 from 1 000 000 rows · click a number to see its rows"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.05
+       },
+       {
+        "op": "pivot",
+        "ms": 775.3999999761581,
+        "out": {
+         "spec": {
+          "rows": "country",
+          "cols": "status",
+          "fun": "sum",
+          "value": "total_spent",
+          "rows_dates": "m",
+          "cols_dates": "m"
+         },
+         "rows": 6,
+         "cols": 5,
+         "grand": 5519967696.540052,
+         "grand_shown": "5 519 967 696,54",
+         "stats": "6 × 5 from 1 000 000 rows · click a number to see its rows"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.074
+       }
+      ],
+      "dupes": [
+       {
+        "op": "dupes",
+        "ms": 3047.2000000476837,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 202616,
+         "rows": 800151,
+         "removable": 597535,
+         "note": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not)."
+        },
+        "run": 0,
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "dupes",
+        "ms": 2986.599999964237,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 202616,
+         "rows": 800151,
+         "removable": 597535,
+         "note": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not)."
+        },
+        "run": 1,
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "dupes",
+        "ms": 2841,
+        "out": {
+         "spec": [
+          "last_name (slug) + first_name (slug) + postal_code (digits)",
+          "email (email)",
+          "phone (phone)"
+         ],
+         "groups": 202616,
+         "rows": 800151,
+         "removable": 597535,
+         "note": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not)."
+        },
+        "run": 2,
+        "cpu_busy_before": 0.039
+       }
+      ],
+      "insights": [
+       {
+        "op": "insights",
+        "ms": 4591.900000035763,
+        "out": {
+         "items": 3,
+         "titles": [
+          "email: ≈ 5 620 values written otherwise than the others",
+          "total_spent: ≈ 520 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": true,
+         "read": 100000,
+         "cards": 3
+        },
+        "run": 0,
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "insights",
+        "ms": 3524.7000000476837,
+        "out": {
+         "items": 3,
+         "titles": [
+          "email: ≈ 5 620 values written otherwise than the others",
+          "total_spent: ≈ 520 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": true,
+         "read": 100000,
+         "cards": 3
+        },
+        "run": 1,
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "insights",
+        "ms": 4088.900000035763,
+        "out": {
+         "items": 3,
+         "titles": [
+          "email: ≈ 5 620 values written otherwise than the others",
+          "total_spent: ≈ 520 values far from all the others",
+          "id is filled and different on every row: it identifies them"
+         ],
+         "sampled": true,
+         "read": 100000,
+         "cards": 3
+        },
+        "run": 2,
+        "cpu_busy_before": 0.041
+       }
+      ],
+      "profile": [
+       {
+        "op": "profile",
+        "ms": 4347.899999976158,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8557,
+          20000,
+          85,
+          6,
+          3360,
+          3913,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": true,
+         "rows": 200000,
+         "drawn": 15
+        },
+        "run": 0,
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "profile",
+        "ms": 1911.800000011921,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8557,
+          20000,
+          85,
+          6,
+          3360,
+          3913,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": true,
+         "rows": 200000,
+         "drawn": 15
+        },
+        "run": 1,
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "profile",
+        "ms": 1244.3999999761581,
+        "out": {
+         "cols": 15,
+         "distinct": [
+          20000,
+          100,
+          138,
+          20000,
+          20000,
+          3379,
+          8557,
+          20000,
+          85,
+          6,
+          3360,
+          3913,
+          80,
+          20000,
+          5
+         ],
+         "capped": [
+          true,
+          false,
+          false,
+          true,
+          true,
+          false,
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          false
+         ],
+         "sampled": true,
+         "rows": 200000,
+         "drawn": 15
+        },
+        "run": 2,
+        "cpu_busy_before": 0.043
+       }
+      ],
+      "formula": [
+       {
+        "op": "formula",
+        "ms": 1473.6000000238419,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 0,
+        "cpu_busy_before": 0.042
+       },
+       {
+        "op": "formula",
+        "ms": 1179.3999999761581,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 1,
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "formula",
+        "ms": 1173.9000000357628,
+        "out": {
+         "first": "5054.28",
+         "cols": 16,
+         "added": 1,
+         "err": ""
+        },
+        "run": 2,
+        "cpu_busy_before": 0.05
+       }
+      ],
+      "save_csv": [
+       {
+        "op": "save_csv",
+        "ms": 261,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.csv"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.05
+       },
+       {
+        "op": "save_csv",
+        "ms": 273.2000000476837,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.csv"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.05
+       },
+       {
+        "op": "save_csv",
+        "ms": 246.5,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.csv"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.044
+       }
+      ],
+      "export_xlsx": [
+       {
+        "op": "export_xlsx",
+        "ms": 15657.300000011921,
+        "out": {
+         "bytes": 148640163,
+         "rows": 1000001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.xlsx"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.048
+       },
+       {
+        "op": "export_xlsx",
+        "ms": 15455.399999976158,
+        "out": {
+         "bytes": 148640163,
+         "rows": 1000001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.xlsx"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.048
+       },
+       {
+        "op": "export_xlsx",
+        "ms": 15444.5,
+        "out": {
+         "bytes": 148640163,
+         "rows": 1000001,
+         "cols": 15,
+         "truncated": false,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/web-customers-1m.xlsx"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.054
+       }
+      ]
+     }
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        25.88,
+        22.92,
+        19.401
+       ],
+       "out": {
+        "rows": 1000000,
+        "cols": 15
+       },
+       "ms": 22.92,
+       "value": 1000000
+      },
+      "filter_global": {
+       "runs": [
+        31.228,
+        24.834,
+        26.221
+       ],
+       "out": {
+        "n": 15006
+       },
+       "ms": 26.221,
+       "value": 15006
+      },
+      "filter_col": {
+       "runs": [
+        13.09,
+        22.125,
+        16.043
+       ],
+       "out": {
+        "n": 15006
+       },
+       "ms": 16.043,
+       "value": 15006
+      },
+      "filter_expr": {
+       "runs": [
+        27.943,
+        19.339,
+        27.589
+       ],
+       "out": {
+        "n": 693248
+       },
+       "ms": 27.589,
+       "value": 693248
+      },
+      "filter_num": {
+       "runs": [
+        54.653,
+        58.559,
+        60.121
+       ],
+       "out": {
+        "n": 693248
+       },
+       "ms": 58.559,
+       "value": 693248
+      },
+      "sort_num": {
+       "runs": [
+        38.188,
+        29.235,
+        31.494
+       ],
+       "out": {
+        "first": "32567.98"
+       },
+       "ms": 31.494,
+       "value": "32567.98"
+      },
+      "sort_text": {
+       "runs": [
+        36.469,
+        35.841,
+        36.129
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 36.129,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        27.662,
+        27.325,
+        27.653
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 27.653,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        63.532,
+        55.147,
+        55.289
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.98"
+        ]
+       },
+       "ms": 55.289,
+       "value": [
+        "France",
+        32567.98
+       ]
+      },
+      "clear": {
+       "runs": [
+        5.15,
+        4.205,
+        3.392
+       ],
+       "out": {
+        "n": 1000000
+       },
+       "ms": 4.205,
+       "value": 1000000
+      },
+      "find": {
+       "runs": [
+        28.104,
+        24.769,
+        18.787
+       ],
+       "out": {
+        "listed": 15006,
+        "n": 15006,
+        "text": "15 006 matches"
+       },
+       "ms": 24.769,
+       "value": 15006
+      },
+      "totals": {
+       "runs": [
+        169.144,
+        176.123,
+        169.409
+       ],
+       "out": {
+        "values": [
+         "5 519 967 696,54"
+        ]
+       },
+       "ms": 169.409,
+       "value": [
+        551996769654
+       ]
+      },
+      "col_values": {
+       "runs": [
+        17.599,
+        11.384,
+        10.916
+       ],
+       "out": {
+        "distinct": 85,
+        "text": "85 distinct values on 1 000 000",
+        "top": [
+         "New York",
+         "15 829"
+        ],
+        "top_n": 15829
+       },
+       "ms": 11.384,
+       "value": [
+        85,
+        "New York",
+        15829
+       ]
+      },
+      "group_by": {
+       "runs": [
+        20.077,
+        20.85,
+        20.902
+       ],
+       "out": {
+        "groups": 85,
+        "header": [
+         "city",
+         "Count",
+         "total_spent (sum)"
+        ]
+       },
+       "ms": 20.85,
+       "value": 85
+      },
+      "pivot": {
+       "runs": [
+        27.452,
+        26.879,
+        23.269
+       ],
+       "out": {
+        "text": "6 × 5 from 1 000 000 rows · click a number to see its rows",
+        "spec": [
+         "country",
+         "status",
+         "Sum",
+         "total_spent"
+        ],
+        "rows": 6,
+        "cols": 5
+       },
+       "ms": 26.879,
+       "value": [
+        6,
+        5
+       ]
+      },
+      "dupes": {
+       "runs": [
+        120.623,
+        130.174,
+        125.617
+       ],
+       "out": {
+        "text": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not).",
+        "rows": 800151,
+        "groups": 202616,
+        "removable": 597535
+       },
+       "ms": 125.617,
+       "value": [
+        202616,
+        800151,
+        597535
+       ]
+      },
+      "insights": {
+       "runs": [
+        218.343,
+        202.949,
+        211.11
+       ],
+       "out": {
+        "text": "100 000 rows of 1 000 000 read · 3 things noticed, 2 to look at",
+        "items": 3
+       },
+       "ms": 211.11,
+       "value": 3
+      },
+      "profile": {
+       "runs": [
+        221.393,
+        223.629,
+        223.519
+       ],
+       "out": {
+        "cols": 15
+       },
+       "ms": 223.519,
+       "value": 15
+      },
+      "formula": {
+       "runs": [
+        84.179,
+        66.934,
+        75.963
+       ],
+       "out": {
+        "first": "5054.28",
+        "header": "Computed"
+       },
+       "ms": 75.963,
+       "value": 5054.28
+      },
+      "save_csv": {
+       "runs": [
+        22.979,
+        22.473,
+        22.135
+       ],
+       "out": {
+        "bytes": 160821398,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-1m.csv"
+       },
+       "ms": 22.473,
+       "value": 160821398
+      },
+      "export_xlsx": {
+       "runs": [
+        4292.868,
+        4282.011,
+        4345.732
+       ],
+       "out": {
+        "text": "customers-1m.csv | Workbook written: customers-1m.xlsx — 1 000 001 rows.",
+        "bytes": 171902724,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/customers-1m.xlsx"
+       },
+       "ms": 4292.868,
+       "value": 1000001
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 195898368,
+        "anon": 23011328,
+        "rss": 199151616,
+        "priv": 195645440,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 196878336,
+        "anon": 23793664,
+        "rss": 200130560,
+        "priv": 196624384,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 197025792,
+        "anon": 23941120,
+        "rss": 200278016,
+        "priv": 196771840,
+        "swap": 0
+       },
+       "filter_expr": {
+        "pss": 203497472,
+        "anon": 30117888,
+        "rss": 206798848,
+        "priv": 203227136,
+        "swap": 0
+       },
+       "filter_num": {
+        "pss": 250753024,
+        "anon": 77373440,
+        "rss": 254054400,
+        "priv": 250482688,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 265375744,
+        "anon": 91930624,
+        "rss": 268677120,
+        "priv": 265105408,
+        "swap": 0
+       },
+       "sort_text": {
+        "pss": 258142208,
+        "anon": 84697088,
+        "rss": 261443584,
+        "priv": 257871872,
+        "swap": 0
+       },
+       "sort_date": {
+        "pss": 265904128,
+        "anon": 92459008,
+        "rss": 269205504,
+        "priv": 265633792,
+        "swap": 0
+       },
+       "sort_multi": {
+        "pss": 265965568,
+        "anon": 92520448,
+        "rss": 269266944,
+        "priv": 265695232,
+        "swap": 0
+       },
+       "clear": {
+        "pss": 246095872,
+        "anon": 72650752,
+        "rss": 249397248,
+        "priv": 245825536,
+        "swap": 0
+       },
+       "find": {
+        "pss": 252198912,
+        "anon": 78508032,
+        "rss": 255500288,
+        "priv": 251928576,
+        "swap": 0
+       },
+       "totals": {
+        "pss": 252334080,
+        "anon": 78508032,
+        "rss": 255668224,
+        "priv": 252030976,
+        "swap": 0
+       },
+       "col_values": {
+        "pss": 252382208,
+        "anon": 78512128,
+        "rss": 255737856,
+        "priv": 252084224,
+        "swap": 0
+       },
+       "group_by": {
+        "pss": 259614720,
+        "anon": 85483520,
+        "rss": 262983680,
+        "priv": 259330048,
+        "swap": 0
+       },
+       "pivot": {
+        "pss": 260040704,
+        "anon": 85594112,
+        "rss": 263409664,
+        "priv": 259756032,
+        "swap": 0
+       },
+       "dupes": {
+        "pss": 290179072,
+        "anon": 115539968,
+        "rss": 293548032,
+        "priv": 289894400,
+        "swap": 0
+       },
+       "insights": {
+        "pss": 308930560,
+        "anon": 133668864,
+        "rss": 312299520,
+        "priv": 308645888,
+        "swap": 0
+       },
+       "profile": {
+        "pss": 379049984,
+        "anon": 203722752,
+        "rss": 382418944,
+        "priv": 378765312,
+        "swap": 0
+       },
+       "formula": {
+        "pss": 503080960,
+        "anon": 327688192,
+        "rss": 506449920,
+        "priv": 502796288,
+        "swap": 0
+       },
+       "save_csv": {
+        "pss": 622041088,
+        "anon": 285741056,
+        "rss": 625410048,
+        "priv": 621756416,
+        "swap": 0
+       },
+       "export_xlsx": {
+        "pss": 462272512,
+        "anon": 285794304,
+        "rss": 465641472,
+        "priv": 461987840,
+        "swap": 0
+       }
+      },
+      "map_peak": 160825344,
+      "mem_available_low": 10042044416,
+      "peak": {
+       "pss": 622041088,
+       "anon": 327688192,
+       "rss": 625410048,
+       "priv": 621756416,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 194751488,
+       "anon": 21864448,
+       "rss": 198004736,
+       "priv": 194498560,
+       "pss_file": 172887040,
+       "procs": 1
+      },
+      "end": {
+       "pss": 462219264,
+       "anon": 285741056,
+       "rss": 465588224,
+       "priv": 461934592,
+       "pss_file": 176478208,
+       "procs": 1
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 25.88,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "open",
+        "run": 1,
+        "ms": 22.92,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.042
+       },
+       {
+        "op": "open",
+        "run": 2,
+        "ms": 19.401,
+        "out": {
+         "rows": 1000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.054
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "run": 0,
+        "ms": 31.228,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.031
+       },
+       {
+        "op": "filter_global",
+        "run": 1,
+        "ms": 24.834,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.033
+       },
+       {
+        "op": "filter_global",
+        "run": 2,
+        "ms": 26.221,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 13.09,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "filter_col",
+        "run": 1,
+        "ms": 22.125,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "filter_col",
+        "run": 2,
+        "ms": 16.043,
+        "out": {
+         "n": 15006
+        },
+        "cpu_busy_before": 0.029
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "run": 0,
+        "ms": 27.943,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "filter_expr",
+        "run": 1,
+        "ms": 19.339,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.035
+       },
+       {
+        "op": "filter_expr",
+        "run": 2,
+        "ms": 27.589,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.039
+       }
+      ],
+      "filter_num": [
+       {
+        "op": "filter_num",
+        "run": 0,
+        "ms": 54.653,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "filter_num",
+        "run": 1,
+        "ms": 58.559,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "filter_num",
+        "run": 2,
+        "ms": 60.121,
+        "out": {
+         "n": 693248
+        },
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 38.188,
+        "out": {
+         "first": "32567.98"
+        },
+        "cpu_busy_before": 0.027
+       },
+       {
+        "op": "sort_num",
+        "run": 1,
+        "ms": 29.235,
+        "out": {
+         "first": "32567.98"
+        },
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "sort_num",
+        "run": 2,
+        "ms": 31.494,
+        "out": {
+         "first": "32567.98"
+        },
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "run": 0,
+        "ms": 36.469,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.029
+       },
+       {
+        "op": "sort_text",
+        "run": 1,
+        "ms": 35.841,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.044
+       },
+       {
+        "op": "sort_text",
+        "run": 2,
+        "ms": 36.129,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.037
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "run": 0,
+        "ms": 27.662,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.035
+       },
+       {
+        "op": "sort_date",
+        "run": 1,
+        "ms": 27.325,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.042
+       },
+       {
+        "op": "sort_date",
+        "run": 2,
+        "ms": 27.653,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.037
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "run": 0,
+        "ms": 63.532,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 0.031
+       },
+       {
+        "op": "sort_multi",
+        "run": 1,
+        "ms": 55.147,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "sort_multi",
+        "run": 2,
+        "ms": 55.289,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 0.037
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "run": 0,
+        "ms": 5.15,
+        "out": {
+         "n": 1000000
+        },
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "clear",
+        "run": 1,
+        "ms": 4.205,
+        "out": {
+         "n": 1000000
+        },
+        "cpu_busy_before": 0.045
+       },
+       {
+        "op": "clear",
+        "run": 2,
+        "ms": 3.392,
+        "out": {
+         "n": 1000000
+        },
+        "cpu_busy_before": 0.033
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "run": 0,
+        "ms": 28.104,
+        "out": {
+         "listed": 15006,
+         "n": 15006,
+         "text": "15 006 matches"
+        },
+        "cpu_busy_before": 0.039
+       },
+       {
+        "op": "find",
+        "run": 1,
+        "ms": 24.769,
+        "out": {
+         "listed": 15006,
+         "n": 15006,
+         "text": "15 006 matches"
+        },
+        "cpu_busy_before": 0.033
+       },
+       {
+        "op": "find",
+        "run": 2,
+        "ms": 18.787,
+        "out": {
+         "listed": 15006,
+         "n": 15006,
+         "text": "15 006 matches"
+        },
+        "cpu_busy_before": 0.044
+       }
+      ],
+      "totals": [
+       {
+        "op": "totals",
+        "run": 0,
+        "ms": 169.144,
+        "out": {
+         "values": [
+          "5 519 967 696,54"
+         ]
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "totals",
+        "run": 1,
+        "ms": 176.123,
+        "out": {
+         "values": [
+          "5 519 967 696,54"
+         ]
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "totals",
+        "run": 2,
+        "ms": 169.409,
+        "out": {
+         "values": [
+          "5 519 967 696,54"
+         ]
+        },
+        "cpu_busy_before": 0.04
+       }
+      ],
+      "col_values": [
+       {
+        "op": "col_values",
+        "run": 0,
+        "ms": 17.599,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 1 000 000",
+         "top": [
+          "New York",
+          "15 829"
+         ],
+         "top_n": 15829
+        },
+        "cpu_busy_before": 0.095
+       },
+       {
+        "op": "col_values",
+        "run": 1,
+        "ms": 11.384,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 1 000 000",
+         "top": [
+          "New York",
+          "15 829"
+         ],
+         "top_n": 15829
+        },
+        "cpu_busy_before": 0.048
+       },
+       {
+        "op": "col_values",
+        "run": 2,
+        "ms": 10.916,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 1 000 000",
+         "top": [
+          "New York",
+          "15 829"
+         ],
+         "top_n": 15829
+        },
+        "cpu_busy_before": 0.035
+       }
+      ],
+      "group_by": [
+       {
+        "op": "group_by",
+        "run": 0,
+        "ms": 20.077,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "group_by",
+        "run": 1,
+        "ms": 20.85,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.064
+       },
+       {
+        "op": "group_by",
+        "run": 2,
+        "ms": 20.902,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.075
+       }
+      ],
+      "pivot": [
+       {
+        "op": "pivot",
+        "run": 0,
+        "ms": 27.452,
+        "out": {
+         "text": "6 × 5 from 1 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.072
+       },
+       {
+        "op": "pivot",
+        "run": 1,
+        "ms": 26.879,
+        "out": {
+         "text": "6 × 5 from 1 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.056
+       },
+       {
+        "op": "pivot",
+        "run": 2,
+        "ms": 23.269,
+        "out": {
+         "text": "6 × 5 from 1 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.039
+       }
+      ],
+      "dupes": [
+       {
+        "op": "dupes",
+        "run": 0,
+        "ms": 120.623,
+        "out": {
+         "text": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not).",
+         "rows": 800151,
+         "groups": 202616,
+         "removable": 597535
+        },
+        "cpu_busy_before": 0.049
+       },
+       {
+        "op": "dupes",
+        "run": 1,
+        "ms": 130.174,
+        "out": {
+         "text": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not).",
+         "rows": 800151,
+         "groups": 202616,
+         "removable": 597535
+        },
+        "cpu_busy_before": 0.062
+       },
+       {
+        "op": "dupes",
+        "run": 2,
+        "ms": 125.617,
+        "out": {
+         "text": "800 151 rows in 202 616 groups — key 1: 136 997 rows · key 2: 722 950 rows · key 3: 36 115 rows. Delete keeps one row per group: 597 535 deleted (all 1 000 000 rows are checked, filtered or not).",
+         "rows": 800151,
+         "groups": 202616,
+         "removable": 597535
+        },
+        "cpu_busy_before": 0.05
+       }
+      ],
+      "insights": [
+       {
+        "op": "insights",
+        "run": 0,
+        "ms": 218.343,
+        "out": {
+         "text": "100 000 rows of 1 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.052
+       },
+       {
+        "op": "insights",
+        "run": 1,
+        "ms": 202.949,
+        "out": {
+         "text": "100 000 rows of 1 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "insights",
+        "run": 2,
+        "ms": 211.11,
+        "out": {
+         "text": "100 000 rows of 1 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.044
+       }
+      ],
+      "profile": [
+       {
+        "op": "profile",
+        "run": 0,
+        "ms": 221.393,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.033
+       },
+       {
+        "op": "profile",
+        "run": 1,
+        "ms": 223.629,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.043
+       },
+       {
+        "op": "profile",
+        "run": 2,
+        "ms": 223.519,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.037
+       }
+      ],
+      "formula": [
+       {
+        "op": "formula",
+        "run": 0,
+        "ms": 84.179,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "formula",
+        "run": 1,
+        "ms": 66.934,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.046
+       },
+       {
+        "op": "formula",
+        "run": 2,
+        "ms": 75.963,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.05
+       }
+      ],
+      "save_csv": [
+       {
+        "op": "save_csv",
+        "run": 0,
+        "ms": 22.979,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-1m.csv"
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "save_csv",
+        "run": 1,
+        "ms": 22.473,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-1m.csv"
+        },
+        "cpu_busy_before": 0.041
+       },
+       {
+        "op": "save_csv",
+        "run": 2,
+        "ms": 22.135,
+        "out": {
+         "bytes": 160821398,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-1m.csv"
+        },
+        "cpu_busy_before": 0.079
+       }
+      ],
+      "export_xlsx": [
+       {
+        "op": "export_xlsx",
+        "run": 0,
+        "ms": 4292.868,
+        "out": {
+         "text": "customers-1m.csv | Workbook written: customers-1m.xlsx — 1 000 001 rows.",
+         "bytes": 171902724,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-1m.xlsx"
+        },
+        "cpu_busy_before": 0.048
+       },
+       {
+        "op": "export_xlsx",
+        "run": 1,
+        "ms": 4282.011,
+        "out": {
+         "text": "customers-1m.csv | Workbook written: customers-1m.xlsx — 1 000 001 rows.",
+         "bytes": 171902724,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-1m.xlsx"
+        },
+        "cpu_busy_before": 0.047
+       },
+       {
+        "op": "export_xlsx",
+        "run": 2,
+        "ms": 4345.732,
+        "out": {
+         "text": "customers-1m.csv | Workbook written: customers-1m.xlsx — 1 000 001 rows.",
+         "bytes": 171902724,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-1m.xlsx"
+        },
+        "cpu_busy_before": 0.044
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "bytes": 160821398,
+    "rows": 1000000,
+    "ncols": 15,
+    "lyon_any": 15006,
+    "lyon_city": 15006,
+    "gt1000": 693248,
+    "find_cells": 15006,
+    "max_total": 32567.98,
+    "max_total_france": 32567.98,
+    "first_country": "France",
+    "min_signup": "2015-01-01",
+    "first_last": "Adams",
+    "sum_total_cents": 551996769654,
+    "cities": 85,
+    "top_city": [
+     "New York",
+     15829
+    ],
+    "countries": 6,
+    "statuses": 5,
+    "first_double": 5054.28
+   },
+   "cross": {},
+   "engine": {
+    "open": 8.0,
+    "filter_global": 29.0,
+    "filter_col": 13.0,
+    "filter_num": 67.0,
+    "sort_num": 34.0,
+    "sort_text": 43.0,
+    "sort_date": 28.0,
+    "save_csv": 0.0,
+    "pivot": 31.0,
+    "group_by": 32.0,
+    "dupes": 142.0,
+    "insights": 288.357499
+   },
+   "startup": {
+    "web": {
+     "cold": {
+      "ms": 741.785888671875,
+      "runs": [
+       {
+        "ms": 747.164794921875,
+        "rows": 1000000
+       },
+       {
+        "ms": 704.66259765625,
+        "rows": 1000000
+       },
+       {
+        "ms": 741.785888671875,
+        "rows": 1000000
+       }
+      ]
+     },
+     "warm": {
+      "ms": 731.800537109375,
+      "runs": [
+       {
+        "ms": 723.070556640625,
+        "rows": 1000000
+       },
+       {
+        "ms": 746.042724609375,
+        "rows": 1000000
+       },
+       {
+        "ms": 731.800537109375,
+        "rows": 1000000
+       }
+      ]
+     }
+    },
+    "native": {
+     "cold": {
+      "ms": 68.86432302417234,
+      "runs": [
+       {
+        "ms": 77.59348803665489,
+        "ms_in_process": 76.384,
+        "rows": 1000000,
+        "error": null
+       },
+       {
+        "ms": 68.86432302417234,
+        "ms_in_process": 67.57,
+        "rows": 1000000,
+        "error": null
+       },
+       {
+        "ms": 67.39130499772727,
+        "ms_in_process": 66.195,
+        "rows": 1000000,
+        "error": null
+       }
+      ]
+     },
+     "warm": {
+      "ms": 17.366559011861682,
+      "runs": [
+       {
+        "ms": 17.366559011861682,
+        "ms_in_process": 16.035,
+        "rows": 1000000,
+        "error": null
+       },
+       {
+        "ms": 19.38092295313254,
+        "ms_in_process": 18.001,
+        "rows": 1000000,
+        "error": null
+       },
+       {
+        "ms": 16.160700004547834,
+        "ms_in_process": 14.947,
+        "rows": 1000000,
+        "error": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "rows": 5000000,
+   "bytes": 808516231,
+   "file": "customers-5m.csv",
+   "apps": {
+    "web": {
+     "ops": {
+      "open": {
+       "runs": [
+        2045.8999999761581,
+        2037.0999999642372,
+        1842.3999999761581
+       ],
+       "out": {
+        "rows": 5000000,
+        "cols": 15
+       },
+       "ms": 2037.0999999642372,
+       "value": 5000000
+      },
+      "filter_global": {
+       "runs": [
+        453.80000001192093,
+        273.60000002384186,
+        247.60000002384186
+       ],
+       "out": {
+        "n": 75010,
+        "par": true,
+        "par_pool": false
+       },
+       "ms": 273.60000002384186,
+       "value": 75010
+      },
+      "filter_col": {
+       "runs": [
+        252.10000002384186,
+        260.80000001192093,
+        249.30000001192093
+       ],
+       "out": {
+        "n": 75010,
+        "par": true,
+        "par_pool": true
+       },
+       "ms": 252.10000002384186,
+       "value": 75010
+      },
+      "filter_expr": {
+       "runs": [
+        2934.199999988079,
+        2668.199999988079,
+        2732.100000023842
+       ],
+       "out": {
+        "n": 3465663,
+        "how": "search box, expression mode: {total_spent}.num() > 1000",
+        "err": ""
+       },
+       "ms": 2732.100000023842,
+       "value": 3465663
+      },
+      "sort_num": {
+       "runs": [
+        2878.800000011921,
+        3288.5,
+        3245.199999988079
+       ],
+       "out": {
+        "first": "32568.00"
+       },
+       "ms": 3245.199999988079,
+       "value": "32568.00"
+      },
+      "sort_text": {
+       "runs": [
+        1939.199999988079,
+        2068.5,
+        2008.300000011921
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 2008.300000011921,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        2894.399999976158,
+        3415.699999988079,
+        3429.199999988079
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 3415.699999988079,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        5027.299999952316,
+        4249.600000023842,
+        5562.600000023842
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.98"
+        ],
+        "sort": [
+         [
+          "country",
+          false
+         ],
+         [
+          "total_spent",
+          true
+         ]
+        ],
+        "ms_first_key": 2915.300000011921
+       },
+       "ms": 5027.299999952316,
+       "value": [
+        "France",
+        32567.98
+       ]
+      },
+      "clear": {
+       "runs": [
+        267.60000002384186,
+        128.69999998807907,
+        129.69999998807907
+       ],
+       "out": {
+        "n": 5000000,
+        "before": 75010,
+        "sorted": false,
+        "log": 0
+       },
+       "ms": 129.69999998807907,
+       "value": 5000000
+      },
+      "find": {
+       "runs": [
+        2522.099999964237
+       ],
+       "out": {
+        "n": 75010,
+        "shown": "75 010 matches"
+       },
+       "ms": 2522.099999964237,
+       "value": 75010
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 4595520512,
+        "anon": 4545454080,
+        "rss": 5335470080,
+        "priv": 4436504576,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 2583519232,
+        "anon": 2495692800,
+        "rss": 3359551488,
+        "priv": 2390024192,
+        "swap": 602112
+       },
+       "filter_col": {
+        "pss": 3378703360,
+        "anon": 3331289088,
+        "rss": 4129357824,
+        "priv": 3226116096,
+        "swap": 602112
+       },
+       "filter_expr": {
+        "pss": 3531213824,
+        "anon": 3460788224,
+        "rss": 4295180288,
+        "priv": 3375075328,
+        "swap": 602112
+       },
+       "sort_num": {
+        "pss": 4021771264,
+        "anon": 3960274944,
+        "rss": 4733595648,
+        "priv": 3885838336,
+        "swap": 8314880
+       },
+       "sort_text": {
+        "pss": 4307221504,
+        "anon": 4233703424,
+        "rss": 5036953600,
+        "priv": 4171399168,
+        "swap": 8314880
+       },
+       "sort_date": {
+        "pss": 4528129024,
+        "anon": 4331167744,
+        "rss": 5150621696,
+        "priv": 4320620544,
+        "swap": 87674880
+       },
+       "sort_multi": {
+        "pss": 4458056704,
+        "anon": 4201590784,
+        "rss": 5023641600,
+        "priv": 4267515904,
+        "swap": 1002012672
+       },
+       "clear": {
+        "pss": 4428281856,
+        "anon": 4261912576,
+        "rss": 4909907968,
+        "priv": 4295966720,
+        "swap": 1001656320
+       },
+       "find": {
+        "pss": 4172515328,
+        "anon": 3945795584,
+        "rss": 4705259520,
+        "priv": 3989180416,
+        "swap": 245026816
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 2738720768,
+      "peak": {
+       "pss": 4595520512,
+       "anon": 4545454080,
+       "rss": 5335470080,
+       "priv": 4436504576,
+       "swap": 1002012672
+      },
+      "after_open": {
+       "pss": 2934544384,
+       "anon": 2889129984,
+       "rss": 3706503168,
+       "priv": 2780893184,
+       "pss_file": 103311360,
+       "procs": 11
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "ms": 2045.8999999761581,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "run": 0,
+        "cpu_busy_before": 0.144
+       },
+       {
+        "op": "open",
+        "ms": 2037.0999999642372,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "run": 1,
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "open",
+        "ms": 1842.3999999761581,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "run": 2,
+        "cpu_busy_before": 0.056
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "ms": 453.80000001192093,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": false
+        },
+        "run": 0,
+        "cpu_busy_before": 0.143
+       },
+       {
+        "op": "filter_global",
+        "ms": 273.60000002384186,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 1,
+        "cpu_busy_before": 0.05
+       },
+       {
+        "op": "filter_global",
+        "ms": 247.60000002384186,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 2,
+        "cpu_busy_before": 0.1
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "ms": 252.10000002384186,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 0,
+        "cpu_busy_before": 0.133
+       },
+       {
+        "op": "filter_col",
+        "ms": 260.80000001192093,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 1,
+        "cpu_busy_before": 0.108
+       },
+       {
+        "op": "filter_col",
+        "ms": 249.30000001192093,
+        "out": {
+         "n": 75010,
+         "par": true,
+         "par_pool": true
+        },
+        "run": 2,
+        "cpu_busy_before": 0.104
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "ms": 2934.199999988079,
+        "out": {
+         "n": 3465663,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 0,
+        "cpu_busy_before": 0.117
+       },
+       {
+        "op": "filter_expr",
+        "ms": 2668.199999988079,
+        "out": {
+         "n": 3465663,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 1,
+        "cpu_busy_before": 0.112
+       },
+       {
+        "op": "filter_expr",
+        "ms": 2732.100000023842,
+        "out": {
+         "n": 3465663,
+         "how": "search box, expression mode: {total_spent}.num() > 1000",
+         "err": ""
+        },
+        "run": 2,
+        "cpu_busy_before": 0.11
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "ms": 2878.800000011921,
+        "out": {
+         "first": "32568.00"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.114
+       },
+       {
+        "op": "sort_num",
+        "ms": 3288.5,
+        "out": {
+         "first": "32568.00"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.126
+       },
+       {
+        "op": "sort_num",
+        "ms": 3245.199999988079,
+        "out": {
+         "first": "32568.00"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.117
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "ms": 1939.199999988079,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.135
+       },
+       {
+        "op": "sort_text",
+        "ms": 2068.5,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.12
+       },
+       {
+        "op": "sort_text",
+        "ms": 2008.300000011921,
+        "out": {
+         "first": "Adams"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.11
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "ms": 2894.399999976158,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.111
+       },
+       {
+        "op": "sort_date",
+        "ms": 3415.699999988079,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 1,
+        "cpu_busy_before": 0.117
+       },
+       {
+        "op": "sort_date",
+        "ms": 3429.199999988079,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "run": 2,
+        "cpu_busy_before": 0.12
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "ms": 5027.299999952316,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 2915.300000011921
+        },
+        "run": 0,
+        "cpu_busy_before": 0.133
+       },
+       {
+        "op": "sort_multi",
+        "ms": 4249.600000023842,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 2657.399999976158
+        },
+        "run": 1,
+        "cpu_busy_before": 0.109
+       },
+       {
+        "op": "sort_multi",
+        "ms": 5562.600000023842,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ],
+         "sort": [
+          [
+           "country",
+           false
+          ],
+          [
+           "total_spent",
+           true
+          ]
+         ],
+         "ms_first_key": 7190.899999976158
+        },
+        "run": 2,
+        "cpu_busy_before": 0.998
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "ms": 267.60000002384186,
+        "out": {
+         "n": 5000000,
+         "before": 75010,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 0,
+        "cpu_busy_before": 0.128
+       },
+       {
+        "op": "clear",
+        "ms": 128.69999998807907,
+        "out": {
+         "n": 5000000,
+         "before": 75010,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 1,
+        "cpu_busy_before": 0.133
+       },
+       {
+        "op": "clear",
+        "ms": 129.69999998807907,
+        "out": {
+         "n": 5000000,
+         "before": 75010,
+         "sorted": false,
+         "log": 0
+        },
+        "run": 2,
+        "cpu_busy_before": 0.108
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "ms": 2522.099999964237,
+        "out": {
+         "n": 75010,
+         "shown": "75 010 matches"
+        },
+        "run": 0,
+        "cpu_busy_before": 0.127
+       }
+      ]
+     },
+     "stopped": "stopped by the memory guard during find (run 2): MemAvailable fell to 4.0 GB while the web app held ~4 GB and other work on the machine the rest. Four later sessions (web alone, 7–12 GB free at their start) ended early too: three by the same guard, the machine's other work taking up to 10 GB meanwhile (down to 2.0 GB available), and one when server.py exited during the computed column (see later_sessions). The operations from totals on were therefore not measured at 5 M for the web app; find has one run.",
+     "later_sessions": [
+      "2026-10-28 07:40 stopped during open (MemAvailable 3.0 GB)",
+      "2026-10-28 ~08:30 reached formula: run 3 hung, server.py exited (no window poll for 30 s, IDLE_LIVE) and save_csv then hung; aborted, nothing kept",
+      "2026-10-28 ~09:05 stopped during open 3 (MemAvailable 3.9 GB)",
+      "2026-10-28 ~09:30 stopped (MemAvailable 2.0 GB, the web app holding 0.46 GB)"
+     ]
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        38.481,
+        37.579,
+        188.295
+       ],
+       "out": {
+        "rows": 5000000,
+        "cols": 15
+       },
+       "ms": 38.481,
+       "value": 5000000
+      },
+      "filter_global": {
+       "runs": [
+        126.686,
+        113.891,
+        144.123
+       ],
+       "out": {
+        "n": 75010
+       },
+       "ms": 126.686,
+       "value": 75010
+      },
+      "filter_col": {
+       "runs": [
+        56.245,
+        187.509,
+        52.551
+       ],
+       "out": {
+        "n": 75010
+       },
+       "ms": 56.245,
+       "value": 75010
+      },
+      "filter_expr": {
+       "runs": [
+        102.796,
+        91.37,
+        187.464
+       ],
+       "out": {
+        "n": 3465663
+       },
+       "ms": 102.796,
+       "value": 3465663
+      },
+      "filter_num": {
+       "runs": [
+        266.514,
+        237.531,
+        230.968
+       ],
+       "out": {
+        "n": 3465663
+       },
+       "ms": 237.531,
+       "value": 3465663
+      },
+      "sort_num": {
+       "runs": [
+        193.523,
+        191.19,
+        195.287
+       ],
+       "out": {
+        "first": "32568.00"
+       },
+       "ms": 193.523,
+       "value": "32568.00"
+      },
+      "sort_text": {
+       "runs": [
+        210.303,
+        212.762,
+        208.275
+       ],
+       "out": {
+        "first": "Adams"
+       },
+       "ms": 210.303,
+       "value": "Adams"
+      },
+      "sort_date": {
+       "runs": [
+        420.924,
+        141.735,
+        303.118
+       ],
+       "out": {
+        "first": "2015-01-01"
+       },
+       "ms": 303.118,
+       "value": "2015-01-01"
+      },
+      "sort_multi": {
+       "runs": [
+        3023.931,
+        458.772,
+        879.818
+       ],
+       "out": {
+        "first": [
+         "France",
+         "32567.98"
+        ]
+       },
+       "ms": 879.818,
+       "value": [
+        "France",
+        32567.98
+       ]
+      },
+      "clear": {
+       "runs": [
+        2.997,
+        3.741,
+        3.401
+       ],
+       "out": {
+        "n": 5000000
+       },
+       "ms": 3.401,
+       "value": 5000000
+      },
+      "find": {
+       "runs": [
+        229.69,
+        1119.171,
+        209.467
+       ],
+       "out": {
+        "listed": 75010,
+        "n": 75010,
+        "text": "75 010 matches"
+       },
+       "ms": 229.69,
+       "value": 75010
+      },
+      "totals": {
+       "runs": [
+        245.29,
+        318.076,
+        233.304
+       ],
+       "out": {
+        "values": [
+         "27 632 604 977,25"
+        ]
+       },
+       "ms": 245.29,
+       "value": [
+        2763260497725
+       ]
+      },
+      "col_values": {
+       "runs": [
+        57.74,
+        52.423,
+        49.947
+       ],
+       "out": {
+        "distinct": 85,
+        "text": "85 distinct values on 5 000 000",
+        "top": [
+         "Boston",
+         "78 614"
+        ],
+        "top_n": 78614
+       },
+       "ms": 52.423,
+       "value": [
+        85,
+        "Boston",
+        78614
+       ]
+      },
+      "group_by": {
+       "runs": [
+        83.574,
+        82.611,
+        82.04
+       ],
+       "out": {
+        "groups": 85,
+        "header": [
+         "city",
+         "Count",
+         "total_spent (sum)"
+        ]
+       },
+       "ms": 82.611,
+       "value": 85
+      },
+      "pivot": {
+       "runs": [
+        94.335,
+        100.793,
+        89.091
+       ],
+       "out": {
+        "text": "6 × 5 from 5 000 000 rows · click a number to see its rows",
+        "spec": [
+         "country",
+         "status",
+         "Sum",
+         "total_spent"
+        ],
+        "rows": 6,
+        "cols": 5
+       },
+       "ms": 94.335,
+       "value": [
+        6,
+        5
+       ]
+      },
+      "dupes": {
+       "runs": [
+        895.292,
+        911.212,
+        864.609
+       ],
+       "out": {
+        "text": "4 960 118 rows in 250 743 groups — key 1: 986 994 rows · key 2: 4 912 401 rows · key 3: 817 644 rows. Delete keeps one row per group: 4 709 375 deleted (all 5 000 000 rows are checked, filtered or not).",
+        "rows": 4960118,
+        "groups": 250743,
+        "removable": 4709375
+       },
+       "ms": 895.292,
+       "value": [
+        250743,
+        4960118,
+        4709375
+       ]
+      },
+      "insights": {
+       "runs": [
+        416.231,
+        357.584,
+        424.807
+       ],
+       "out": {
+        "text": "100 000 rows of 5 000 000 read · 3 things noticed, 2 to look at",
+        "items": 3
+       },
+       "ms": 416.231,
+       "value": 3
+      },
+      "profile": {
+       "runs": [
+        425.031,
+        428.825,
+        433.867
+       ],
+       "out": {
+        "cols": 15
+       },
+       "ms": 428.825,
+       "value": 15
+      },
+      "formula": {
+       "runs": [
+        580.862,
+        547.308,
+        710.132
+       ],
+       "out": {
+        "first": "5054.28",
+        "header": "Computed"
+       },
+       "ms": 580.862,
+       "value": 5054.28
+      },
+      "save_csv": {
+       "runs": [
+        18.968,
+        27.441,
+        34.281
+       ],
+       "out": {
+        "bytes": 808516231,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-5m.csv"
+       },
+       "ms": 27.441,
+       "value": 808516231
+      },
+      "export_xlsx": {
+       "runs": [
+        7622.796,
+        16835.537,
+        5471.761
+       ],
+       "out": {
+        "text": "customers-5m.csv | Workbook written: customers-5m.xlsx — 1 048 576 rows · truncated to Excel's limits.",
+        "bytes": 180278844,
+        "path": "/home/fabio/.cache/csvfab-bench/compare/customers-5m.xlsx"
+       },
+       "ms": 7622.796,
+       "value": 1048576
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 874942464,
+        "anon": 54222848,
+        "rss": 878247936,
+        "priv": 874733568,
+        "swap": 0
+       },
+       "filter_global": {
+        "pss": 876939264,
+        "anon": 56561664,
+        "rss": 880226304,
+        "priv": 876740608,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 877249536,
+        "anon": 56840192,
+        "rss": 880533504,
+        "priv": 877047808,
+        "swap": 0
+       },
+       "filter_expr": {
+        "pss": 915760128,
+        "anon": 95031296,
+        "rss": 919109632,
+        "priv": 915546112,
+        "swap": 0
+       },
+       "filter_num": {
+        "pss": 1169941504,
+        "anon": 349212672,
+        "rss": 1173291008,
+        "priv": 1169727488,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 1242309632,
+        "anon": 421527552,
+        "rss": 1245659136,
+        "priv": 1242095616,
+        "swap": 0
+       },
+       "sort_text": {
+        "pss": 1202465792,
+        "anon": 381644800,
+        "rss": 1205776384,
+        "priv": 1202225152,
+        "swap": 0
+       },
+       "sort_date": {
+        "pss": 1242399744,
+        "anon": 421646336,
+        "rss": 1245671424,
+        "priv": 1242226688,
+        "swap": 1609728
+       },
+       "sort_multi": {
+        "pss": 1229011968,
+        "anon": 413773824,
+        "rss": 1232723968,
+        "priv": 1228468224,
+        "swap": 74821632
+       },
+       "clear": {
+        "pss": 1111693312,
+        "anon": 296423424,
+        "rss": 1115373568,
+        "priv": 1111183360,
+        "swap": 65642496
+       },
+       "find": {
+        "pss": 1110420480,
+        "anon": 293519360,
+        "rss": 1114050560,
+        "priv": 1109860352,
+        "swap": 331182080
+       },
+       "totals": {
+        "pss": 897117184,
+        "anon": 80867328,
+        "rss": 900755456,
+        "priv": 896581632,
+        "swap": 269066240
+       },
+       "col_values": {
+        "pss": 898124800,
+        "anon": 81141760,
+        "rss": 901763072,
+        "priv": 897589248,
+        "swap": 262131712
+       },
+       "group_by": {
+        "pss": 919111680,
+        "anon": 102158336,
+        "rss": 922759168,
+        "priv": 918560768,
+        "swap": 261259264
+       },
+       "pivot": {
+        "pss": 919920640,
+        "anon": 102526976,
+        "rss": 923570176,
+        "priv": 919371776,
+        "swap": 260866048
+       },
+       "dupes": {
+        "pss": 1131720704,
+        "anon": 313212928,
+        "rss": 1134886912,
+        "priv": 1131634688,
+        "swap": 260706304
+       },
+       "insights": {
+        "pss": 1132684288,
+        "anon": 313987072,
+        "rss": 1136328704,
+        "priv": 1132138496,
+        "swap": 170196992
+       },
+       "profile": {
+        "pss": 1085547520,
+        "anon": 266760192,
+        "rss": 1089196032,
+        "priv": 1085005824,
+        "swap": 148066304
+       },
+       "formula": {
+        "pss": 1564738560,
+        "anon": 745422848,
+        "rss": 1568382976,
+        "priv": 1564192768,
+        "swap": 117448704
+       },
+       "save_csv": {
+        "pss": 1835794432,
+        "anon": 382246912,
+        "rss": 1839427584,
+        "priv": 1835261952,
+        "swap": 8245248
+       },
+       "export_xlsx": {
+        "pss": 1202435072,
+        "anon": 382324736,
+        "rss": 1206112256,
+        "priv": 1201881088,
+        "swap": 8314880
+       }
+      },
+      "map_peak": 808517632,
+      "mem_available_low": 2736644096,
+      "peak": {
+       "pss": 1835794432,
+       "anon": 745422848,
+       "rss": 1839427584,
+       "priv": 1835261952,
+       "swap": 361381888
+      },
+      "after_open": {
+       "pss": 857231360,
+       "anon": 50073600,
+       "rss": 860536832,
+       "priv": 856989696,
+       "pss_file": 820861952,
+       "procs": 1
+      },
+      "end": {
+       "pss": 509901824.0,
+       "anon": 382185472.0,
+       "rss": 513576960.0,
+       "priv": 509345792.0,
+       "pss_file": 127716352.0,
+       "procs": 1.0
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 38.481,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.104
+       },
+       {
+        "op": "open",
+        "run": 1,
+        "ms": 37.579,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.119
+       },
+       {
+        "op": "open",
+        "run": 2,
+        "ms": 188.295,
+        "out": {
+         "rows": 5000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.16
+       }
+      ],
+      "filter_global": [
+       {
+        "op": "filter_global",
+        "run": 0,
+        "ms": 126.686,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.037
+       },
+       {
+        "op": "filter_global",
+        "run": 1,
+        "ms": 113.891,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.056
+       },
+       {
+        "op": "filter_global",
+        "run": 2,
+        "ms": 144.123,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.14
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 56.245,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.102
+       },
+       {
+        "op": "filter_col",
+        "run": 1,
+        "ms": 187.509,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.102
+       },
+       {
+        "op": "filter_col",
+        "run": 2,
+        "ms": 52.551,
+        "out": {
+         "n": 75010
+        },
+        "cpu_busy_before": 0.116
+       }
+      ],
+      "filter_expr": [
+       {
+        "op": "filter_expr",
+        "run": 0,
+        "ms": 102.796,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.124
+       },
+       {
+        "op": "filter_expr",
+        "run": 1,
+        "ms": 91.37,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.127
+       },
+       {
+        "op": "filter_expr",
+        "run": 2,
+        "ms": 187.464,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.112
+       }
+      ],
+      "filter_num": [
+       {
+        "op": "filter_num",
+        "run": 0,
+        "ms": 266.514,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.11
+       },
+       {
+        "op": "filter_num",
+        "run": 1,
+        "ms": 237.531,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.108
+       },
+       {
+        "op": "filter_num",
+        "run": 2,
+        "ms": 230.968,
+        "out": {
+         "n": 3465663
+        },
+        "cpu_busy_before": 0.108
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 193.523,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.111
+       },
+       {
+        "op": "sort_num",
+        "run": 1,
+        "ms": 191.19,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.127
+       },
+       {
+        "op": "sort_num",
+        "run": 2,
+        "ms": 195.287,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.115
+       }
+      ],
+      "sort_text": [
+       {
+        "op": "sort_text",
+        "run": 0,
+        "ms": 210.303,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.123
+       },
+       {
+        "op": "sort_text",
+        "run": 1,
+        "ms": 212.762,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.123
+       },
+       {
+        "op": "sort_text",
+        "run": 2,
+        "ms": 208.275,
+        "out": {
+         "first": "Adams"
+        },
+        "cpu_busy_before": 0.11
+       }
+      ],
+      "sort_date": [
+       {
+        "op": "sort_date",
+        "run": 0,
+        "ms": 420.924,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.261
+       },
+       {
+        "op": "sort_date",
+        "run": 1,
+        "ms": 141.735,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.108
+       },
+       {
+        "op": "sort_date",
+        "run": 2,
+        "ms": 303.118,
+        "out": {
+         "first": "2015-01-01"
+        },
+        "cpu_busy_before": 0.11
+       }
+      ],
+      "sort_multi": [
+       {
+        "op": "sort_multi",
+        "run": 0,
+        "ms": 3023.931,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 1.0
+       },
+       {
+        "op": "sort_multi",
+        "run": 1,
+        "ms": 458.772,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 0.114
+       },
+       {
+        "op": "sort_multi",
+        "run": 2,
+        "ms": 879.818,
+        "out": {
+         "first": [
+          "France",
+          "32567.98"
+         ]
+        },
+        "cpu_busy_before": 0.127
+       }
+      ],
+      "clear": [
+       {
+        "op": "clear",
+        "run": 0,
+        "ms": 2.997,
+        "out": {
+         "n": 5000000
+        },
+        "cpu_busy_before": 0.125
+       },
+       {
+        "op": "clear",
+        "run": 1,
+        "ms": 3.741,
+        "out": {
+         "n": 5000000
+        },
+        "cpu_busy_before": 0.119
+       },
+       {
+        "op": "clear",
+        "run": 2,
+        "ms": 3.401,
+        "out": {
+         "n": 5000000
+        },
+        "cpu_busy_before": 0.106
+       }
+      ],
+      "find": [
+       {
+        "op": "find",
+        "run": 0,
+        "ms": 229.69,
+        "out": {
+         "listed": 75010,
+         "n": 75010,
+         "text": "75 010 matches"
+        },
+        "cpu_busy_before": 0.204
+       },
+       {
+        "op": "find",
+        "run": 1,
+        "ms": 1119.171,
+        "out": {
+         "listed": 75010,
+         "n": 75010,
+         "text": "75 010 matches"
+        },
+        "cpu_busy_before": 0.577
+       },
+       {
+        "op": "find",
+        "run": 2,
+        "ms": 209.467,
+        "out": {
+         "listed": 75010,
+         "n": 75010,
+         "text": "75 010 matches"
+        },
+        "cpu_busy_before": 0.144
+       }
+      ],
+      "totals": [
+       {
+        "op": "totals",
+        "run": 0,
+        "ms": 245.29,
+        "out": {
+         "values": [
+          "27 632 604 977,25"
+         ]
+        },
+        "cpu_busy_before": 0.142
+       },
+       {
+        "op": "totals",
+        "run": 1,
+        "ms": 318.076,
+        "out": {
+         "values": [
+          "27 632 604 977,25"
+         ]
+        },
+        "cpu_busy_before": 0.081
+       },
+       {
+        "op": "totals",
+        "run": 2,
+        "ms": 233.304,
+        "out": {
+         "values": [
+          "27 632 604 977,25"
+         ]
+        },
+        "cpu_busy_before": 0.09
+       }
+      ],
+      "col_values": [
+       {
+        "op": "col_values",
+        "run": 0,
+        "ms": 57.74,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 5 000 000",
+         "top": [
+          "Boston",
+          "78 614"
+         ],
+         "top_n": 78614
+        },
+        "cpu_busy_before": 0.093
+       },
+       {
+        "op": "col_values",
+        "run": 1,
+        "ms": 52.423,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 5 000 000",
+         "top": [
+          "Boston",
+          "78 614"
+         ],
+         "top_n": 78614
+        },
+        "cpu_busy_before": 0.147
+       },
+       {
+        "op": "col_values",
+        "run": 2,
+        "ms": 49.947,
+        "out": {
+         "distinct": 85,
+         "text": "85 distinct values on 5 000 000",
+         "top": [
+          "Boston",
+          "78 614"
+         ],
+         "top_n": 78614
+        },
+        "cpu_busy_before": 0.098
+       }
+      ],
+      "group_by": [
+       {
+        "op": "group_by",
+        "run": 0,
+        "ms": 83.574,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.091
+       },
+       {
+        "op": "group_by",
+        "run": 1,
+        "ms": 82.611,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.097
+       },
+       {
+        "op": "group_by",
+        "run": 2,
+        "ms": 82.04,
+        "out": {
+         "groups": 85,
+         "header": [
+          "city",
+          "Count",
+          "total_spent (sum)"
+         ]
+        },
+        "cpu_busy_before": 0.087
+       }
+      ],
+      "pivot": [
+       {
+        "op": "pivot",
+        "run": 0,
+        "ms": 94.335,
+        "out": {
+         "text": "6 × 5 from 5 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.106
+       },
+       {
+        "op": "pivot",
+        "run": 1,
+        "ms": 100.793,
+        "out": {
+         "text": "6 × 5 from 5 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.11
+       },
+       {
+        "op": "pivot",
+        "run": 2,
+        "ms": 89.091,
+        "out": {
+         "text": "6 × 5 from 5 000 000 rows · click a number to see its rows",
+         "spec": [
+          "country",
+          "status",
+          "Sum",
+          "total_spent"
+         ],
+         "rows": 6,
+         "cols": 5
+        },
+        "cpu_busy_before": 0.083
+       }
+      ],
+      "dupes": [
+       {
+        "op": "dupes",
+        "run": 0,
+        "ms": 895.292,
+        "out": {
+         "text": "4 960 118 rows in 250 743 groups — key 1: 986 994 rows · key 2: 4 912 401 rows · key 3: 817 644 rows. Delete keeps one row per group: 4 709 375 deleted (all 5 000 000 rows are checked, filtered or not).",
+         "rows": 4960118,
+         "groups": 250743,
+         "removable": 4709375
+        },
+        "cpu_busy_before": 0.116
+       },
+       {
+        "op": "dupes",
+        "run": 1,
+        "ms": 911.212,
+        "out": {
+         "text": "4 960 118 rows in 250 743 groups — key 1: 986 994 rows · key 2: 4 912 401 rows · key 3: 817 644 rows. Delete keeps one row per group: 4 709 375 deleted (all 5 000 000 rows are checked, filtered or not).",
+         "rows": 4960118,
+         "groups": 250743,
+         "removable": 4709375
+        },
+        "cpu_busy_before": 0.075
+       },
+       {
+        "op": "dupes",
+        "run": 2,
+        "ms": 864.609,
+        "out": {
+         "text": "4 960 118 rows in 250 743 groups — key 1: 986 994 rows · key 2: 4 912 401 rows · key 3: 817 644 rows. Delete keeps one row per group: 4 709 375 deleted (all 5 000 000 rows are checked, filtered or not).",
+         "rows": 4960118,
+         "groups": 250743,
+         "removable": 4709375
+        },
+        "cpu_busy_before": 0.086
+       }
+      ],
+      "insights": [
+       {
+        "op": "insights",
+        "run": 0,
+        "ms": 416.231,
+        "out": {
+         "text": "100 000 rows of 5 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.146
+       },
+       {
+        "op": "insights",
+        "run": 1,
+        "ms": 357.584,
+        "out": {
+         "text": "100 000 rows of 5 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.079
+       },
+       {
+        "op": "insights",
+        "run": 2,
+        "ms": 424.807,
+        "out": {
+         "text": "100 000 rows of 5 000 000 read · 3 things noticed, 2 to look at",
+         "items": 3
+        },
+        "cpu_busy_before": 0.146
+       }
+      ],
+      "profile": [
+       {
+        "op": "profile",
+        "run": 0,
+        "ms": 425.031,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.144
+       },
+       {
+        "op": "profile",
+        "run": 1,
+        "ms": 428.825,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.143
+       },
+       {
+        "op": "profile",
+        "run": 2,
+        "ms": 433.867,
+        "out": {
+         "cols": 15
+        },
+        "cpu_busy_before": 0.146
+       }
+      ],
+      "formula": [
+       {
+        "op": "formula",
+        "run": 0,
+        "ms": 580.862,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.144
+       },
+       {
+        "op": "formula",
+        "run": 1,
+        "ms": 547.308,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.144
+       },
+       {
+        "op": "formula",
+        "run": 2,
+        "ms": 710.132,
+        "out": {
+         "first": "5054.28",
+         "header": "Computed"
+        },
+        "cpu_busy_before": 0.146
+       }
+      ],
+      "save_csv": [
+       {
+        "op": "save_csv",
+        "run": 0,
+        "ms": 18.968,
+        "out": {
+         "bytes": 808516231,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-5m.csv"
+        },
+        "cpu_busy_before": 0.148
+       },
+       {
+        "op": "save_csv",
+        "run": 1,
+        "ms": 27.441,
+        "out": {
+         "bytes": 808516231,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-5m.csv"
+        },
+        "cpu_busy_before": 0.14
+       },
+       {
+        "op": "save_csv",
+        "run": 2,
+        "ms": 34.281,
+        "out": {
+         "bytes": 808516231,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/out/native-customers-5m.csv"
+        },
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "export_xlsx": [
+       {
+        "op": "export_xlsx",
+        "run": 0,
+        "ms": 7622.796,
+        "out": {
+         "text": "customers-5m.csv | Workbook written: customers-5m.xlsx — 1 048 576 rows · truncated to Excel's limits.",
+         "bytes": 180278844,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-5m.xlsx"
+        },
+        "cpu_busy_before": 0.15
+       },
+       {
+        "op": "export_xlsx",
+        "run": 1,
+        "ms": 16835.537,
+        "out": {
+         "text": "customers-5m.csv | Workbook written: customers-5m.xlsx — 1 048 576 rows · truncated to Excel's limits.",
+         "bytes": 180278844,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-5m.xlsx"
+        },
+        "cpu_busy_before": 0.147
+       },
+       {
+        "op": "export_xlsx",
+        "run": 2,
+        "ms": 5471.761,
+        "out": {
+         "text": "customers-5m.csv | Workbook written: customers-5m.xlsx — 1 048 576 rows · truncated to Excel's limits.",
+         "bytes": 180278844,
+         "path": "/home/fabio/.cache/csvfab-bench/compare/customers-5m.xlsx"
+        },
+        "cpu_busy_before": 0.135
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "bytes": 808516231,
+    "rows": 5000000,
+    "ncols": 15,
+    "lyon_any": 75010,
+    "lyon_city": 75010,
+    "gt1000": 3465663,
+    "find_cells": 75010,
+    "max_total": 32568.0,
+    "max_total_france": 32567.98,
+    "first_country": "France",
+    "min_signup": "2015-01-01",
+    "first_last": "Adams",
+    "sum_total_cents": 2763260497725,
+    "cities": 85,
+    "top_city": [
+     "Boston",
+     78614
+    ],
+    "countries": 6,
+    "statuses": 5,
+    "first_double": 5054.28
+   },
+   "cross": {},
+   "engine": {
+    "open": 45.0,
+    "filter_global": 201.0,
+    "filter_col": 80.0,
+    "filter_num": 393.0,
+    "sort_num": 239.0,
+    "sort_text": 309.0,
+    "sort_date": 208.0,
+    "save_csv": 0.0,
+    "pivot": 146.0,
+    "group_by": 158.0,
+    "dupes": 1000.0,
+    "insights": 503.457625
+   },
+   "startup": {
+    "web": {
+     "cold": {
+      "ms": 2860.303466796875,
+      "runs": [
+       {
+        "ms": 2962.66162109375,
+        "rows": 5000000
+       },
+       {
+        "ms": 2860.303466796875,
+        "rows": 5000000
+       },
+       {
+        "ms": 2841.17333984375,
+        "rows": 5000000
+       }
+      ]
+     },
+     "warm": {
+      "ms": 2633.531494140625,
+      "runs": [
+       {
+        "ms": 2633.531494140625,
+        "rows": 5000000
+       },
+       {
+        "ms": 2656.839111328125,
+        "rows": 5000000
+       },
+       {
+        "ms": 2593.37646484375,
+        "rows": 5000000
+       }
+      ]
+     }
+    },
+    "native": {
+     "cold": {
+      "ms": 262.24296604050323,
+      "runs": [
+       {
+        "ms": 239.77492999983951,
+        "ms_in_process": 235.635,
+        "rows": 5000000,
+        "error": null
+       },
+       {
+        "ms": 262.24296604050323,
+        "ms_in_process": 260.765,
+        "rows": 5000000,
+        "error": null
+       },
+       {
+        "ms": 272.4046870134771,
+        "ms_in_process": 270.742,
+        "rows": 5000000,
+        "error": null
+       }
+      ]
+     },
+     "warm": {
+      "ms": 51.9942760001868,
+      "runs": [
+       {
+        "ms": 51.9942760001868,
+        "ms_in_process": 50.56,
+        "rows": 5000000,
+        "error": null
+       },
+       {
+        "ms": 52.206574997399,
+        "ms_in_process": 50.834,
+        "rows": 5000000,
+        "error": null
+       },
+       {
+        "ms": 51.121478027198464,
+        "ms_in_process": 49.725,
+        "rows": 5000000,
+        "error": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "rows": 10000000,
+   "bytes": 1618140806,
+   "file": "customers-10m.csv",
+   "apps": {
+    "web": {
+     "ops": {},
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 3766626304,
+        "anon": 3560222720,
+        "rss": 4292395008,
+        "priv": 3633991680,
+        "swap": 179912704
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 4061478912,
+      "peak": {
+       "pss": 3766626304,
+       "anon": 3560222720,
+       "rss": 4292395008,
+       "priv": 3633991680,
+       "swap": 179912704
+      }
+     },
+     "raw": {},
+     "stopped": "MemAvailable fell to 4.0 GB (floor 4 GB): stopped"
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        444.214
+       ],
+       "out": {
+        "rows": 10000000,
+        "cols": 15
+       },
+       "ms": 444.214,
+       "value": 10000000
+      },
+      "filter_col": {
+       "runs": [
+        136.376
+       ],
+       "out": {
+        "n": 149885
+       },
+       "ms": 136.376,
+       "value": 149885
+      },
+      "sort_num": {
+       "runs": [
+        409.053
+       ],
+       "out": {
+        "first": "32568.00"
+       },
+       "ms": 409.053,
+       "value": "32568.00"
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 1679812608,
+        "anon": 51118080,
+        "rss": 1683451904,
+        "priv": 1679212544,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 1690101760,
+        "anon": 60616704,
+        "rss": 1693212672,
+        "priv": 1690013696,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 1890293760,
+        "anon": 260788224,
+        "rss": 1893404672,
+        "priv": 1890205696,
+        "swap": 0
+       }
+      },
+      "map_peak": 1618141184,
+      "mem_available_low": 5884284928,
+      "peak": {
+       "pss": 1890293760,
+       "anon": 260788224,
+       "rss": 1893404672,
+       "priv": 1890205696,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 1679812608.0,
+       "anon": 51118080.0,
+       "rss": 1683451904.0,
+       "priv": 1679212544.0,
+       "pss_file": 1628694528.0,
+       "procs": 1.0
+      },
+      "end": {
+       "pss": 1730376704,
+       "anon": 100806656,
+       "rss": 1733488640,
+       "priv": 1730289664,
+       "pss_file": 1629570048,
+       "procs": 1
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 444.214,
+        "out": {
+         "rows": 10000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.144
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 136.376,
+        "out": {
+         "n": 149885
+        },
+        "cpu_busy_before": 0.149
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 409.053,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.094
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "rows": 10000000,
+    "lyon_city": 149885,
+    "max_total": 32568.0,
+    "bytes": 1618140806
+   },
+   "cross": {},
+   "limits_only": true
+  },
+  {
+   "rows": 20000000,
+   "bytes": 3247363617,
+   "file": "customers-20m.csv",
+   "apps": {
+    "web": {
+     "ops": {
+      "open": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: Array buffer allocation failed"
+      },
+      "filter_col": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: no file open"
+      },
+      "sort_num": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: no file open"
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 426961920,
+        "anon": 299065344,
+        "rss": 1024126976,
+        "priv": 264552448,
+        "swap": 0
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 9486221312,
+      "peak": {
+       "pss": 468428800,
+       "anon": 335818752,
+       "rss": 1158033408,
+       "priv": 300879872,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 468199424.0,
+       "anon": 333205504.0,
+       "rss": 1070895104.0,
+       "priv": 300797952.0,
+       "pss_file": 216926208.0,
+       "procs": 11.0
+      },
+      "end": {
+       "pss": 467453952,
+       "anon": 333312000,
+       "rss": 1070051328,
+       "priv": 300216320,
+       "pss_file": 216926208,
+       "procs": 11
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "error": "JsError: Error: Array buffer allocation failed",
+        "run": 0,
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "error": "JsError: Error: no file open",
+        "run": 0,
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "error": "JsError: Error: no file open",
+        "run": 0,
+        "cpu_busy_before": 0.148
+       }
+      ]
+     }
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        148.171
+       ],
+       "out": {
+        "rows": 20000000,
+        "cols": 15
+       },
+       "ms": 148.171,
+       "value": 20000000
+      },
+      "filter_col": {
+       "runs": [
+        301.139
+       ],
+       "out": {
+        "n": 299392
+       },
+       "ms": 301.139,
+       "value": 299392
+      },
+      "sort_num": {
+       "runs": [
+        1134.716
+       ],
+       "out": {
+        "first": "32568.00"
+       },
+       "ms": 1134.716,
+       "value": "32568.00"
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 3350067200,
+        "anon": 91750400,
+        "rss": 3353325568,
+        "priv": 3349987328,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 3371513856,
+        "anon": 112943104,
+        "rss": 3374772224,
+        "priv": 3371433984,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 3771680768,
+        "anon": 513110016,
+        "rss": 3774939136,
+        "priv": 3771600896,
+        "swap": 0
+       }
+      },
+      "map_peak": 3247366144,
+      "mem_available_low": 10518298624,
+      "peak": {
+       "pss": 3771680768,
+       "anon": 513110016,
+       "rss": 3774939136,
+       "priv": 3771600896,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 3350067200.0,
+       "anon": 91750400.0,
+       "rss": 3353325568.0,
+       "priv": 3349987328.0,
+       "pss_file": 3258316800.0,
+       "procs": 1.0
+      },
+      "end": {
+       "pss": 3451783168,
+       "anon": 193146880,
+       "rss": 3455041536,
+       "priv": 3451703296,
+       "pss_file": 3258636288,
+       "procs": 1
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 148.171,
+        "out": {
+         "rows": 20000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.134
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 301.139,
+        "out": {
+         "n": 299392
+        },
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 1134.716,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.149
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "rows": 20000000,
+    "lyon_city": 299392,
+    "max_total": 32568.0,
+    "bytes": 3247363617
+   },
+   "cross": {
+    "open": [
+     null,
+     20000000
+    ],
+    "filter_col": [
+     null,
+     299392
+    ]
+   },
+   "limits_only": true
+  },
+  {
+   "rows": 50000000,
+   "bytes": 8135032021,
+   "file": "customers-50m.csv",
+   "apps": {
+    "web": {
+     "ops": {
+      "open": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: Array buffer allocation failed"
+      },
+      "filter_col": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: no file open"
+      },
+      "sort_num": {
+       "runs": [
+        null
+       ],
+       "out": null,
+       "error": "JsError: Error: no file open"
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 329563136,
+        "anon": 296386560,
+        "rss": 1022263296,
+        "priv": 186232832,
+        "swap": 626688
+       }
+      },
+      "map_peak": null,
+      "mem_available_low": 8429703168,
+      "peak": {
+       "pss": 372015104,
+       "anon": 331620352,
+       "rss": 1144238080,
+       "priv": 223899648,
+       "swap": 626688
+      },
+      "after_open": {
+       "pss": 371741696.0,
+       "anon": 331345920.0,
+       "rss": 1070272512.0,
+       "priv": 223627264.0,
+       "pss_file": 113538560.0,
+       "procs": 11.0
+      },
+      "end": {
+       "pss": 371864576,
+       "anon": 331485184,
+       "rss": 1070477312,
+       "priv": 223764480,
+       "pss_file": 113520640,
+       "procs": 11
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "error": "JsError: Error: Array buffer allocation failed",
+        "run": 0,
+        "cpu_busy_before": 0.135
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "error": "JsError: Error: no file open",
+        "run": 0,
+        "cpu_busy_before": 0.144
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "error": "JsError: Error: no file open",
+        "run": 0,
+        "cpu_busy_before": 0.144
+       }
+      ]
+     }
+    },
+    "native": {
+     "ops": {
+      "open": {
+       "runs": [
+        2861.081
+       ],
+       "out": {
+        "rows": 50000000,
+        "cols": 15
+       },
+       "ms": 2861.081,
+       "value": 50000000
+      },
+      "filter_col": {
+       "runs": [
+        1795.684
+       ],
+       "out": {
+        "n": 748862
+       },
+       "ms": 1795.684,
+       "value": 748862
+      },
+      "sort_num": {
+       "runs": [
+        5765.619
+       ],
+       "out": {
+        "first": "32568.00"
+       },
+       "ms": 5765.619,
+       "value": "32568.00"
+      }
+     },
+     "mem": {
+      "per_op": {
+       "open": {
+        "pss": 7034516480,
+        "anon": 501960704,
+        "rss": 7037743104,
+        "priv": 7034433536,
+        "swap": 0
+       },
+       "filter_col": {
+        "pss": 8138576896,
+        "anon": 470085632,
+        "rss": 8141803520,
+        "priv": 8138493952,
+        "swap": 0
+       },
+       "sort_num": {
+        "pss": 8069186560,
+        "anon": 1470177280,
+        "rss": 8072413184,
+        "priv": 8069103616,
+        "swap": 0
+       }
+      },
+      "map_peak": 7531384832,
+      "mem_available_low": 8975065088,
+      "peak": {
+       "pss": 8138576896,
+       "anon": 1470177280,
+       "rss": 8141803520,
+       "priv": 8138493952,
+       "swap": 0
+      },
+      "after_open": {
+       "pss": 6809445376.0,
+       "anon": 411029504.0,
+       "rss": 6812672000.0,
+       "priv": 6809362432.0,
+       "pss_file": 6398415872.0,
+       "procs": 1.0
+      },
+      "end": {
+       "pss": 5460348928,
+       "anon": 670212096,
+       "rss": 5463576576,
+       "priv": 5460267008,
+       "pss_file": 4790136832,
+       "procs": 1
+      }
+     },
+     "raw": {
+      "open": [
+       {
+        "op": "open",
+        "run": 0,
+        "ms": 2861.081,
+        "out": {
+         "rows": 50000000,
+         "cols": 15
+        },
+        "cpu_busy_before": 0.125
+       }
+      ],
+      "filter_col": [
+       {
+        "op": "filter_col",
+        "run": 0,
+        "ms": 1795.684,
+        "out": {
+         "n": 748862
+        },
+        "cpu_busy_before": 0.148
+       }
+      ],
+      "sort_num": [
+       {
+        "op": "sort_num",
+        "run": 0,
+        "ms": 5765.619,
+        "out": {
+         "first": "32568.00"
+        },
+        "cpu_busy_before": 0.136
+       }
+      ]
+     }
+    }
+   },
+   "ref": {
+    "rows": 50000000,
+    "lyon_city": 748862,
+    "max_total": 32568.0,
+    "bytes": 8135032021
+   },
+   "cross": {
+    "open": [
+     null,
+     50000000
+    ],
+    "filter_col": [
+     null,
+     748862
+    ]
+   },
+   "limits_only": true
+  }
+ ],
+ "resumed_from": "2026-10-28 06:25 CET"
+}

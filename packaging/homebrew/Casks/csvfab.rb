@@ -1,23 +1,24 @@
 # Cask for the tap fabiochelly/homebrew-csvfab:  brew install --cask fabiochelly/csvfab/csvfab
-# Installs csvfab.app in /Applications, built on this Mac from the release sources by
-# macos/build-app.sh (an AppleScript applet: nothing downloaded as an app, so no
-# Gatekeeper quarantine). The formula of the same name is the command line alone.
+# Installs csvfab.app in /Applications, assembled on this Mac by macos/build-app.sh
+# from the release's program (one binary for Apple silicon and Intel), cleared of the
+# download's quarantine flag and signed ad hoc. The formula of the same name is the
+# command line alone.
 cask "csvfab" do
-  version "1.25.1"
-  sha256 "c126614e4cada2cd040808218858656e98e418776394b0daf12745a6b6fe20fb"
+  version "2.0.0"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 
-  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v#{version}.tar.gz"
+  url "https://github.com/fabiochelly/csvfab/releases/download/v#{version}/csvfab-#{version}-macos.tar.gz"
   name "csvfab"
   desc "Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
   homepage "https://github.com/fabiochelly/csvfab"
 
-  depends_on formula: "python@3.13"
+  depends_on macos: ">= :big_sur"
   # A cask can only conflict with a cask; the formula of the same name installs the
   # same command line, so the cask leaves the "csvfab" command to it (see caveats).
 
   installer script: {
-    executable: "csvfab-#{version}/macos/build-app.sh",
-    args:       ["#{staged_path}/csvfab-#{version}", staged_path.to_s],
+    executable:   "csvfab/macos/build-app.sh",
+    args:         ["#{staged_path}/csvfab", staged_path.to_s],
     must_succeed: true,
   }
   app "csvfab.app"
@@ -25,11 +26,8 @@ cask "csvfab" do
   zap trash: "~/Library/Application Support/csvfab"
 
   caveats <<~EOS
-    csvfab opens its window in a Chromium-based browser (Chrome, Chromium, Brave or Edge).
-    If none is installed:  brew install --cask google-chrome
-
     A "csvfab" command for the terminal comes with the formula (brew install fabiochelly/csvfab/csvfab),
-    or:  ln -s /Applications/csvfab.app/Contents/Resources/csvfab/csvfab.py "$(brew --prefix)/bin/csvfab"
+    or:  ln -s /Applications/csvfab.app/Contents/Resources/csvfab "$(brew --prefix)/bin/csvfab"
 
     csvfab is now offered in the Finder's "Open with" for CSV files. To make it the
     default: select a .csv, File › Get Info › Open with › csvfab › Change All…
