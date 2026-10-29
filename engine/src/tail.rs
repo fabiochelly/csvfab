@@ -99,6 +99,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "rotates the log in place while it is mapped: Windows forbids it to anyone")]
     fn follows_a_log() {
         let dir = std::env::temp_dir().join(format!("csvfab-tail-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

@@ -397,9 +397,24 @@ struct Prep<'a> {
 }
 
 impl<'a> Prep<'a> {
-    fn new(st: &State, col: usize, test: Test<'a>, case: bool) -> Prep<'a> {
+    /// `rows`: how many rows the filter goes over. Most of the file: the cache this test
+    /// reads is built now (it costs what one pass reading the cells would, and stays).
+    fn new(st: &State, col: usize, test: Test<'a>, case: bool, rows: usize, cancel: &AtomicBool) -> Prep<'a> {
         let field = colcache::field_of(st, col);
-        let cache = if field.is_some() { colcache::get(st, col) } else { Col::default() };
+        let mut cache = if field.is_some() { colcache::get(st, col) } else { Col::default() };
+        if field.is_some() && !st.base.partial && rows * 2 >= st.len() && cache.dict.is_none() {
+            let need = match &test {
+                Test::Hidden(_) => Some(Need::Dict),
+                Test::Col(ColTest::Num(..)) if cache.num.is_none() => Some(Need::Num),
+                Test::Col(t) if t.on_folded(case) && cache.folded.is_none() => Some(Need::Text),
+                Test::Col(ColTest::Num(..)) => None,
+                Test::Col(t) if t.on_folded(case) => None,
+                Test::Col(_) => Some(Need::Dict),
+            };
+            if let Some(need) = need {
+                if let Some(c) = colcache::ensure(st, col, need, cancel) { cache = c; }
+            }
+        }
         let kernel = match (&cache.dict, &test) {
             _ if field.is_none() => Kernel::Live,
             (Some(d), _) => Kernel::Dict(d.values.par_iter().with_min_len(256).map_init(String::new, |buf, v| test.keep(v, case, buf)).collect()),
@@ -497,9 +512,9 @@ struct Plan<'a> {
 }
 
 impl<'a> Plan<'a> {
-    fn new(st: &State, f: &'a Filter) -> Plan<'a> {
-        let mut tests: Vec<Prep> = f.hidden.iter().map(|(c, h)| Prep::new(st, *c, Test::Hidden(h), f.case)).collect();
-        tests.extend(f.cols.iter().map(|(c, t)| Prep::new(st, *c, Test::Col(t), f.case)));
+    fn new(st: &State, f: &'a Filter, rows: usize, cancel: &AtomicBool) -> Plan<'a> {
+        let mut tests: Vec<Prep> = f.hidden.iter().map(|(c, h)| Prep::new(st, *c, Test::Hidden(h), f.case, rows, cancel)).collect();
+        tests.extend(f.cols.iter().map(|(c, t)| Prep::new(st, *c, Test::Col(t), f.case, rows, cancel)));
         // All must pass: the cheapest first, the others see fewer rows.
         tests.sort_by_key(|p| p.cost());
         let edited = f.global.first().and_then(|_| {
@@ -781,7 +796,7 @@ fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scrat
 const CHUNK: usize = 1 << 13;
 
 fn run(st: &State, f: &Filter, len: usize, id_at: impl Fn(usize) -> RowId + Sync, cancel: &AtomicBool) -> Option<Vec<RowId>> {
-    let plan = Plan::new(st, f);
+    let plan = Plan::new(st, f, len, cancel);
     let parts: Vec<Vec<RowId>> = (0..len.div_ceil(CHUNK))
         .into_par_iter()
         .map_init(Scratch::default, |s, c| {

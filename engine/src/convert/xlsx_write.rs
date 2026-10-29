@@ -161,7 +161,8 @@ pub fn write(st: &State, rows: Option<&[RowId]>, dest: &Path, sheet: &str, progr
     check(cancel)?;
     let tmp_path = temp_beside(dest);
     let res = wb.save(&tmp_path).map_err(err).and_then(|_| {
-        std::fs::File::open(&tmp_path).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
+        // Synced through a handle that may write: Windows refuses to flush a read-only one.
+        std::fs::OpenOptions::new().write(true).open(&tmp_path).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
         replace(&tmp_path, dest, false).map_err(|e| e.to_string())
     });
     if let Err(e) = res {

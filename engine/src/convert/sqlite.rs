@@ -321,7 +321,8 @@ pub fn write(st: &State, rows: Option<&[RowId]>, dest: &Path, table: &str, progr
         }
         tx.commit().map_err(e)?;
         con.close().map_err(|(_, x)| x.to_string())?;
-        std::fs::File::open(&tmp_path).and_then(|f| f.sync_all()).map_err(io_err)?;
+        // Synced through a handle that may write: Windows refuses to flush a read-only one.
+        std::fs::OpenOptions::new().write(true).open(&tmp_path).and_then(|f| f.sync_all()).map_err(io_err)?;
         replace(&tmp_path, dest, false).map_err(io_err)?;
         Ok(n as u64)
     })();

@@ -43,10 +43,31 @@ impl Stamp {
         let m = std::fs::metadata(path).ok()?;
         #[cfg(unix)]
         let ino = std::os::unix::fs::MetadataExt::ino(&m);
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let ino = windows_file_index(path);
+        #[cfg(not(any(unix, windows)))]
         let ino = 0;
         Some(Stamp { len: m.len(), mtime: m.modified().ok(), ino })
     }
+}
+
+/// The file's index on its volume (NTFS's inode): a file renamed over another has its own,
+/// where the size and the time may be the same (two writes within the time's resolution).
+/// 0 when it cannot be read.
+#[cfg(windows)]
+fn windows_file_index(path: &Path) -> u64 {
+    use std::os::windows::io::AsRawHandle;
+    #[repr(C)]
+    struct Info { attrs: u32, created: [u32; 2], accessed: [u32; 2], written: [u32; 2], volume: u32, size_hi: u32, size_lo: u32, links: u32, index_hi: u32, index_lo: u32 }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(file: *mut std::ffi::c_void, info: *mut Info) -> i32;
+    }
+    let Ok(f) = std::fs::File::open(path) else { return 0 };
+    // SAFETY: a valid handle, and a struct laid out as BY_HANDLE_FILE_INFORMATION.
+    let mut i: Info = unsafe { std::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut i) } == 0 { return 0; }
+    ((i.index_hi as u64) << 32) | i.index_lo as u64
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -638,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "rewrites in place a file still mapped: Windows forbids it to anyone (as Excel's lock)")]
     fn reopen_reuses_the_bytes() {
         let p = tmp("re.csv", b"\xEF\xBB\xBFa;b,c\n1;2,3\n\"x;y\";4\n");
         let b = Base::open(&p, OpenOptions::default(), None).unwrap();

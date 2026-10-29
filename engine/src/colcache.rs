@@ -332,12 +332,29 @@ pub fn ensure(st: &State, col: usize, need: Need, cancel: &AtomicBool) -> Option
     ensure_field(&st.base, field, need, cancel)
 }
 
-/// As `ensure`, by field of the file. A build already running in the
-/// background is not done twice: what is cached now is returned meanwhile.
+/// As `ensure`, by field of the file. Never built twice at once: a build the background
+/// worker has not started yet is taken over (here, on the caller's pool, all its cores);
+/// one it is running is waited for (the caller cancelled: None at once).
 pub fn ensure_field(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Option<Col> {
-    if pending(base, field, need) {
+    let key = (Arc::as_ptr(base) as usize, field, need);
+    let running = {
+        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        match p.iter().position(|(k, _)| *k == key) {
+            // Queued, not started: ours now (the worker skips what is no longer queued).
+            Some(i) if !p[i].1 => { p.remove(i); false }
+            Some(_) => true,
+            None => false,
+        }
+    };
+    if running {
+        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        while p.iter().any(|(k, _)| *k == key) {
+            if cancel.load(Ordering::Relaxed) { return None; }
+            p = DONE.wait_timeout(p, std::time::Duration::from_millis(20)).unwrap_or_else(|e| e.into_inner()).0;
+        }
+        drop(p);
         let col = get_field(base, field);
-        return col.has(need).then_some(col);
+        if col.has(need) { return Some(col); }
     }
     build(base, field, need, cancel)
 }
@@ -527,12 +544,10 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
 
 type Job = (Arc<Base>, usize, Need);
 
-/// Background builds asked for and not done yet: (file, field, need).
-static PENDING: Mutex<Vec<(usize, usize, Need)>> = Mutex::new(Vec::new());
-
-fn pending(base: &Arc<Base>, field: usize, need: Need) -> bool {
-    PENDING.lock().unwrap_or_else(|e| e.into_inner()).contains(&(Arc::as_ptr(base) as usize, field, need))
-}
+/// Background builds asked for and not done yet: ((file, field, need), started).
+static PENDING: Mutex<Vec<((usize, usize, Need), bool)>> = Mutex::new(Vec::new());
+/// Signalled when a background build ends (`ensure_field` waits on it).
+static DONE: std::sync::Condvar = std::sync::Condvar::new();
 
 /// Builds `need` for this column in the background (half the cores, low
 /// priority), if memory allows; users pick it up once there.
@@ -546,8 +561,8 @@ pub fn warm(st: &State, col: usize, need: Need) {
     let key = (Arc::as_ptr(&st.base) as usize, field, need);
     {
         let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
-        if p.contains(&key) { return; }
-        p.push(key);
+        if p.iter().any(|(k, _)| *k == key) { return; }
+        p.push((key, false));
     }
     let _ = worker().send(Some((st.base.clone(), field, need)));
 }
@@ -579,15 +594,21 @@ fn worker() -> mpsc::Sender<Option<Job>> {
                     };
                     drop(reg()); // closed files' caches freed
                     let Some((base, field, need)) = job else { continue };
+                    let key = (Arc::as_ptr(&base) as usize, field, need);
+                    // Taken over by a user meanwhile (`ensure_field`): not ours any more.
+                    let ours = {
+                        let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+                        p.iter_mut().find(|(k, _)| *k == key).map(|e| e.1 = true).is_some()
+                    };
                     // Last user gone (file closed): nothing to warm.
-                    if Arc::strong_count(&base) > 1 {
+                    if ours && Arc::strong_count(&base) > 1 {
                         match &pool {
                             Some(p) => { p.install(|| build(&base, field, need, &no)); }
                             None => { build(&base, field, need, &no); }
                         }
                     }
-                    let key = (Arc::as_ptr(&base) as usize, field, need);
-                    PENDING.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| *k != key);
+                    PENDING.lock().unwrap_or_else(|e| e.into_inner()).retain(|(k, _)| *k != key);
+                    DONE.notify_all();
                 }
             })
             .expect("colcache thread");

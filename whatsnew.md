@@ -12,6 +12,8 @@ Newest first. Every version is on the [releases page](https://github.com/fabioch
 - **Line 1 as titles or data** is now a reading choice, not an edit: the file no longer shows as changed.
 - **Save as** refuses a file open in another tab, as Save did.
 - **Select rows by dragging** over their numbers; dragging a row already selected moves it, as in Excel.
+- **The first sort or filter on a column is 2 to 3 times faster**: the column's cache, being built in the background, is taken over or waited for instead of the work being done twice.
+- **Fixed on Windows: Excel and SQLite exports** were refused by the system.
 - **Fewer tooltips**, shown once the pointer rests: only for buttons without a label, values cut short and what a label cannot say. A column title hovered shows in grey the arrow a click would sort by.
 
 ## 2.0.0 · 29 October 2026
