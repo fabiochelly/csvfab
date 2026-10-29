@@ -105,9 +105,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Inno Setup
         run: choco install innosetup -y --no-progress
-      # Saving over the file a table maps, renames, line endings: the engine on Windows' own file system.
+      # Saving over the file a table maps, renames, line endings: the engine on Windows' own
+      # file system (its tests, not the benchmark examples, which are Linux tools).
       - name: Engine tests
-        run: cargo test --locked -p csvfab-engine
+        run: cargo test --locked -p csvfab-engine --lib --tests
       - name: Build
         run: cargo build --locked --release -p csvfab
       - name: Check it and pack it
