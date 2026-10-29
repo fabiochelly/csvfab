@@ -53,6 +53,7 @@ impl Guarded {
         self.slot.is_some_and(|s| TABLE[s].cut.load(Ordering::Acquire))
     }
 
+    #[cfg(unix)]
     pub fn advise(&self, a: memmap2::Advice) -> std::io::Result<()> {
         self.map.advise(a)
     }
