@@ -190,9 +190,29 @@ type SumKey = (usize, usize, usize, usize, u64, u64);
 /// A reading option picked: None, unchanged; Some(None), detected ("Auto"); Some(Some(x)), x.
 pub type Choice<T> = Option<Option<T>>;
 
+/// The view's settings tied to column positions: the column filters, widths, sort, values
+/// hidden from a panel, find's column, the grid's hidden / frozen columns, scales and bars,
+/// the totals picked. A structural edit carries them over (`edit_kit::remap_columns`);
+/// kept per table version, Undo and Redo bring them back with the columns.
+#[derive(Clone)]
+pub struct ColView {
+    pub filters: Vec<String>,
+    pub widths: Vec<f32>,
+    pub sort: Vec<SortKey>,
+    pub hidden_vals: Vec<(usize, Arc<HashSet<String>>)>,
+    pub find_col: Option<usize>,
+    pub look: crate::grid::ColLook,
+    pub totals: crate::totals_ui::Choices,
+}
+
 pub struct Tab {
     /// Stable identity (tools hold on to their tab by it).
     pub uid: u64,
+    /// The column settings at each table version a structural edit left (`ColView`).
+    pub col_views: std::collections::HashMap<u64, ColView>,
+    /// Read again with another encoding or delimiter: the columns may be others, so what
+    /// was tied to them (filters, sort, widths…) goes once it is read (as the web's `reread`).
+    reread: bool,
     pub path: Option<PathBuf>,
     pub name: String,
     pub table: Option<Table>,
@@ -295,7 +315,7 @@ impl Tab {
                 let id = table.insert_rows(0, 1)[0];
                 let cells: Vec<_> = names.into_iter().enumerate().map(|(c, n)| (id, c, if c == col { text.clone() } else { n })).collect();
                 table.set_cells(&cells);
-                table.set_header(true);
+                table.set_header_edit(true);
             }
         });
         self.after_edit(true, ctx);
@@ -318,6 +338,8 @@ impl Tab {
             view: None,
             kinds: Vec::new(),
             new_col_name: None,
+            col_views: Default::default(),
+            reread: false,
             marks_label: String::new(),
             want_header: None,
             moji: None,
@@ -427,13 +449,26 @@ impl Tab {
                 // The table read before (a reload): freed off the UI thread.
                 crate::app::drop_later(self.table.replace(r.table));
                 (self.kinds, self.rich, self.pills) = (r.kinds, r.rich, r.pills);
+                // A new table counts its versions from 0 again: the old ones' settings would mismatch.
+                self.col_views.clear();
             }
         }
         self.error = None;
         self.generation += 1;
         let n = self.table.as_ref().unwrap().st.ncols;
+        let reread = std::mem::take(&mut self.reread);
+        if reread {
+            self.col_filters.clear();
+            self.filter.hidden.clear();
+            self.sort.clear();
+            self.restrict = None;
+            self.find.col = None;
+            self.grid.set_col_look(Default::default(), n);
+            self.totals.set_choices(Default::default());
+            self.col_views.clear();
+        }
         self.col_filters.resize(n, String::new());
-        if first || self.grid.widths.len() != n {
+        if first || reread || self.grid.widths.len() != n {
             if grows { self.grid.fit_count(n); } else { self.grid.reset_widths(&self.table.as_ref().unwrap().st, ctx, m); }
         }
         self.refresh(ctx);
@@ -714,6 +749,38 @@ impl Tab {
         self.after_edit(grow, ctx);
     }
 
+    pub fn col_view(&self) -> ColView {
+        ColView {
+            filters: self.col_filters.clone(),
+            widths: self.grid.widths.clone(),
+            sort: self.sort.clone(),
+            hidden_vals: self.filter.hidden.clone(),
+            find_col: self.find.col,
+            look: self.grid.col_look(),
+            totals: self.totals.choices(),
+        }
+    }
+
+    /// Puts column settings back (made for the table's present columns).
+    pub fn set_col_view(&mut self, v: ColView) {
+        let n = v.filters.len();
+        self.col_filters = v.filters;
+        self.grid.widths = v.widths;
+        self.sort = v.sort;
+        self.filter.hidden = v.hidden_vals;
+        self.find.col = v.find_col;
+        self.grid.set_col_look(v.look, n);
+        self.totals.set_choices(v.totals);
+    }
+
+    /// Keeps the column settings of table version `version`, for Undo / Redo to come back to.
+    pub fn keep_col_view(&mut self, version: u64, v: ColView) {
+        if self.col_views.len() >= 256 {
+            if let Some(&old) = self.col_views.keys().min() { self.col_views.remove(&old); }
+        }
+        self.col_views.insert(version, v);
+    }
+
     /// After an undo/redo or a structural edit: the view is recomputed; the
     /// rows of a cell edit simply stay where they are.
     pub fn after_edit(&mut self, structure: bool, ctx: &egui::Context) {
@@ -739,6 +806,7 @@ impl Tab {
         // The bytes held are read again with the new options: no trip to the disk.
         let from = self.table.as_ref().map(|t| t.st.base.clone());
         let header = self.table.as_ref().map(|t| t.st.header);
+        self.reread = true;
         self.loading = Some(Loader::spawn(path, self.open_opts, from, header, false, ctx));
     }
 

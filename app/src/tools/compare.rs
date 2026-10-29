@@ -262,7 +262,7 @@ impl Tool for Cmp {
             let add_label = match &res { Some(r) if !r.only_there.is_empty() => format!("Append the {} only there", plural(r.only_there.len(), "row")), _ => "Append the rows only there".into() };
             act = form::actions(ui, &p, &[
                 Btn::outline("Cancel"),
-                Btn::outline(&add_label).enabled(add).tip("Add the rows only the other file has"),
+                Btn::outline(&add_label).enabled(add),
                 Btn::outline("Add a status column").enabled(col).tip("changed / same / only here"),
                 Btn::primary("Mark the differences").enabled(go).tip("Tint the differing cells, show only those rows"),
             ]);

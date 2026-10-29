@@ -154,7 +154,7 @@ impl Tool for Anon {
             });
             ui.add_space(8.0);
             let mut shown = self.shown_only;
-            let hit = form::row_buttons(ui, &p, &[Btn::outline("Guess again"), Btn::outline("Keep all").tip("Every column kept as is")], |ui| {
+            let hit = form::row_buttons(ui, &p, &[Btn::outline("Guess again"), Btn::outline("Keep all")], |ui| {
                 let en = filtered || shown;
                 form::check_enabled(ui, &p, &mut shown, "Only the rows shown", en);
             });

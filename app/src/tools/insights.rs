@@ -342,7 +342,7 @@ fn draw_rich(ui: &mut Ui, p: &Palette, g: Arc<egui::Galley>, sects: &[(Sect, usi
         match sects.get(s).map(|x| x.0) {
             Some(Sect::Col(c)) => {
                 let r = Rect::from_center_size(r.center(), vec2(r.width() + 12.0, 19.0));
-                let resp = ui.interact(r, ui.scope_id().with(("in-c", at.x as i32, at.y as i32, s)), Sense::click()).on_hover_text("Go to this column");
+                let resp = ui.interact(r, ui.scope_id().with(("in-c", at.x as i32, at.y as i32, s)), Sense::click());
                 ui.painter().rect_filled(r, 5.0, alpha(p.accent, if resp.hovered() { 0.28 } else { 0.14 } * fade));
                 if resp.clicked() { hit = Some(c); }
                 if resp.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }

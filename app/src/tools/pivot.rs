@@ -304,7 +304,7 @@ impl PivotTool {
             if kit::button(ui, p, "Close", kit::Btn::Primary, true).clicked() { keep = false; }
             let stem = csvfab_engine::schema::stem(&cx.tab.name).to_string();
             if kit::button(ui, p, "Open in a new tab", kit::Btn::Outline, ready).clicked() { self.export(cx.ctx, true, stem.clone()); }
-            if kit::button(ui, p, "Copy", kit::Btn::Outline, ready).on_hover_text("Tab-separated, to paste into a spreadsheet").clicked() { self.export(cx.ctx, false, stem); }
+            if kit::button(ui, p, "Copy", kit::Btn::Outline, ready).clicked() { self.export(cx.ctx, false, stem); }
         });
         keep
     }

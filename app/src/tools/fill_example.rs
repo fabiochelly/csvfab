@@ -415,7 +415,7 @@ impl Offer {
                         let kr = Rect::from_min_size(pos2(br.min.x + 10.0 + fw + 6.0, br.center().y - 8.0), vec2(kg.size().x + 8.0, 16.0));
                         pt.rect_filled(kr, 4.0, alpha(p.hi, 0.18));
                         pt.galley(pos2(kr.min.x + 4.0, (kr.center().y - kg.size().y / 2.0).round()), kg, p.on_prim);
-                        if b.on_hover_text("Write these values (Tab)").clicked() {
+                        if b.clicked() {
                             out = Some(FfKey::Accept);
                         }
                         // ×.

@@ -585,7 +585,7 @@ impl Create {
         let hot = resp.hovered();
         dashed_capsule(ui.painter(), chip, if hot { p.prim } else { p.brd_2 });
         ui.painter().galley_with_override_text_color(pos2(chip.min.x + 7.0, kit::snap(ui, chip.center().y - g.size().y / 2.0)), g, if hot { p.txt_hi } else { p.txt_mut });
-        let resp = resp.on_hover_text("Add a rule, filled in from the values").on_hover_cursor(egui::CursorIcon::PointingHand);
+        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         if self.shot_menu && i == 0 { self.shot_menu = false; egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp)); }
         let d = self.draft.as_ref().unwrap();
         let name = d.schema.fields[i].name.clone();
@@ -890,7 +890,7 @@ fn report_table(ui: &mut Ui, p: &Palette, v: &Validation, height: f32) -> Option
                 2 => { ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| { line(ui, &kit::n(it.count), kit::ui(12.0), p.txt_sub); }); }
                 _ => examples(ui, p, &it.examples),
             });
-            let resp = ui.interact(Rect::from_min_max(top, r.max), egui::Id::unique(("sc-item", i)), Sense::click()).on_hover_text("Show these rows");
+            let resp = ui.interact(Rect::from_min_max(top, r.max), egui::Id::unique(("sc-item", i)), Sense::click());
             if resp.hovered() { ui.painter().rect_filled(Rect::from_min_max(top, pos2(r.max.x, r.max.y - 1.0)), 0.0, alpha(p.hi, 0.06)); }
             if resp.clicked() { hit = Some(i); }
         }

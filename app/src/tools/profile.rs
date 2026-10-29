@@ -252,7 +252,7 @@ impl Profile {
             for i in first..last {
                 let y = o.y + HEAD_H + i as f32 * ROW_H;
                 let rr = Rect::from_min_size(pos2(o.x, y), vec2(full, ROW_H));
-                let resp = ui.interact(rr, ui.scope_id().with(("pf-row", i)), Sense::click()).on_hover_text("Open this column's panel in the grid");
+                let resp = ui.interact(rr, ui.scope_id().with(("pf-row", i)), Sense::click());
                 if resp.hovered() { pt.rect_filled(rr, 0.0, alpha(p.hi, 0.06)); }
                 if resp.clicked() { hit = Some(i); }
                 let mut x = o.x;

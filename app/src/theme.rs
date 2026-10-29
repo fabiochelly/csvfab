@@ -677,9 +677,11 @@ pub fn apply(ctx: &egui::Context, t: &Theme, m: &Metrics) {
         ]
         .into();
         s.animation_time = 0.12;
-        // Tooltips at once, as 34-tooltips.js shows every title.
-        s.interaction.tooltip_delay = 0.0;
-        s.interaction.show_tooltips_only_when_still = false;
+        // Tooltips once the pointer rests, not on every pass over a button: only buttons
+        // without a label and values cut short carry one. The grid's and charts' own
+        // (grid::tip) wait as long.
+        s.interaction.tooltip_delay = crate::grid::TIP_DELAY as f32;
+        s.interaction.show_tooltips_only_when_still = true;
 
         let sp = &mut s.spacing;
         sp.item_spacing = vec2(8.0, 6.0);

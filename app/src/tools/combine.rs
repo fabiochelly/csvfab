@@ -158,7 +158,7 @@ impl Combine {
                 }
             });
             ui.add_space(8.0);
-            if form::row_buttons(ui, &p, &[Btn::outline("Add files…").tip("Files from disk, combined after this tab")], |_| {}).is_some() { add = true; }
+            if form::row_buttons(ui, &p, &[Btn::outline("Add files…")], |_| {}).is_some() { add = true; }
             form::opts(ui, |ui| {
                 if form::radio(ui, &p, self.loose, "Titles matched ignoring case, accents and punctuation") { self.loose = true; }
                 if form::radio(ui, &p, !self.loose, "Titles matched exactly") { self.loose = false; }

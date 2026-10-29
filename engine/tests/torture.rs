@@ -531,11 +531,12 @@ fn apply(t: &mut Table, m: &mut Model, undo: &mut Vec<Model>, redo: &mut Vec<Mod
     let v0 = t.version();
     match op {
         Op::Undo => {
-            if t.undo().is_some() { redo.push(std::mem::replace(m, undo.pop().expect("model undo"))); }
+            // Line 1's reading (titles or data) is no edit: undo leaves it as it is.
+            if t.undo().is_some() { let h = m.header; redo.push(std::mem::replace(m, undo.pop().expect("model undo"))); m.header = h; }
             return;
         }
         Op::Redo => {
-            if t.redo().is_some() { undo.push(std::mem::replace(m, redo.pop().expect("model redo"))); }
+            if t.redo().is_some() { let h = m.header; undo.push(std::mem::replace(m, redo.pop().expect("model redo"))); m.header = h; }
             return;
         }
         Op::Batch(ops) => {
@@ -689,10 +690,13 @@ fn edits_follow_the_model() {
         let (last, last_out) = (m.clone(), out);
         while t.undo().is_some() {}
         assert!(!t.dirty(), "{ctx}: dirty once all undone");
-        same_as(&t, &first, &format!("{ctx}: all undone"));
+        // Line 1's reading is no edit: it stays as last set.
+        let first_now = Model { header: t.st.header, ..first.clone() };
+        same_as(&t, &first_now, &format!("{ctx}: all undone"));
         if exact { assert!(saved(&t) == bytes, "{ctx}: all undone, the save differs from the file"); }
         while t.redo().is_some() {}
-        same_as(&t, tip.as_ref().unwrap_or(&last), &format!("{ctx}: all redone"));
+        let redone = Model { header: t.st.header, ..tip.clone().unwrap_or(last) };
+        same_as(&t, &redone, &format!("{ctx}: all redone"));
         if tip.is_none() { assert!(saved(&t) == last_out, "{ctx}: all redone, the save differs"); }
     });
     let _ = std::fs::remove_dir_all(&dir);

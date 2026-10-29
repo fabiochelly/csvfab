@@ -90,6 +90,8 @@ pub struct GridState {
     pub anchor: Option<Cell>,
     pub editing: Option<Editing>,
     selecting: bool,
+    /// The drag selecting started on a row number: whole rows.
+    selecting_rows: bool,
     /// A row dragged by its number (07-columns-structure.js "Move rows"): its id, and where
     /// it would land — the row shown at that position, and whether after it.
     row_drag: Option<(RowId, Option<(usize, bool)>)>,
@@ -356,6 +358,22 @@ impl GridState {
         }
     }
 
+    /// What is tied to column positions here: hidden and frozen columns, colour scales, data bars.
+    pub fn col_look(&self) -> ColLook {
+        ColLook { hidden: self.hidden.clone(), frozen: self.frozen, heat: self.heat.clone(), bars: self.bars.clone() }
+    }
+
+    /// Puts a look back, made for `ncols` columns: the reset a new column count brings is skipped.
+    pub fn set_col_look(&mut self, l: ColLook, ncols: usize) {
+        self.hidden = l.hidden;
+        self.frozen = l.frozen;
+        self.heat = l.heat;
+        self.bars = l.bars;
+        self.panel = None;
+        self.look_jobs.clear();
+        self.ncols_seen = ncols;
+    }
+
     /// Forgets what was tied to column positions (columns added or removed).
     fn reset_columns(&mut self) {
         self.heat.clear();
@@ -365,6 +383,15 @@ impl GridState {
         self.panel = None;
         self.look_jobs.clear();
     }
+}
+
+/// The grid's settings tied to column positions (`GridState::col_look`).
+#[derive(Clone, Default)]
+pub struct ColLook {
+    pub hidden: std::collections::BTreeSet<usize>,
+    pub frozen: usize,
+    pub heat: HashMap<usize, Heat>,
+    pub bars: HashMap<usize, DataBars>,
 }
 
 /// The column shown next to `c` toward `dir` (±1), else `c` (hidden columns stepped over).
@@ -517,9 +544,24 @@ fn pretty_json(s: &str) -> String {
     out
 }
 
+/// How long the pointer rests before a tip shows (egui's own tooltips: the same, theme.rs).
+pub const TIP_DELAY: f64 = 0.3;
+
 /// A tooltip box (`theme::tooltip_frame`, ui 11.5 / 1.45 `tip_fg`) under `anchor`, centred on
-/// it, above when there is no room, kept 6 px inside the window: shown at once, as the web's.
+/// it, above when there is no room, kept 6 px inside the window. Asked for every frame the
+/// pointer is on its element; shown after `TIP_DELAY` — at once while one was already
+/// showing the frame before (sliding along a chart, from one button to the next).
 pub fn tip(ctx: &egui::Context, p: &Palette, m: &Metrics, anchor: Rect, text: &str) {
+    let id = Id::unique("csvfab-tip-rest");
+    let (now, pass) = (ctx.input(|i| i.time), ctx.cumulative_pass_nr());
+    let (last, since) = ctx.data(|d| d.get_temp::<(u64, f64)>(id)).unwrap_or((0, now));
+    let since = if last + 1 >= pass && last != 0 { since } else { now };
+    ctx.data_mut(|d| d.insert_temp(id, (pass, since)));
+    let wait = TIP_DELAY - (now - since);
+    if wait > 0.0 {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+        return;
+    }
     tip_box(ctx, p, m, anchor, text, FontId::proportional(11.5), 11.5 * 1.45, 420.0, vec2(8.0, 4.0), false);
 }
 
@@ -557,20 +599,8 @@ pub fn move_column(tab: &mut Tab, from: usize, to: usize, ctx: &egui::Context) {
     let mut order: Vec<usize> = (0..n).collect();
     let f = order.remove(from);
     order.insert(to, f);
-    let new = |c: usize| order.iter().position(|&x| x == c).unwrap_or(c);
-    fn mv<T>(v: &mut Vec<T>, from: usize, to: usize) {
-        if from < v.len() && to < v.len() { let x = v.remove(from); v.insert(to, x); }
-    }
-    mv(&mut tab.col_filters, from, to);
-    mv(&mut tab.grid.widths, from, to);
-    for k in tab.sort.iter_mut() { k.col = new(k.col); }
-    for h in tab.filter.hidden.iter_mut() { h.0 = new(h.0); }
-    tab.grid.heat = tab.grid.heat.drain().map(|(c, v)| (new(c), v)).collect();
-    tab.grid.bars = tab.grid.bars.drain().map(|(c, v)| (new(c), v)).collect();
-    tab.grid.hidden = std::mem::take(&mut tab.grid.hidden).into_iter().map(new).collect();
-    tab.totals.reset_columns();
-    for c in [&mut tab.grid.cursor, &mut tab.grid.anchor].into_iter().flatten() { c.col = new(c.col); }
-    tab.after_edit(true, ctx);
+    let new = |c: usize| order.iter().position(|&x| x == c);
+    crate::tools::edit_kit::remap_columns(tab, n, new, ctx);
 }
 
 /// Freezes every column up to `col` — or none, when they already are. Refused when they
@@ -1446,8 +1476,15 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
                         tab.grid.menu_at = Some(c);
                     }
                 } else if pt.x < cells_x0 {
-                    // A row number: whole rows; dragged, the row moves.
-                    if resp.drag_started() && !shift { tab.grid.row_drag = Some((tab.shown_id(c.row), None)); }
+                    // A row number: whole rows. Dragged from a row already selected whole, it
+                    // moves (as in Excel); from any other, the drag selects rows.
+                    let held = tab.grid.range().is_some_and(|(r, cs)| r.contains(&c.row) && *cs.start() == 0 && *cs.end() + 1 >= ncols);
+                    if resp.drag_started() && !shift && held {
+                        tab.grid.row_drag = Some((tab.shown_id(c.row), None));
+                    } else if resp.drag_started() {
+                        tab.grid.selecting = true;
+                        tab.grid.selecting_rows = true;
+                    }
                     let a = Cell { row: c.row, col: 0 };
                     if !shift || tab.grid.anchor.is_none_or(|x| x.col != 0) { tab.grid.anchor = Some(a); }
                     tab.grid.cursor = Some(Cell { row: c.row, col: ncols.saturating_sub(1) });
@@ -1503,7 +1540,11 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             if pt.y < body.min.y { tab.grid.scroll -= ((body.min.y - pt.y) as f64).min(200.0) * 0.5 + 4.0; }
             tab.grid.sync(rows, ppp);
             let c = hit(pt.min(body.max - vec2(1.0, 1.0)).max(body.min), tab.grid.scroll, tab.grid.xoff, true);
-            if let Some((_, at)) = &mut tab.grid.fill_drag { *at = c; } else if let Some(c) = c { tab.grid.cursor = Some(c); }
+            if let Some((_, at)) = &mut tab.grid.fill_drag {
+                *at = c;
+            } else if let Some(c) = c {
+                tab.grid.cursor = Some(if tab.grid.selecting_rows { Cell { row: c.row, col: ncols.saturating_sub(1) } } else { c });
+            }
             ctx.request_repaint();
         }
     }
@@ -1512,6 +1553,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     let fill_target = tab.grid.fill_drag.and_then(|(sel, at)| at.and_then(|c| series::fill_target(sel, c.row, c.col, &all_cols)));
     if resp.drag_stopped() {
         tab.grid.selecting = false;
+        tab.grid.selecting_rows = false;
         if let Some((sel, _)) = tab.grid.fill_drag.take() {
             if let Some((dir, target)) = fill_target {
                 let (st2, view) = (st.clone(), tab.view.clone());
@@ -2415,7 +2457,7 @@ fn editor(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, body:
         let value = std::mem::take(&mut e.text);
         tab.grid.editing = None;
         let sel = series::Rect { r0: *r.start(), r1: *r.end(), c0: *cs.start(), c1: *cs.end() };
-        let (st2, view, vis) = (st.clone(), tab.view.clone(), (0..ncols).collect::<Vec<_>>());
+        let (st2, view, vis) = (st.clone(), tab.view.clone(), (0..ncols).filter(|c| !tab.grid.hidden.contains(c)).collect::<Vec<_>>());
         tab.grid.fill_job = Some(Job::spawn(ui.ctx(), move |cancel, _| series::fill_value(&st2, &ids_of(&st2, &view), &vis, sel, &value, cmd, cancel)));
         resp.request_focus();
     } else if out.response.lost_focus() || enter || tab_key {
@@ -2579,7 +2621,6 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
     let sort_pos = tab.sort.iter().position(|k| k.col == c);
     let title = heads.get(c).cloned().unwrap_or_default();
     let tcolor = if hresp.hovered() && tab.grid.col_drag.is_none() { p.txt_strong } else if st.header { p.txt_hi } else { p.txt_dim };
-    let arrow_w = if sort_pos.is_some() { 17.0 + if tab.sort.len() > 1 { 7.0 } else { 0.0 } } else { 0.0 };
     // The badge: the column's kind on a quiet tint (stronger while the whole column is
     // selected). A click on it selects the whole column.
     let (glyph, base, col, kind_name) = kind_style(tab, c, p);
@@ -2610,6 +2651,12 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
     }
     let on_badge = bresp.hovered();
     if on_badge { tip(&ctx, p, m, br, &format!("Column {c} · {title} · {kind_name}")); }
+    // Not sorted on, the title hovered (not its badge, ▾ or edge): the arrow a click would
+    // bring, in grey, where the sort arrow goes (its room taken from the title as for one).
+    let renaming = tab.grid.renaming.as_ref().is_some_and(|r| r.0 == c);
+    let ghost = sort_pos.is_none() && !on_badge && !renaming && tab.grid.col_drag.is_none()
+        && hresp.hover_pos().is_some_and(|q| q.x < x + w - 7.0 - m.col_menu - 2.0 && q.x < x + w - m.resize_w);
+    let arrow_w = if sort_pos.is_some() || ghost { 17.0 + if sort_pos.is_some() && tab.sort.len() > 1 { 7.0 } else { 0.0 } } else { 0.0 };
     // Title, its number small and faint just after it, sort arrow; the ▾ button at the right.
     let tx = br.max.x + 7.0;
     let room = (x + w - m.col_title_pad_r - tx).max(0.0);
@@ -2631,6 +2678,9 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
         let ny = cy + title_h / 2.0 - num_g.size().y - 0.5;
         hclip.galley(pos2(snap(ex + 5.0), snap(ny)), num_g, p.txt_faint);
         ex += num_w;
+    }
+    if ghost {
+        icons::arrow(&hclip, Rect::from_min_size(pos2(snap(ex + 5.0), snap(cy - 6.0)), vec2(12.0, 12.0)), true, 2.2, p.txt_faint);
     }
     if let Some(i) = sort_pos {
         let ar = Rect::from_min_size(pos2(snap(ex + 5.0), snap(cy - 6.0)), vec2(12.0, 12.0));
@@ -2706,10 +2756,11 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
     if hresp.drag_started() && !on_menu(hresp.interact_pointer_pos()) && tab.grid.resizing.is_none() {
         tab.grid.col_drag = Some(c);
     }
-    if hresp.hovered() && tab.grid.col_drag.is_none() && !open && !on_badge {
-        let tipt = if full_title_w > room - arrow_w - if with_num { num_w } else { 0.0 } { format!("{title}\nClick: sort · again: reverse · Shift+click: sub-sort · double-click: rename") } else { "Click: sort · again: reverse · Shift+click: sub-sort · double-click: rename".into() };
+    // A title cut short, in full (the clicks are in F1's list, not on every title).
+    let cut = full_title_w > room - arrow_w - if with_num { num_w } else { 0.0 };
+    if cut && hresp.hovered() && tab.grid.col_drag.is_none() && !open && !on_badge {
         if hresp.hover_pos().is_some_and(|q| q.x < mr.min.x - 2.0 && q.x < x + w - m.resize_w) {
-            tip(&ctx, p, m, hr, &tipt);
+            tip(&ctx, p, m, hr, &title);
         }
     }
     ph.vline(x + w - 0.5, all.min.y..=all.max.y, Stroke::new(1.0, if last_frozen { p.frz_rule } else { p.brd }));

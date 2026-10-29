@@ -26,6 +26,69 @@ fn values(h: &egui_kittest::Harness<'_, App>) -> String {
     (0..t.shown()).map(|p| st.cell(t.shown_id(p), 0)).collect::<Vec<_>>().join(",")
 }
 
+/// A value filter and a hidden column follow their column when one is inserted before them;
+/// Undo puts them back where they were.
+#[test]
+fn column_settings_follow_inserts_and_undo() {
+    use crate::grid::Action;
+    let (mut h, dir) = app_on("a,b\n1,x\n2,y\n3,x\n", "colview");
+    let ctx = h.ctx.clone();
+    let wait = |h: &mut egui_kittest::Harness<'static, App>| for _ in 0..200 {
+        h.run_steps(1);
+        if !h.state().tabs[0].busy() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    {
+        let t = &mut h.state_mut().tabs[0];
+        t.filter.hidden = vec![(1, std::sync::Arc::new(["x".to_string()].into_iter().collect()))];
+        t.grid.hidden.insert(1);
+        t.refresh(&ctx);
+    }
+    wait(&mut h);
+    assert_eq!(values(&h), "2");
+    h.state_mut().apply(vec![Action::Sure(Box::new(Action::InsertColumn(0)))], &ctx);
+    wait(&mut h);
+    let t = &h.state().tabs[0];
+    assert_eq!(t.st().unwrap().ncols, 3);
+    assert_eq!(t.filter.hidden.iter().map(|x| x.0).collect::<Vec<_>>(), vec![2]);
+    assert!(t.grid.hidden.contains(&2) && !t.grid.hidden.contains(&1));
+    assert_eq!(t.shown(), 1);
+    h.state_mut().undo(false, &ctx);
+    wait(&mut h);
+    let t = &h.state().tabs[0];
+    assert_eq!(t.st().unwrap().ncols, 2);
+    assert_eq!(t.filter.hidden.iter().map(|x| x.0).collect::<Vec<_>>(), vec![1]);
+    assert!(t.grid.hidden.contains(&1) && t.grid.hidden.len() == 1);
+    assert_eq!(values(&h), "2");
+    h.state_mut().undo(true, &ctx);
+    wait(&mut h);
+    assert!(h.state().tabs[0].grid.hidden.contains(&2));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Dragged over the row numbers from a row not selected yet: the rows are selected, nothing moves.
+#[test]
+fn rows_selected_by_dragging_their_numbers() {
+    let (mut h, dir) = app_on("n,v\n1,a\n2,b\n3,c\n4,d\n5,e\n", "dragsel");
+    let (gx, rh, y1) = (30.0, 35.0, 230.0);
+    h.hover_at(egui::pos2(gx, y1));
+    h.run_steps(2);
+    h.event(Event::PointerButton { pos: egui::pos2(gx, y1), button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.run_steps(2);
+    for k in 1..=8 {
+        h.hover_at(egui::pos2(gx, y1 + k as f32 * rh * 0.25));
+        h.run_steps(1);
+    }
+    let y = y1 + 2.0 * rh;
+    h.event(Event::PointerButton { pos: egui::pos2(gx, y), button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(3);
+    assert_eq!(values(&h), "1,2,3,4,5");
+    assert!(!h.state().tabs[0].dirty());
+    let (r, cs) = h.state().tabs[0].grid.range().expect("a selection");
+    assert_eq!((*r.start(), *r.end(), *cs.start(), *cs.end()), (0, 2, 0, 1));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A row dragged by its number lands where the line showed, as one undo step.
 #[test]
 fn row_dragged_by_its_number() {
@@ -35,6 +98,11 @@ fn row_dragged_by_its_number() {
     let y1 = 230.0;
     h.hover_at(egui::pos2(gx, y1));
     h.run_steps(2);
+    // Selected first (a click on its number): a drag then moves it, as in Excel.
+    for pressed in [true, false] {
+        h.event(Event::PointerButton { pos: egui::pos2(gx, y1), button: PointerButton::Primary, pressed, modifiers: Default::default() });
+        h.run_steps(2);
+    }
     h.event(Event::PointerButton { pos: egui::pos2(gx, y1), button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
     h.run_steps(2);
     for k in 1..=10 {

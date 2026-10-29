@@ -588,28 +588,47 @@ pub fn after_insert(at: usize, n: usize, old: usize) -> usize {
     if old >= at { old + n } else { old }
 }
 
-/// After columns were inserted, deleted or moved: the tab's per-column state
-/// (filters, widths, sort, hidden values, find's column) follows them. `map`:
-/// an old column's new index (None: gone). Then the view is recomputed.
+/// After columns were inserted, deleted or moved (the table edited already): the tab's
+/// per-column settings (`tab::ColView`) follow them. `map`: an old column's new index
+/// (None: gone); a new column gets none, 120 wide. The settings before and after are kept
+/// by table version, for Undo / Redo. Then the view is recomputed.
 pub fn remap_columns(tab: &mut Tab, old_n: usize, map: impl Fn(usize) -> Option<usize>, ctx: &egui::Context) {
     let new_n = tab.st().map_or(0, |s| s.ncols);
+    let old = tab.col_view();
+    // The version before this edit: the one Undo comes back to.
+    if let Some(t) = &tab.table {
+        let v = t.undo_versions();
+        let before = if v.len() >= 2 { v[v.len() - 2] } else { 0 };
+        tab.keep_col_view(before, old.clone());
+    }
+    let to = |c: usize| map(c).filter(|&k| k < new_n);
     let mut filters = vec![String::new(); new_n];
     let mut widths = vec![120.0; new_n];
     for c in 0..old_n {
-        if let Some(k) = map(c).filter(|&k| k < new_n) {
-            if let Some(f) = tab.col_filters.get(c) {
-                filters[k] = f.clone();
-            }
-            if let Some(w) = tab.grid.widths.get(c) {
-                widths[k] = *w;
-            }
+        if let Some(k) = to(c) {
+            if let Some(f) = old.filters.get(c) { filters[k] = f.clone(); }
+            if let Some(w) = old.widths.get(c) { widths[k] = *w; }
         }
     }
-    tab.col_filters = filters;
-    tab.grid.widths = widths;
-    tab.sort = tab.sort.iter().filter_map(|k| map(k.col).map(|col| csvfab_engine::view::SortKey { col, desc: k.desc })).collect();
-    tab.filter.hidden = tab.filter.hidden.iter().filter_map(|(c, v)| map(*c).map(|k| (k, v.clone()))).collect();
-    tab.find.col = tab.find.col.and_then(&map);
+    let l = &old.look;
+    // The frozen block keeps what it held: up to where its last surviving column went.
+    let frozen = (0..l.frozen).filter_map(to).max().map_or(0, |k| k + 1);
+    let new = crate::tab::ColView {
+        filters,
+        widths,
+        sort: old.sort.iter().filter_map(|k| to(k.col).map(|col| csvfab_engine::view::SortKey { col, desc: k.desc })).collect(),
+        hidden_vals: old.hidden_vals.iter().filter_map(|(c, v)| to(*c).map(|k| (k, v.clone()))).collect(),
+        find_col: old.find_col.and_then(to),
+        look: crate::grid::ColLook {
+            hidden: l.hidden.iter().filter_map(|&c| to(c)).collect(),
+            frozen,
+            heat: l.heat.iter().filter_map(|(&c, h)| to(c).map(|k| (k, *h))).collect(),
+            bars: l.bars.iter().filter_map(|(&c, b)| to(c).map(|k| (k, *b))).collect(),
+        },
+        totals: old.totals.iter().filter_map(|(&c, f)| to(c).map(|k| (k, *f))).collect(),
+    };
+    tab.set_col_view(new.clone());
+    if let Some(v) = tab.table.as_ref().map(|t| t.version()) { tab.keep_col_view(v, new); }
     if let Some(cur) = &mut tab.grid.cursor {
         cur.col = map(cur.col).unwrap_or(0).min(new_n.saturating_sub(1));
     }

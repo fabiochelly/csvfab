@@ -198,7 +198,7 @@ impl Tool for Review {
             }
             ui.add_space(16.0);
             let any = !res.changed.is_empty() || !res.added.is_empty();
-            match form::actions(ui, &p, &[Btn::outline("Close"), Btn::primary("Show changed rows").enabled(any).tip("Tint the changed cells, show only those rows")]) {
+            match form::actions(ui, &p, &[Btn::outline("Close"), Btn::primary("Show changed rows").enabled(any)]) {
                 Some(0) => cancel = true,
                 Some(_) => do_mark = true,
                 None => {}

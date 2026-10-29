@@ -399,7 +399,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         if let Some(r) = &tab.restrict {
             chips.push((r.label.clone(), String::new(), 2, 0));
         }
-        // What each one keeps, said in full on hover (the chip cuts it short).
+        // What each one keeps, said in full on hover when the chip cuts it short.
         let tips: Vec<String> = chips.iter().map(|(what, value, kind, _)| match kind {
             0 if tab.expr_mode => format!("Rows where: {value}"),
             0 => format!("Rows holding: {value}"),
@@ -548,6 +548,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             let e = if crate::widgets::reduced_motion(&ctx) { 1.0 } else { egui::emath::easing::cubic_out((((now - t0) / 0.15) as f32).clamp(0.0, 1.0)) };
             popping |= e < 1.0;
             let v = chip_value(value);
+            let cut = v != *value;
             let gw = pt.layout_no_wrap(what.clone(), semibold(12.0), p.txt_strong).size().x;
             let slot = at(x, widths[k], m.chip_h);
             x = slot.max.x + 6.0;
@@ -558,7 +559,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             if !v.is_empty() {
                 pt.text(pos2(r.min.x + 9.0 + gw + 6.0, r.center().y), Align2::LEFT_CENTER, v, ui_font(12.0), fade(p.txt_hi));
             }
-            let _ = ui.interact(r, Id::unique(("chip", k)), Sense::hover()).on_hover_text(&tips[k]);
+            if cut { let _ = ui.interact(r, Id::unique(("chip", k)), Sense::hover()).on_hover_text(&tips[k]); }
             let xr = Rect::from_center_size(pos2(r.max.x - 3.0 - 9.0, r.center().y), vec2(18.0, 18.0));
             let xresp = ui.interact(xr, Id::unique(("chip-x", k)), Sense::click());
             let xh = ease(&ctx, xresp.id, xresp.hovered());
@@ -578,7 +579,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             let h = ease(&ctx, resp.id, resp.hovered() || open);
             pt.rect(r, 13.0, mix(alpha(p.accent, 0.18), p.chip_bg, h), Stroke::new(1.0, if open { p.prim } else { p.chip_brd }), StrokeKind::Inside);
             pt.text(r.center(), Align2::CENTER_CENTER, format!("+{}", chips.len() - fits), semibold(12.0), p.txt_strong);
-            let resp = resp.on_hover_text("More filters").on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             egui::Popup::menu(&resp).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
                 crate::widgets::width(ui, 260.0);
                 crate::widgets::head(ui, &p, "Filters · click to remove");
@@ -680,7 +681,9 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             (Some(b), _) => format!("Save {b} edit{} (Ctrl+S)", if n == 1 { "" } else { "s" }),
             _ => "Save (Ctrl+S)".to_string(),
         };
-        if save.on_hover_text(save_tip).clicked() {
+        // Labelled, it says it all; compact (the icon alone), the tip names it.
+        let save = if compact { save.on_hover_text(save_tip) } else { save };
+        if save.clicked() {
             cmd = Some("save");
         }
         if dirty {
@@ -1421,7 +1424,7 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                         crate::tools::tail::Follow::Paused => ("Following: paused", p.warn, p.warn_rgb),
                         _ => ("Following: error", p.danger_txt, p.danger),
                     };
-                    if pill(ui, "follow", None, text, false, fg, alpha(bg, 0.12), alpha(bg, 0.4), 20.0).on_hover_text("Click to stop following the file").clicked() {
+                    if pill(ui, "follow", None, text, false, fg, alpha(bg, 0.12), alpha(bg, 0.4), 20.0).clicked() {
                         follow_toggle = true;
                     }
                 }
@@ -2176,7 +2179,7 @@ pub fn toasts(app: &mut App, ctx: &egui::Context) {
                 let uh = ease(ctx, uresp.id, uresp.hovered());
                 ui.painter().rect(ur, 6.0, mix(p.surf, p.surf_2, uh), Stroke::new(1.0, mix(p.brd_2, p.prim, uh)), StrokeKind::Inside);
                 ui.painter().text(ur.center(), egui::Align2::CENTER_CENTER, "Undo", ui_font(12.5), mix(p.accent_2, p.txt_hi, uh));
-                if uresp.on_hover_text("Undo this edit (Ctrl+Z)").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                if uresp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     undo = Some(k);
                 }
             }

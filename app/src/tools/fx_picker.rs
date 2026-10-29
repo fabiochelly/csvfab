@@ -381,7 +381,6 @@ fn example_box(ui: &mut Ui, p: &Palette, w: f32, src: &str, note: &str, res: Opt
         let g = ui.painter().layout_job(job);
         ui.painter().galley(pos2(x, (cy - g.size().y / 2.0).round()), g, c);
     }
-    let resp = resp.on_hover_text("Insert this formula");
     resp.clicked().then(|| Out::Insert(Pick::Text(src.to_string())))
 }
 

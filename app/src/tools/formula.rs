@@ -11,7 +11,6 @@ use crate::job::Job;
 use crate::tab::Tab;
 use crate::theme::{alpha, Metrics, Palette};
 use csvfab_engine::formula::{self, doc};
-use csvfab_engine::view::SortKey;
 use csvfab_engine::RowId;
 use eframe::egui::{self, pos2, text::LayoutJob, vec2, Align2, Color32, FontId, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
 use std::time::{Duration, Instant};
@@ -392,15 +391,14 @@ impl Formula {
                 let name = self.result_name(tab);
                 let at = at + 1;
                 let t = tab.table.as_mut().unwrap();
+                let old_n = t.st.ncols;
                 t.batch(|t| {
                     t.insert_column(at, &name);
                     t.set_cells(&ch);
                 });
-                tab.col_filters.insert(at.min(tab.col_filters.len()), String::new());
+                super::edit_kit::remap_columns(tab, old_n, |c| Some(super::edit_kit::after_insert(at, 1, c)), cx.ctx);
                 let w = new_width(cx.ctx, cx.m, &name, ch.iter().take(80).map(|c| c.2.as_str()));
-                tab.grid.widths.insert(at.min(tab.grid.widths.len()), w);
-                tab.sort = tab.sort.iter().map(|k| SortKey { col: if k.col >= at { k.col + 1 } else { k.col }, desc: k.desc }).collect();
-                tab.after_edit(true, cx.ctx);
+                if let Some(x) = tab.grid.widths.get_mut(at) { *x = w; }
                 let e = if errors > 0 { format!(", {} rows with an error left empty", fmt(errors)) } else { String::new() };
                 cx.toast(format!("Column \"{name}\" computed{e}"));
             }
@@ -493,7 +491,7 @@ impl Tool for Formula {
                         ui.painter().galley(pos2(r.min.x, r.max.y - 5.0 - g.size().y), g, p.txt_mut);
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-                        if functions_button(ui, p).on_hover_text("Every function, with examples run on your data").clicked() {
+                        if functions_button(ui, p).clicked() {
                             let sel = fx_picker::selection(ui.ctx(), expr_id(), &self.src);
                             self.picker = Some((Picker::new(None, tab), sel));
                         }
@@ -584,7 +582,7 @@ impl Tool for Formula {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(5.0, 5.0);
                     for h in &headers {
-                        if chip(ui, p, h).on_hover_text("Insert this column").clicked() {
+                        if chip(ui, p, h).clicked() {
                             let sel = fx_picker::selection(ui.ctx(), expr_id(), &self.src);
                             let s = fx_picker::insert(&mut self.src, sel, &fx_picker::Pick::Text(format!("{{{h}}}")), tab);
                             fx_picker::select(ui.ctx(), expr_id(), s);

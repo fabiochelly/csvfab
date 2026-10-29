@@ -2,6 +2,18 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.1 · 30 October 2026
+
+- **Fixed: a crash could lose recent edits.** An error in a background task closed the app; it is now caught, said, and the app goes on.
+- **Fixed on Windows: saving a file over itself** could be refused by the system while the file was open.
+- **Fixed: inserting, deleting or moving a column** left value filters, hidden and frozen columns, colour scales and totals on the wrong columns, and Undo did not bring them back.
+- **Fixed: re-reading a file with another delimiter or encoding** kept the filters and sort of the old columns.
+- **Fixed: Enter on a selection** also wrote into its hidden columns.
+- **Line 1 as titles or data** is now a reading choice, not an edit: the file no longer shows as changed.
+- **Save as** refuses a file open in another tab, as Save did.
+- **Select rows by dragging** over their numbers; dragging a row already selected moves it, as in Excel.
+- **Fewer tooltips**, shown once the pointer rests: only for buttons without a label, values cut short and what a label cannot say. A column title hovered shows in grey the arrow a click would sort by.
+
 ## 2.0.0 · 29 October 2026
 
 **csvfab is now a native app.** It was a small Python server and a page in a Chromium window; it is now a single program written in Rust, with the same features. Nothing else to install: no Python, no browser.

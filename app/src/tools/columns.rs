@@ -146,7 +146,7 @@ impl Tool for SplitTool {
                 form::checkbox(ui, p, &mut self.regex, "Regex");
             });
             let labels: Vec<String> = SPLIT_CHIPS.iter().map(|c| c.1.to_string()).collect();
-            let tips: Vec<&str> = SPLIT_CHIPS.iter().map(|c| if c.2 { "Regex: any run of spaces" } else { "Use this separator" }).collect();
+            let tips: Vec<&str> = SPLIT_CHIPS.iter().map(|c| if c.2 { "Regex: any run of spaces" } else { "" }).collect();
             if let Some(k) = form::chips(ui, p, &labels, &tips) {
                 self.sep = SPLIT_CHIPS[k].0.to_string();
                 self.regex = SPLIT_CHIPS[k].2;

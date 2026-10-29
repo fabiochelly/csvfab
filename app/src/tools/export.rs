@@ -262,6 +262,11 @@ impl SaveAs {
 
     /// The destination is known: the questions, then the write.
     fn planned(&mut self, mut plan: Plan, cx: &mut Cx) {
+        // Over a file another tab holds: refused, as Save as (that tab would no longer match it).
+        if let Some(o) = crate::app::open_elsewhere(&plan.dest, cx.tab.uid).filter(|_| !plan.in_place) {
+            self.stage = Stage::Failed(Alert::new(&format!("{o} is open in another tab — close it first.")));
+            return;
+        }
         plan.exists = !plan.in_place && plan.dest.exists();
         if plan.exists {
             self.stage = Stage::ConfirmOverwrite(plan);

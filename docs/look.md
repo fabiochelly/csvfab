@@ -487,7 +487,12 @@ overshoot; out: slide 24 px right + fade, 200 ms.
 
 ## Tooltips
 
-Every control's hint shows **at once** on hover (no delay), under the element
+Few controls have one: a button without a label (its name, its shortcut), a value cut
+short (in full), or a hint that says what the label cannot (what a status chip
+counts, what a click on it does). Never a restatement of the label, nor how to click
+(F1 lists that). Every hint shows once the pointer rests on its element for
+`grid::TIP_DELAY` (0.3 s): egui's (`show_tooltips_only_when_still`) and the grid's and
+charts' own (`grid::tip`); sliding on to the next one while one shows, at once. Under the element
 (above when no room), 10 px away and clear of the pointer, centred on it, kept 6 px
 inside the window. Box (`theme::tooltip_frame`): max 420 wide, padding 4 × 8, radius
 5, `tip_fill` (the web blurs behind it, 14 px), 1 px `tip_stroke`, shadow 0 4 14

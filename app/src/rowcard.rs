@@ -247,7 +247,7 @@ fn body(card: &mut Card, ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics, o
     let sg = ui.painter().layout_job(sub);
     let (sr, sresp) = ui.allocate_exact_size(vec2(w, sg.size().y), if probs > 0 { Sense::click() } else { Sense::hover() });
     ui.painter().galley(sr.min, sg, p.txt_dim);
-    if probs > 0 && sresp.on_hover_text("What is wrong in this line's bytes").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+    if probs > 0 && sresp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         actions.push(Action::Diagnose(id));
     }
     ui.add_space(9.0);
@@ -473,7 +473,6 @@ fn body(card: &mut Card, ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics, o
                 let mut tip = format!("{} · column {} · {kind_name}", heads[k], k + 1);
                 if is_hidden { tip.push_str(" · hidden in the grid"); }
                 if cell_edited { tip.push_str(" · edited"); }
-                tip.push_str("\nClick: show in the grid · right click: more");
                 let lresp = lresp.on_hover_text(tip);
                 if lresp.clicked() { show_in_grid(tab, c.row, k); }
                 egui::Popup::context_menu(&lresp).frame(crate::theme::menu_frame(p, m)).show(|ui| {

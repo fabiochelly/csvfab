@@ -55,7 +55,21 @@ pub struct State {
     seen: Option<(ValKey, Instant)>,
 }
 
+/// The functions picked, by column (`State::choices`).
+pub type Choices = HashMap<usize, Option<TotalFn>>;
+
 impl State {
+    /// The functions picked, by column: carried over a structural edit, kept for Undo.
+    pub fn choices(&self) -> Choices {
+        self.choice.clone()
+    }
+
+    pub fn set_choices(&mut self, c: Choices) {
+        self.choice = c;
+        self.vals.clear();
+        self.vals_key = None;
+    }
+
     /// Column `c`'s function: the one picked, else the default (a sum for quantities).
     pub fn func(&self, c: usize) -> Option<TotalFn> {
         match self.choice.get(&c) {
@@ -275,8 +289,9 @@ pub fn cells(ui: &mut Ui, tab: &mut Tab, painter: &Painter, r: Rect, clip: Rect,
                 }
                 pt.galley(pos2(snap(x + w - 1.0 - m.cell_pad_x - vg.size().x), snap(cy - vg.size().y / 2.0)), vg, vc);
                 tip = match &v {
-                    Some(v) => format!("{}{}\nClick: another total", if with_label { String::new() } else { format!("{}: {} — ", f.labels(kind).0, v.text) }, v.tip),
-                    None => "Counting…\nClick: another total".into(),
+                    // The name and value when the cell only has room for the value, and what it is made of.
+                    Some(v) => [if with_label { String::new() } else { format!("{}: {}", f.labels(kind).0, v.text) }, v.tip.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" — "),
+                    None => String::new(),
                 };
             }
         }

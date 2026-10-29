@@ -3,6 +3,9 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.0.1', date: '2026-10-30', items: [
+        ['Select rows by dragging', 'Drag over the row numbers to select several rows; drag a row already selected to move it, as in Excel.'],
+    ] },
     { v: '2.0.0', date: '2026-10-29', items: [
         ['A native app', 'csvfab is now a single program written in Rust: no Python, no browser to install. It opens in a blink and needs far less memory.'],
         ['Nothing lost in a crash', 'Unsaved tables are kept aside as you edit and offered back at the next start; a file another program cuts short is caught and never written back damaged.'],

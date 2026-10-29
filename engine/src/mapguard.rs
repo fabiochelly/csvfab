@@ -34,7 +34,8 @@ static CUTS: AtomicUsize = AtomicUsize::new(0);
 /// A read-only map of a whole file, its pages replaced by zeros past the end if the
 /// file shrinks under it.
 pub struct Guarded {
-    map: Mmap,
+    /// Dropped by hand, out of the watch first, then the files waiting for it deleted.
+    map: std::mem::ManuallyDrop<Mmap>,
     slot: Option<usize>,
 }
 
@@ -44,7 +45,7 @@ impl Guarded {
         // SAFETY: read-only; the file shrinking under it is what the handler catches.
         let map = unsafe { Mmap::map(f)? };
         let slot = watch(map.as_ptr() as usize, map.len());
-        Ok(Guarded { map, slot })
+        Ok(Guarded { map: std::mem::ManuallyDrop::new(map), slot })
     }
 
     /// Whether another program cut the file short while it was mapped: the bytes past
@@ -67,7 +68,7 @@ impl std::ops::Deref for Guarded {
 }
 
 impl Drop for Guarded {
-    /// Out of the table before the map goes (the field is dropped after this).
+    /// Out of the table before the map goes; then the files left for it to let go of.
     fn drop(&mut self) {
         if let Some(s) = self.slot {
             let t = &TABLE[s];
@@ -76,7 +77,27 @@ impl Drop for Guarded {
             t.cut.store(false, Ordering::Release);
             t.used.store(false, Ordering::Release);
         }
+        // SAFETY: dropped once, here; the field is not used after.
+        unsafe { std::mem::ManuallyDrop::drop(&mut self.map) };
+        delete_waiting();
     }
+}
+
+/// Files to delete once no map holds them: on Windows, a file another took the place of
+/// while this app still mapped it (save.rs `replace`).
+static WAITING: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// `path` is deleted as soon as it can be: now if nothing maps it, else when its map goes
+/// (or at the latest by `delete_waiting` when the app quits).
+pub fn delete_later(path: std::path::PathBuf) {
+    if std::fs::remove_file(&path).is_ok() { return; }
+    if let Ok(mut w) = WAITING.lock() { w.push(path); }
+}
+
+/// Deletes the files waiting that nothing holds any more.
+pub fn delete_waiting() {
+    let Ok(mut w) = WAITING.try_lock() else { return };
+    w.retain(|p| p.exists() && std::fs::remove_file(p).is_err());
 }
 
 /// How many maps were found cut short so far (it only grows): a change tells the app

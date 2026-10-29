@@ -835,7 +835,7 @@ impl Tool for Dialog {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if kit::button(ui, p, "+ Key (or)", Btn::Outline, true).clicked() { edit = Some(Edit::AddKey); }
-                if kit::button(ui, p, "Suggest keys", Btn::Outline, true).on_hover_text("Name, e-mail, phone, from the columns found").clicked() { edit = Some(Edit::Suggest); }
+                if kit::button(ui, p, "Suggest keys", Btn::Outline, true).clicked() { edit = Some(Edit::Suggest); }
                 ui.add_space(12.0);
                 ui.label(egui::RichText::new("Delete keeps, in each group:").font(kit::ui(12.0)).color(p.txt_mut));
                 if kit::radio(ui, p, !self.keep_last, "Its first row").clicked() { self.keep_last = false; }

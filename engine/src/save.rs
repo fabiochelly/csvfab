@@ -495,6 +495,28 @@ fn make_backup(path: &Path) -> io::Result<PathBuf> {
     unreachable!()
 }
 
+/// Puts `tmp` in the place of `path`, atomically where the system can. Windows refuses to
+/// replace a file that is mapped — the one this table was read from, still open: the old
+/// file is then renamed aside (allowed while mapped), the new one takes its name, and the
+/// old one is deleted once nothing maps it (`mapguard::delete_later`).
+fn replace(tmp: &Path, path: &Path) -> io::Result<()> {
+    let e = match std::fs::rename(tmp, path) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    if !cfg!(windows) || !path.exists() { return Err(e); }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let aside = path.with_file_name(format!(".{name}.csvfab-old-{}-{stamp}", std::process::id()));
+    std::fs::rename(path, &aside).map_err(|_| e)?;
+    if let Err(e) = std::fs::rename(tmp, path) {
+        let _ = std::fs::rename(&aside, path);
+        return Err(e);
+    }
+    crate::mapguard::delete_later(aside);
+    Ok(())
+}
+
 /// Makes a rename in `dir` durable: the file's own fsync keeps its bytes, but the entry naming
 /// it is only written with the folder's — a power cut right after could bring back the old
 /// version. Refused by some file systems (network, FUSE): then as before. NTFS journals renames.
@@ -588,7 +610,7 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, ba
             make_backup(path)?;
             *backed_up = true;
         }
-        std::fs::rename(&tmp, path)?;
+        replace(&tmp, path)?;
         sync_dir(path.parent().unwrap_or(Path::new(".")));
         Ok(())
     })();
@@ -731,6 +753,10 @@ mod tests {
         assert_eq!(baks.len(), 1);
         // A second save with the old stamp: refused.
         assert!(matches!(save(&t.st, &p, &SaveOptions::default(), stamp, &mut backed), Err(SaveError::Changed)));
+        // Saved over while mapped (Windows: the old file set aside): nothing left once let go.
+        drop(t);
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains("csvfab-old")).collect();
+        assert!(left.is_empty(), "{left:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

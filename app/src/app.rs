@@ -9,7 +9,6 @@ use crate::theme::{self, Metrics, Theme};
 use crate::tools::{self, Cmd, Cx, Tool};
 use csvfab_engine::base::OpenOptions;
 use csvfab_engine::save::{self, SaveError, SaveOptions};
-use csvfab_engine::view::SortKey;
 use csvfab_engine::RowId;
 use eframe::egui;
 use egui::{Key, KeyboardShortcut, Modifiers, RichText};
@@ -154,6 +153,16 @@ pub enum OnDisk {
 
 /// What each edit told about did, by (tab, version): Undo / Redo say it again, Review
 /// changes lists it.
+/// The files open in tabs: (tab, path, name), noted before commands and tools run, for one
+/// writing a file to refuse a file another tab holds (that tab would no longer match it).
+static OPEN: std::sync::Mutex<Vec<(u64, PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// The name of the tab other than `uid` that holds `path`, if one does.
+pub fn open_elsewhere(path: &std::path::Path, uid: u64) -> Option<String> {
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    OPEN.lock().ok()?.iter().find(|(u, p, _)| *u != uid && *p == canon).map(|x| x.2.clone())
+}
+
 pub mod edit_what {
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -422,8 +431,8 @@ impl App {
         if self.saving.is_some() { return; }
         // Over a file another tab holds: refused (that tab would no longer match its file).
         if let Some(p) = &as_path {
-            let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
-            if let Some(o) = self.tabs.iter().enumerate().find(|(k, t)| *k != self.active && t.path.as_ref() == Some(&canon)).map(|(_, t)| t.name.clone()) {
+            self.note_open();
+            if let Some(o) = self.tabs.get(self.active).and_then(|t| open_elsewhere(p, t.uid)) {
                 self.dialog = Some(Dialog::Message(format!("{o} is open in another tab — close it first.")));
                 return;
             }
@@ -618,7 +627,16 @@ impl App {
         self.run_with(Box::new(run), ctx);
     }
 
+    /// Notes the files the tabs hold (`open_elsewhere`).
+    fn note_open(&self) {
+        if let Ok(mut o) = OPEN.lock() {
+            o.clear();
+            o.extend(self.tabs.iter().filter_map(|t| Some((t.uid, t.path.clone()?, t.name.clone()))));
+        }
+    }
+
     fn run_with(&mut self, run: Box<dyn FnOnce(&mut Cx)>, ctx: &egui::Context) {
+        self.note_open();
         let (p, m) = (&self.theme.p, &self.m);
         let Some(tab) = self.tabs.get_mut(self.active) else { return };
         let mut out = Vec::new();
@@ -716,11 +734,9 @@ impl App {
                 Action::InsertColumn(at) => {
                     let name = tab.new_col_name.take().unwrap_or_else(|| format!("Column {}", at + 1));
                     self.pending.push(Cmd::Toast(format!("Column \"{name}\" inserted")));
+                    let old_n = table.st.ncols;
                     table.insert_column(at, &name);
-                    tab.col_filters.insert(at.min(tab.col_filters.len()), String::new());
-                    tab.grid.widths.insert(at.min(tab.grid.widths.len()), 120.0);
-                    shift_sort(&mut tab.sort, |c| Some(if c >= at { c + 1 } else { c }));
-                    tab.after_edit(true, ctx);
+                    tools::edit_kit::remap_columns(tab, old_n, |c| Some(tools::edit_kit::after_insert(at, 1, c)), ctx);
                 }
                 Action::DeleteColumns(cols) => {
                     let heads = table.st.headers();
@@ -728,15 +744,9 @@ impl App {
                         [c] => format!("Column \"{}\" deleted", heads.get(*c).map_or("", |s| s.as_str())),
                         _ => format!("{} columns deleted", cols.len()),
                     }));
+                    let old_n = table.st.ncols;
                     table.delete_columns(&cols);
-                    let mut sorted = cols.clone();
-                    sorted.sort_unstable();
-                    for &c in sorted.iter().rev() {
-                        if c < tab.col_filters.len() { tab.col_filters.remove(c); }
-                        if c < tab.grid.widths.len() { tab.grid.widths.remove(c); }
-                    }
-                    shift_sort(&mut tab.sort, |c| if cols.contains(&c) { None } else { Some(c - cols.iter().filter(|&&d| d < c).count()) });
-                    tab.after_edit(true, ctx);
+                    tools::edit_kit::remap_columns(tab, old_n, |c| tools::edit_kit::after_delete(&cols, c), ctx);
                 }
                 Action::GoToRow { id, clear } => {
                     if clear {
@@ -889,6 +899,10 @@ impl App {
         let tab = &mut self.tabs[self.active];
         if let Some(touched) = r {
             let structure = matches!(touched, csvfab_engine::table::Touched::Structure);
+            // Columns added, removed or moved: their settings as they were at this version.
+            let ncols = tab.st().map_or(0, |s| s.ncols);
+            let v = tab.table.as_ref().map_or(0, |t| t.version());
+            if let Some(cv) = tab.col_views.get(&v).filter(|cv| structure && cv.filters.len() == ncols).cloned() { tab.set_col_view(cv); }
             tab.after_edit(structure, ctx);
             if tab.marks.dups.is_some() { self.run_command(crate::tools::dupes::refresh, ctx); }
         }
@@ -971,6 +985,7 @@ impl App {
     }
 
     fn show_tools(&mut self, ctx: &egui::Context) {
+        self.note_open();
         let (p, m) = (&self.theme.p, &self.m);
         let mut out = Vec::new();
         let mut tools = std::mem::take(&mut self.tools);
@@ -1499,10 +1514,6 @@ fn parse_keys(s: &str) -> Option<(Modifiers, Key)> {
         }
     }
     Some((m, key?))
-}
-
-fn shift_sort(sort: &mut Vec<SortKey>, f: impl Fn(usize) -> Option<usize>) {
-    *sort = sort.iter().filter_map(|k| f(k.col).map(|col| SortKey { col, desc: k.desc })).collect();
 }
 
 /// A row's position in file order (data rows).

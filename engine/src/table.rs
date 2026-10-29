@@ -241,8 +241,10 @@ impl RowMask {
 enum Change {
     /// Columns' previous layers.
     Cells(Vec<(usize, Layers)>),
-    /// The previous structure, whole (rows or columns added, removed, moved).
-    State { cols: Arc<Vec<Layers>>, order: Option<Arc<Vec<RowId>>>, cmap: Option<Arc<Vec<i32>>>, ncols: usize, header: bool, eol: Option<&'static [u8]> },
+    /// The previous structure, whole (rows or columns added, removed, moved). `header`: line 1's
+    /// reading before, only when the edit changed it (`set_header_edit`); a plain toggle
+    /// (`set_header`) is no edit, which Undo leaves as it is.
+    State { cols: Arc<Vec<Layers>>, order: Option<Arc<Vec<RowId>>>, cmap: Option<Arc<Vec<i32>>>, ncols: usize, header: Option<bool>, eol: Option<&'static [u8]> },
 }
 
 struct Op {
@@ -343,15 +345,19 @@ impl Table {
 
     fn snapshot_change(&self) -> Change {
         let s = &self.st;
-        Change::State { cols: s.cols.clone(), order: s.order.clone(), cmap: s.cmap.clone(), ncols: s.ncols, header: s.header, eol: s.eol }
+        Change::State { cols: s.cols.clone(), order: s.order.clone(), cmap: s.cmap.clone(), ncols: s.ncols, header: None, eol: s.eol }
     }
 
     /// Runs several edits as one undo step.
     pub fn batch(&mut self, f: impl FnOnce(&mut Table)) {
-        let before = self.snapshot_change();
+        let mut before = self.snapshot_change();
+        let h0 = self.st.header;
         let n = self.undo.len();
         f(self);
         if self.undo.len() > n + 1 {
+            // Line 1's reading comes back with the step when one of its edits changed it.
+            let header_edited = self.undo[n..].iter().any(|o| matches!(o.change, Change::State { header: Some(_), .. }));
+            if let Change::State { header, .. } = &mut before { if header_edited { *header = Some(h0); } }
             self.undo.truncate(n);
             self.push(before);
         }
@@ -546,9 +552,19 @@ impl Table {
         self.push(c);
     }
 
+    /// Whether line 1 holds the titles: how the file is read, not an edit — the bytes saved
+    /// are the same either way. No undo step, the table stays as clean or dirty as it was,
+    /// and Undo / Redo of other edits leave it as it is.
     pub fn set_header(&mut self, header: bool) {
+        self.st.header = header;
+    }
+
+    /// Line 1's reading changed as part of an edit (a title line added to a file without
+    /// one): Undo brings the reading back with it.
+    pub fn set_header_edit(&mut self, header: bool) {
         if header == self.st.header { return; }
-        let c = self.snapshot_change();
+        let mut c = self.snapshot_change();
+        if let Change::State { header: h, .. } = &mut c { *h = Some(self.st.header); }
         self.st.header = header;
         self.push(c);
     }
@@ -566,12 +582,15 @@ impl Table {
                 (Change::Cells(inverse), Touched::Cells(touched))
             }
             Change::State { cols, order, cmap, ncols, header, eol } => {
-                let inv = self.snapshot_change();
+                let mut inv = self.snapshot_change();
+                if let Some(h) = header {
+                    if let Change::State { header: ih, .. } = &mut inv { *ih = Some(self.st.header); }
+                    self.st.header = h;
+                }
                 self.st.cols = cols;
                 self.st.order = order;
                 self.st.cmap = cmap;
                 self.st.ncols = ncols;
-                self.st.header = header;
                 self.st.eol = eol;
                 (inv, Touched::Structure)
             }
