@@ -17,7 +17,7 @@ optdepends=('wayland: Wayland sessions'
 makedepends=('cargo')
 options=('!lto')   # the workspace's release profile does its own
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('67901a9645cd3d7d0b42c2fc3ed2d04fd97e772b40a14ca7a07872bddacebcfd')
 
 prepare() {
     cd "$pkgname-$pkgver"

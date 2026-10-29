@@ -5,7 +5,7 @@
 # command line alone.
 cask "csvfab" do
   version "2.0.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "fb583d33ec30610cf8e0559c5dacf778a5fc241ae81f1d057d78627c30f2fb97"
 
   url "https://github.com/fabiochelly/csvfab/releases/download/v#{version}/csvfab-#{version}-macos.tar.gz"
   name "csvfab"
