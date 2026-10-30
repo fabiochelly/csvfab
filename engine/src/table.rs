@@ -9,14 +9,19 @@
 
 use crate::base::Base;
 use crate::scan;
+use rayon::prelude::*;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// A row: the index of its record in the file, or ≥ base.n for a row created here.
 pub type RowId = u32;
 
-/// One edit's cells of one column: sorted ids, their texts end to end.
+/// One edit's cells of one column: sorted ids, their texts end to end — or one text for
+/// them all (a selection cleared or filled with a value: 4 bytes a cell, the ids shared by
+/// every column it spans).
 pub struct Layer {
-    ids: Vec<RowId>,
+    ids: Arc<Vec<RowId>>,
+    /// Cell k is `arena[offs[k]..offs[k + 1]]`; empty: every cell is the whole arena.
     offs: Vec<u32>,
     arena: Vec<u8>,
 }
@@ -24,24 +29,39 @@ pub struct Layer {
 impl Layer {
     /// From (id, text) pairs sorted by id, the last of equal ids winning.
     fn build(cells: &[(RowId, &str)]) -> Layer {
-        let mut l = Layer { ids: Vec::with_capacity(cells.len()), offs: Vec::with_capacity(cells.len() + 1), arena: Vec::new() };
-        l.arena.reserve(cells.iter().map(|c| c.1.len()).sum());
-        l.offs.push(0);
+        let (mut ids, mut offs, mut arena) = (Vec::with_capacity(cells.len()), Vec::with_capacity(cells.len() + 1), Vec::with_capacity(cells.iter().map(|c| c.1.len()).sum()));
+        offs.push(0);
         for (k, &(id, s)) in cells.iter().enumerate() {
             if cells.get(k + 1).is_some_and(|n| n.0 == id) { continue; }
-            l.ids.push(id);
-            l.arena.extend_from_slice(s.as_bytes());
-            l.offs.push(l.arena.len() as u32);
+            ids.push(id);
+            arena.extend_from_slice(s.as_bytes());
+            offs.push(arena.len() as u32);
         }
-        l
+        Layer { ids: Arc::new(ids), offs, arena }
+    }
+
+    /// `text` in every row of `ids` (sorted, no repeats).
+    fn uniform(ids: Arc<Vec<RowId>>, text: &str) -> Layer {
+        Layer { ids, offs: Vec::new(), arena: text.as_bytes().to_vec() }
+    }
+
+    /// Cell k's text.
+    #[inline]
+    fn text(&self, k: usize) -> &str {
+        let b = if self.offs.is_empty() { &self.arena[..] } else { &self.arena[self.offs[k] as usize..self.offs[k + 1] as usize] };
+        // SAFETY: built from &str slices end to end, cut on their boundaries.
+        unsafe { std::str::from_utf8_unchecked(b) }
     }
 
     #[inline]
     fn get(&self, id: RowId) -> Option<&str> {
         let k = self.ids.binary_search(&id).ok()?;
-        let b = &self.arena[self.offs[k] as usize..self.offs[k + 1] as usize];
-        // SAFETY: built from &str slices end to end, cut on their boundaries.
-        Some(unsafe { std::str::from_utf8_unchecked(b) })
+        Some(self.text(k))
+    }
+
+    /// The one text of a layer that gives every row the same.
+    fn uniform_text(&self) -> Option<&[u8]> {
+        self.offs.is_empty().then_some(&self.arena[..])
     }
 
     pub fn len(&self) -> usize {
@@ -57,19 +77,217 @@ impl Layer {
         self.ids.is_empty()
     }
 
+    /// Its memory, the ids shared with the other columns of the same edit counted once among them.
     pub fn bytes(&self) -> usize {
-        self.ids.capacity() * 4 + self.offs.capacity() * 4 + self.arena.capacity()
+        self.ids.capacity() * 4 / Arc::strong_count(&self.ids) + self.offs.capacity() * 4 + self.arena.capacity()
     }
+}
+
+/// Cells of one column being gathered, ids in order with their texts end to end: pieces
+/// built side by side (a computed column, chunk by chunk), made one layer by `Patch::column`.
+/// A piece holds less than 4 GB of text.
+#[derive(Default)]
+pub struct Cells {
+    ids: Vec<RowId>,
+    ends: Vec<u32>,
+    text: Vec<u8>,
+}
+
+impl Cells {
+    pub fn with_capacity(n: usize) -> Cells {
+        Cells { ids: Vec::with_capacity(n), ends: Vec::with_capacity(n), text: Vec::new() }
+    }
+
+    #[inline]
+    pub fn push(&mut self, id: RowId, s: &str) {
+        self.ids.push(id);
+        self.text.extend_from_slice(s.as_bytes());
+        self.ends.push(self.text.len() as u32);
+    }
+
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    #[inline]
+    fn text(&self, k: usize) -> &str {
+        let start = if k == 0 { 0 } else { self.ends[k - 1] as usize };
+        // SAFETY: pushed as whole &strs.
+        unsafe { std::str::from_utf8_unchecked(&self.text[start..self.ends[k] as usize]) }
+    }
+
+    /// Strictly increasing ids.
+    fn sorted(&self) -> bool {
+        self.ids.windows(2).all(|w| w[0] < w[1])
+    }
+}
+
+/// Pieces whose ids follow each other (each sorted, each after the previous one), their
+/// text under MAX_ARENA in all, as one layer: copied into place side by side.
+fn join(pieces: &[Cells]) -> Layer {
+    let n: usize = pieces.iter().map(Cells::len).sum();
+    let bytes: usize = pieces.iter().map(|p| p.text.len()).sum();
+    let (mut ids, mut offs, mut arena) = (vec![0 as RowId; n], vec![0u32; n + 1], vec![0u8; bytes]);
+    let mut work = Vec::with_capacity(pieces.len());
+    let (mut ir, mut or, mut ar) = (&mut ids[..], &mut offs[1..], &mut arena[..]);
+    let mut base = 0u32;
+    for p in pieces {
+        let (i, rest) = std::mem::take(&mut ir).split_at_mut(p.len());
+        ir = rest;
+        let (o, rest) = std::mem::take(&mut or).split_at_mut(p.len());
+        or = rest;
+        let (a, rest) = std::mem::take(&mut ar).split_at_mut(p.text.len());
+        ar = rest;
+        work.push((p, i, o, a, base));
+        base += p.text.len() as u32;
+    }
+    work.into_par_iter().for_each(|(p, i, o, a, base)| {
+        i.copy_from_slice(&p.ids);
+        for (o, &e) in o.iter_mut().zip(&p.ends) { *o = base + e; }
+        a.copy_from_slice(&p.text);
+    });
+    Layer { ids: Arc::new(ids), offs, arena }
+}
+
+/// (id, text) pairs sorted by id as layers, cut where an arena would outgrow its u32 offsets.
+fn build_layers(cells: &[(RowId, &str)]) -> Vec<Arc<Layer>> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < cells.len() {
+        let (mut end, mut size) = (start, 0usize);
+        while end < cells.len() && size + cells[end].1.len() < MAX_ARENA { size += cells[end].1.len(); end += 1; }
+        // Never between two cells of the same row: the last of them wins within one layer.
+        while end > start + 1 && end < cells.len() && cells[end].0 == cells[end - 1].0 { end -= 1; }
+        out.push(Arc::new(Layer::build(&cells[start..end.max(start + 1)])));
+        start = end.max(start + 1);
+    }
+    out
 }
 
 /// A column's layers, oldest first.
 pub type Layers = Arc<Vec<Arc<Layer>>>;
 
-/// Past this many layers a column's are merged into one: lookups stay a few binary searches.
+/// Past this many layers some of a column's are merged into one: lookups stay a few binary searches.
 const MAX_LAYERS: usize = 12;
 
 /// An arena's offsets are u32: a bigger edit is split into several layers.
 const MAX_ARENA: usize = u32::MAX as usize - (1 << 20);
+
+/// Cells of some columns made ready to go in (`Table::apply`): each column's layers built —
+/// sorted, their text in one arena — where it suits the caller, in a job, so that the table
+/// only links them in. The same cells as `Table::set_cells` would write.
+pub struct Patch {
+    /// Per column (each once), its new layers, oldest first.
+    cols: Vec<(usize, Vec<Arc<Layer>>)>,
+    cells: usize,
+    blank: bool,
+}
+
+impl Patch {
+    /// From (row, column, text) changes, the last of the same cell winning; the columns sorted in parallel.
+    pub fn new(changes: &[(RowId, usize, String)]) -> Patch {
+        let ncols = changes.iter().map(|c| c.1 + 1).max().unwrap_or(0);
+        let mut count = vec![0usize; ncols];
+        for c in changes { count[c.1] += 1; }
+        let mut by_col: Vec<Vec<(RowId, &str)>> = count.iter().map(|&n| Vec::with_capacity(n)).collect();
+        for (id, col, text) in changes { by_col[*col].push((*id, text.as_str())); }
+        let cols = by_col.into_par_iter().enumerate().filter(|(_, c)| !c.is_empty()).map(|(c, mut cells)| {
+            // Stable: of the same cell set twice, the last one stays last.
+            if !cells.windows(2).all(|w| w[0].0 <= w[1].0) {
+                if cells.len() > 1 << 16 { cells.par_sort_by_key(|x| x.0) } else { cells.sort_by_key(|x| x.0) }
+            }
+            (c, build_layers(&cells))
+        }).collect();
+        Patch { cols, cells: changes.len(), blank: changes.iter().all(|c| c.2.is_empty()) }
+    }
+
+    /// `value` in the cells of `cols` over rows `ids` that do not hold it already (a selection
+    /// cleared or filled): one layer per column, all sharing one text and — where every row
+    /// changes — one list of ids. None if cancelled.
+    pub fn fill(st: &State, ids: &[RowId], cols: &[usize], value: &str, cancel: &AtomicBool) -> Option<Patch> {
+        let mut rows = ids.to_vec();
+        rows.par_sort_unstable();
+        rows.dedup();
+        let mut cols = cols.to_vec();
+        cols.sort_unstable();
+        cols.dedup();
+        // Per chunk of rows (in id order: the file read front to back), per column, the rows
+        // whose cell changes; each row split once for all the columns.
+        let parts = crate::stats::chunked(rows.len(), cancel, || (vec![Vec::new(); cols.len()], Vec::new()), |(acc, tmp): &mut (Vec<Vec<RowId>>, Vec<u8>), p| {
+            let id = rows[p];
+            crate::stats::visit_cols(st, id, &cols, tmp, |k, v| if v != value { acc[k].push(id) });
+        })?;
+        let rows = Arc::new(rows);
+        let per_col: Vec<(usize, Vec<Arc<Layer>>, usize)> = cols.par_iter().enumerate().filter_map(|(k, &c)| {
+            let n: usize = parts.iter().map(|p| p.0[k].len()).sum();
+            if n == 0 { return None; }
+            let ids = if n == rows.len() { rows.clone() } else {
+                let mut v = Vec::with_capacity(n);
+                for p in &parts { v.extend_from_slice(&p.0[k]); }
+                Arc::new(v)
+            };
+            Some((c, vec![Arc::new(Layer::uniform(ids, value))], n))
+        }).collect();
+        let cells = per_col.iter().map(|x| x.2).sum();
+        Some(Patch { cols: per_col.into_iter().map(|(c, l, _)| (c, l)).collect(), cells, blank: value.is_empty() })
+    }
+
+    /// Column `col`'s cells gathered in pieces (in row order or not; each row once).
+    pub fn column(col: usize, mut pieces: Vec<Cells>) -> Patch {
+        pieces.retain(|p| !p.is_empty());
+        let cells = pieces.iter().map(Cells::len).sum();
+        let blank = pieces.iter().all(|p| p.text.is_empty());
+        let follow = pieces.iter().all(Cells::sorted) && pieces.windows(2).all(|w| w[0].ids.last() < w[1].ids.first());
+        let layers = if follow {
+            // Cut into layers where the text would outgrow an arena's offsets.
+            let mut out = Vec::new();
+            let (mut start, mut size) = (0, 0usize);
+            for (k, p) in pieces.iter().enumerate() {
+                if size + p.text.len() >= MAX_ARENA && k > start {
+                    out.push(Arc::new(join(&pieces[start..k])));
+                    (start, size) = (k, 0);
+                }
+                size += p.text.len();
+            }
+            if start < pieces.len() { out.push(Arc::new(join(&pieces[start..]))); }
+            out
+        } else {
+            // Rows in another order than their ids (moved, inserted here): sorted first.
+            let mut refs: Vec<(RowId, &str)> = pieces.iter().flat_map(|p| (0..p.len()).map(move |k| (p.ids[k], p.text(k)))).collect();
+            refs.par_sort_by_key(|x| x.0);
+            build_layers(&refs)
+        };
+        Patch { cols: if cells > 0 { vec![(col, layers)] } else { Vec::new() }, cells, blank }
+    }
+
+    /// Cells written (a cell given twice counted twice, as the changes said them).
+    pub fn cells(&self) -> usize {
+        self.cells
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cols.is_empty()
+    }
+
+    /// Every cell emptied.
+    pub fn blank(&self) -> bool {
+        self.blank
+    }
+
+    /// The columns it writes.
+    pub fn columns(&self) -> impl Iterator<Item = usize> + '_ {
+        self.cols.iter().map(|c| c.0)
+    }
+
+    /// The texts of its first column, by row id.
+    pub fn texts(&self) -> impl Iterator<Item = &str> + '_ {
+        self.cols.iter().take(1).flat_map(|c| c.1.iter()).flat_map(|l| (0..l.len()).map(move |k| l.text(k)))
+    }
+}
 
 #[derive(Clone)]
 pub struct State {
@@ -373,44 +591,24 @@ impl Table {
         self.st.ncols = n;
     }
 
-    /// Adds `cells` (sorted by id) as a layer of column `col`, merging its layers when there are too many.
-    fn add_layer(cols: &mut Vec<Layers>, col: usize, cells: &[(RowId, &str)]) {
-        let mut start = 0;
-        while start < cells.len() {
-            // Cut where the arena would outgrow its u32 offsets.
-            let (mut end, mut size) = (start, 0usize);
-            while end < cells.len() && size + cells[end].1.len() < MAX_ARENA { size += cells[end].1.len(); end += 1; }
-            let layer = Arc::new(Layer::build(&cells[start..end]));
-            Arc::make_mut(&mut cols[col]).push(layer);
-            start = end.max(start + 1);
-        }
-        if cols[col].len() > MAX_LAYERS {
-            let merged = merge(&cols[col]);
-            cols[col] = Arc::new(merged);
-        }
-    }
-
     /// Sets cells: (row, column, text). One undo step.
     pub fn set_cells(&mut self, changes: &[(RowId, usize, String)]) {
-        if changes.is_empty() {
-            return;
-        }
-        let grow = changes.iter().map(|c| c.1 + 1).max().unwrap_or(0);
-        let structural = grow > self.st.ncols;
-        let before = if structural { Some(self.snapshot_change()) } else { None };
+        self.apply(Patch::new(changes));
+    }
+
+    /// Puts a patch's cells in (built beforehand, maybe in a job, on this table or one it was
+    /// before cell edits): its layers linked in. One undo step.
+    pub fn apply(&mut self, p: Patch) {
+        let Some(grow) = p.cols.iter().map(|c| c.0 + 1).max() else { return };
+        let before = (grow > self.st.ncols).then(|| self.snapshot_change());
         self.grow(grow);
-        let mut by_col: Vec<Vec<(RowId, &str)>> = vec![Vec::new(); self.st.ncols];
-        for (id, col, text) in changes {
-            by_col[*col].push((*id, text.as_str()));
-        }
-        let mut prev = Vec::new();
         let cols = Arc::make_mut(&mut self.st.cols);
-        for (c, mut cells) in by_col.into_iter().enumerate() {
-            if cells.is_empty() { continue; }
-            // Stable: of the same cell set twice, the last one stays last.
-            cells.sort_by_key(|x| x.0);
+        let mut prev = Vec::with_capacity(p.cols.len());
+        for (c, layers) in p.cols {
             prev.push((c, cols[c].clone()));
-            Self::add_layer(cols, c, &cells);
+            let l = Arc::make_mut(&mut cols[c]);
+            l.extend(layers);
+            compact(l);
         }
         self.push(before.unwrap_or(Change::Cells(prev)));
     }
@@ -427,7 +625,9 @@ impl Table {
         let ids: Vec<RowId> = (0..count as RowId).map(|k| self.next_id + k).collect();
         self.next_id += count as RowId;
         let at = (pos + self.st.header as usize).min(self.st.all_len());
-        self.order_mut().splice(at..at, ids.iter().copied());
+        // The new order in one pass over the old one (which the undo step keeps): never a
+        // copy of it first, then the rows after moved aside.
+        self.st.order = Some(Arc::new(spliced(self.st.order.as_deref().map(|o| o.as_slice()), self.st.all_len(), at, &ids)));
         self.push(c);
         ids
     }
@@ -439,7 +639,10 @@ impl Table {
         if id == target { return None; }
         let head = self.st.header as usize;
         let all = self.st.all_len();
-        let pos_of = |st: &State, x: RowId| (0..all).find(|&p| st.all_id(p) == x);
+        let pos_of = |st: &State, x: RowId| match &st.order {
+            None => ((x as usize) < all).then_some(x as usize),
+            Some(o) => o.iter().position(|&y| y == x),
+        };
         let from = pos_of(&self.st, id).filter(|&p| p >= head)?;
         let to_t = pos_of(&self.st, target).filter(|&p| p >= head)?;
         // Its place once taken out of the order.
@@ -476,13 +679,18 @@ impl Table {
 
     pub fn delete_rows(&mut self, ids: &std::collections::HashSet<RowId>) {
         if ids.is_empty() { return; }
+        self.delete_mask(&RowMask::new(ids.iter().copied()));
+    }
+
+    /// `delete_rows` of the rows set in `gone` (millions selected: no hash set of them made);
+    /// the title row stays.
+    pub fn delete_mask(&mut self, gone: &RowMask) {
         let c = self.snapshot_change();
-        let mut gone = RowMask::new(ids.iter().copied());
-        if self.st.header { gone.remove(self.st.all_id(0)); }
+        let head = self.st.header.then(|| self.st.all_id(0));
         // The new order in one pass over the old (shared with the undo step: not copied
         // first), a bit per row instead of a hash lookup — a few rows or millions alike.
         // On the calling thread: a few ms for millions, whatever the machine is busy with.
-        let keep = |id: &RowId| !gone.contains(*id);
+        let keep = |id: &RowId| !gone.contains(*id) || Some(*id) == head;
         let mut order = Vec::with_capacity(self.st.all_len());
         match &self.st.order {
             Some(o) => order.extend(o.iter().copied().filter(keep)),
@@ -511,7 +719,7 @@ impl Table {
         cols.insert(at, Layers::default());
         self.st.ncols += 1;
         if let Some(h) = head {
-            Self::add_layer(cols, at, &[(h, title)]);
+            Arc::make_mut(&mut cols[at]).push(Arc::new(Layer::build(&[(h, title)])));
         }
         self.push(c);
     }
@@ -569,7 +777,7 @@ impl Table {
         self.push(c);
     }
 
-    fn apply(&mut self, change: Change) -> (Change, Touched) {
+    fn revert(&mut self, change: Change) -> (Change, Touched) {
         match change {
             Change::Cells(prev) => {
                 let cols = Arc::make_mut(&mut self.st.cols);
@@ -599,14 +807,14 @@ impl Table {
 
     pub fn undo(&mut self) -> Option<Touched> {
         let op = self.undo.pop()?;
-        let (inv, t) = self.apply(op.change);
+        let (inv, t) = self.revert(op.change);
         self.redo.push(Op { serial: op.serial, change: inv });
         Some(t)
     }
 
     pub fn redo(&mut self) -> Option<Touched> {
         let op = self.redo.pop()?;
-        let (inv, t) = self.apply(op.change);
+        let (inv, t) = self.revert(op.change);
         self.undo.push(Op { serial: op.serial, change: inv });
         Some(t)
     }
@@ -626,7 +834,7 @@ impl Table {
         let remap_layers = |layers: &Layers| -> Layers {
             Arc::new(layers.iter().map(|l| {
                 if l.ids.last().is_none_or(|&x| x < old) { return l.clone(); }
-                Arc::new(Layer { ids: l.ids.iter().map(|&x| map(x)).collect(), offs: l.offs.clone(), arena: l.arena.clone() })
+                Arc::new(Layer { ids: Arc::new(l.ids.iter().map(|&x| map(x)).collect()), offs: l.offs.clone(), arena: l.arena.clone() })
             }).collect())
         };
         let remap_cols = |cols: &Arc<Vec<Layers>>| -> Arc<Vec<Layers>> { Arc::new(cols.iter().map(remap_layers).collect()) };
@@ -658,21 +866,94 @@ impl Table {
     }
 }
 
-/// A column's layers as one, the newest text of each cell winning.
-fn merge(layers: &[Arc<Layer>]) -> Vec<Arc<Layer>> {
-    let mut all: Vec<(RowId, usize, &str)> = Vec::with_capacity(layers.iter().map(|l| l.len()).sum());
-    for (age, l) in layers.iter().enumerate() {
-        for k in 0..l.ids.len() {
-            let s = unsafe { std::str::from_utf8_unchecked(&l.arena[l.offs[k] as usize..l.offs[k + 1] as usize]) };
-            all.push((l.ids[k], age, s));
+/// `ids` with `ins` put before position `at`, in one pass (a view of millions of rows a row
+/// is inserted in: never copied first, then moved aside).
+pub fn splice_ids(ids: &[RowId], at: usize, ins: &[RowId]) -> Vec<RowId> {
+    spliced(Some(ids), ids.len(), at.min(ids.len()), ins)
+}
+
+/// The order `old` (None: the file's, `n` rows) with `ins` put before position `at`, written
+/// in parallel blocks: a few copies each, for millions of rows.
+fn spliced(old: Option<&[RowId]>, n: usize, at: usize, ins: &[RowId]) -> Vec<RowId> {
+    const B: usize = 1 << 16;
+    let k = ins.len();
+    let mut v = vec![0 as RowId; n + k];
+    let from_old = |dst: &mut [RowId], start: usize| match old {
+        Some(o) => dst.copy_from_slice(&o[start..start + dst.len()]),
+        None => for (j, x) in dst.iter_mut().enumerate() { *x = (start + j) as RowId },
+    };
+    v.par_chunks_mut(B).enumerate().for_each(|(c, out)| {
+        let (b, e) = (c * B, c * B + out.len());
+        let s1 = e.min(at).max(b);
+        from_old(&mut out[..s1 - b], b);
+        let s2 = e.min(at + k).max(s1);
+        if s2 > s1 { out[s1 - b..s2 - b].copy_from_slice(&ins[s1 - at..s2 - at]); }
+        from_old(&mut out[s2 - b..], s2 - k.min(s2));
+    });
+    v
+}
+
+/// Past MAX_LAYERS, the run of layers holding the fewest cells is merged into one, down to
+/// half as many layers: a column's big edits (a computed column, a selection cleared) are
+/// not read again for every few cells typed after them.
+fn compact(layers: &mut Vec<Arc<Layer>>) {
+    if layers.len() <= MAX_LAYERS { return; }
+    let w = layers.len() - MAX_LAYERS / 2 + 1;
+    let size: Vec<usize> = layers.iter().map(|l| l.len()).collect();
+    let mut sum: usize = size[..w].iter().sum();
+    let mut best = (sum, 0);
+    for s in 1..=layers.len() - w {
+        sum = sum + size[s + w - 1] - size[s - 1];
+        if sum < best.0 { best = (sum, s); }
+    }
+    let s = best.1;
+    if let Some(m) = merge(&layers[s..s + w]) {
+        layers.splice(s..s + w, [Arc::new(m)]);
+    }
+}
+
+/// Consecutive layers of a column as one, the newest text of each cell winning: their sorted
+/// ids merged in one pass, ranges of ids side by side. None when the text would outgrow an arena.
+fn merge(layers: &[Arc<Layer>]) -> Option<Layer> {
+    let total: usize = layers.iter().map(|l| l.len()).sum();
+    // Cut where the biggest layer's ids are evenly spaced.
+    let big = layers.iter().max_by_key(|l| l.len())?;
+    let parts = (total >> 16).clamp(1, rayon::current_num_threads() * 4).min(big.len().max(1));
+    let mut cuts: Vec<RowId> = (1..parts).map(|k| big.ids[k * big.len() / parts]).collect();
+    cuts.dedup();
+    let bounds: Vec<(Option<RowId>, Option<RowId>)> = (0..=cuts.len()).map(|k| (k.checked_sub(1).map(|j| cuts[j]), cuts.get(k).copied())).collect();
+    let pieces: Vec<Cells> = bounds.into_par_iter().map(|(lo, hi)| merge_range(layers, lo, hi)).collect();
+    if pieces.iter().map(|p| p.text.len()).sum::<usize>() >= MAX_ARENA {
+        return None;
+    }
+    let m = join(&pieces);
+    // Layers of one same text (selections cleared one after the other) stay one text.
+    match layers[0].uniform_text() {
+        Some(u) if layers.iter().all(|l| l.uniform_text() == Some(u)) => Some(Layer { ids: m.ids, offs: Vec::new(), arena: u.to_vec() }),
+        _ => Some(m),
+    }
+}
+
+/// The merged cells of ids in `lo..hi` (None: unbounded).
+fn merge_range(layers: &[Arc<Layer>], lo: Option<RowId>, hi: Option<RowId>) -> Cells {
+    let at = |l: &Layer, b: Option<RowId>, none: usize| b.map_or(none, |b| l.ids.partition_point(|&x| x < b));
+    let mut pos: Vec<usize> = layers.iter().map(|l| at(l, lo, 0)).collect();
+    let end: Vec<usize> = layers.iter().map(|l| at(l, hi, l.len())).collect();
+    let mut out = Cells::with_capacity(pos.iter().zip(&end).map(|(a, b)| b - a).sum());
+    loop {
+        let mut min: Option<RowId> = None;
+        for (j, l) in layers.iter().enumerate() {
+            if pos[j] < end[j] && min.is_none_or(|m| l.ids[pos[j]] < m) { min = Some(l.ids[pos[j]]); }
         }
+        let Some(id) = min else { break };
+        // Every layer holding the row steps over it; the newest (last) gives its text.
+        let mut win = 0;
+        for (j, l) in layers.iter().enumerate() {
+            if pos[j] < end[j] && l.ids[pos[j]] == id { win = j; pos[j] += 1; }
+        }
+        out.push(id, layers[win].text(pos[win] - 1));
     }
-    all.sort_unstable_by_key(|x| (x.0, x.1));
-    let cells: Vec<(RowId, &str)> = all.into_iter().map(|(id, _, s)| (id, s)).collect();
-    if cells.iter().map(|c| c.1.len()).sum::<usize>() >= MAX_ARENA {
-        return layers.to_vec();
-    }
-    vec![Arc::new(Layer::build(&cells))]
+    out
 }
 
 #[cfg(test)]
@@ -822,6 +1103,180 @@ mod tests {
         t.set_cells(&ch);
         assert!(t.st.edit_bytes() < 20 << 20, "{} bytes", t.st.edit_bytes());
         assert_eq!(t.st.cell(t.st.data_id(27), 0), "2024-01-28");
+    }
+
+    /// Every cell of the table, by data row.
+    fn grid(t: &Table) -> Vec<Vec<String>> {
+        (0..t.st.len()).map(|p| (0..t.st.ncols).map(|c| t.st.cell(t.st.data_id(p), c)).collect()).collect()
+    }
+
+    /// A selection filled (or cleared) as a patch: the same cells as the changes the grid
+    /// made, the cells holding the value already left as they were (their rows still as read).
+    #[test]
+    fn patch_fill_as_changes() {
+        let mut t = table("a,b,c\n1,,x\n,2,\n3,4,5\n,,\n");
+        let ids: Vec<RowId> = vec![t.st.data_id(2), t.st.data_id(0), t.st.data_id(1), t.st.data_id(0), t.st.data_id(3)];
+        let no = AtomicBool::new(false);
+        let mut r = table("a,b,c\n1,,x\n,2,\n3,4,5\n,,\n");
+        let ch: Vec<(RowId, usize, String)> = ids.iter().flat_map(|&id| [0, 2].map(|c| (id, c))).filter(|&(id, c)| !r.st.cell(id, c).is_empty()).map(|(id, c)| (id, c, String::new())).collect();
+        r.set_cells(&ch);
+        let p = Patch::fill(&t.st, &ids, &[2, 0], "", &no).unwrap();
+        assert_eq!((p.cells(), p.blank()), (4, true));
+        t.apply(p);
+        assert_eq!(grid(&t), grid(&r));
+        assert!(t.st.pristine(t.st.data_id(3)), "an empty row stays as read");
+        // Shared ids: a column whose every row changes takes the list of rows itself.
+        let p = Patch::fill(&t.st, &ids, &[0, 1, 2], "z", &no).unwrap();
+        assert_eq!(p.cells(), 12);
+        let id_lists: Vec<*const Vec<RowId>> = p.cols.iter().map(|c| Arc::as_ptr(&c.1[0].ids)).collect();
+        assert!(id_lists.windows(2).all(|w| w[0] == w[1]));
+        t.apply(p);
+        assert!(grid(&t).iter().all(|r| r.iter().all(|v| v == "z")));
+        t.undo();
+        assert_eq!(grid(&t), grid(&r));
+        t.undo();
+        assert!(!t.dirty());
+        assert_eq!(t.st.cell(t.st.data_id(0), 2), "x");
+        // Nothing to change: no undo step.
+        let p = Patch::fill(&t.st, &[t.st.data_id(3)], &[0, 1], "", &no).unwrap();
+        assert!(p.is_empty());
+        t.apply(p);
+        assert!(!t.can_undo());
+    }
+
+    /// A column gathered in pieces (a computed column): the cells `set_cells` would write,
+    /// rows in id order or not.
+    #[test]
+    fn patch_column_as_changes() {
+        let src: String = std::iter::once("a\n".to_string()).chain((0..300).map(|i| format!("{i}\n"))).collect();
+        for moved in [false, true] {
+            let mut t = table(&src);
+            if moved { let (a, b) = (t.st.data_id(5), t.st.data_id(200)); t.move_row(a, b, true); }
+            let mut r = Table { st: t.st.clone(), next_id: t.next_id, undo: Vec::new(), redo: Vec::new(), serial: 0, saved: 0 };
+            let vals: Vec<(RowId, String)> = (0..t.st.len()).filter(|p| p % 7 != 3).map(|p| (t.st.data_id(p), format!("v{p}"))).collect();
+            let pieces: Vec<Cells> = vals.chunks(64).map(|ch| { let mut c = Cells::default(); for (id, v) in ch { c.push(*id, v); } c }).collect();
+            let p = Patch::column(1, pieces);
+            assert_eq!(p.cells(), vals.len());
+            t.apply(p);
+            r.set_cells(&vals.iter().map(|(id, v)| (*id, 1, v.clone())).collect::<Vec<_>>());
+            assert_eq!(grid(&t), grid(&r));
+            assert_eq!(t.st.ncols, 2);
+            t.undo();
+            assert_eq!(t.st.ncols, 1);
+        }
+    }
+
+    /// Hundreds of edits of every size, fills and computed columns among them, against a
+    /// plain map of every cell: the layers merged as they pile up give the same cells, a big
+    /// layer is not merged again for the small edits after it, and Undo walks back through all.
+    #[test]
+    fn layers_merge_as_a_model() {
+        let n = 3000;
+        let src: String = std::iter::once("a,b\n".to_string()).chain((0..n).map(|i| format!("{i},b{i}\n"))).collect();
+        let mut t = table(&src);
+        let mut model: Vec<Vec<Vec<String>>> = vec![grid(&t)];
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rnd = |m: usize| { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; (seed % m as u64) as usize };
+        let no = AtomicBool::new(false);
+        for step in 0..400 {
+            let mut cur = model.last().unwrap().clone();
+            let col = rnd(2);
+            match step % 10 {
+                // A whole column computed.
+                0 => {
+                    let mut c = Cells::default();
+                    for p in 0..n { if p % 5 != 0 { c.push(t.st.data_id(p), &format!("c{step}.{p}")); cur[p][col] = format!("c{step}.{p}"); } }
+                    t.apply(Patch::column(col, vec![c]));
+                }
+                // A selection filled (or cleared).
+                1 | 2 => {
+                    let (a, len) = (rnd(n), rnd(500) + 1);
+                    let v = if step % 10 == 1 { String::new() } else { format!("f{step}") };
+                    let rows: Vec<RowId> = (a..(a + len).min(n)).map(|p| t.st.data_id(p)).collect();
+                    t.apply(Patch::fill(&t.st, &rows, &[col], &v, &no).unwrap());
+                    for p in a..(a + len).min(n) { cur[p][col] = v.clone(); }
+                }
+                // A few cells typed, some twice in one edit.
+                _ => {
+                    let mut ch = Vec::new();
+                    for k in 0..rnd(4) + 1 {
+                        let p = rnd(n);
+                        ch.push((t.st.data_id(p), col, format!("t{step}.{k}")));
+                        cur[p][col] = format!("t{step}.{k}");
+                    }
+                    t.set_cells(&ch);
+                }
+            }
+            assert!(t.st.cols.iter().all(|l| l.len() <= MAX_LAYERS));
+            assert_eq!(grid(&t), cur, "step {step}");
+            model.push(cur);
+        }
+        // The last computed column's layer survives the small edits typed after it, untouched.
+        let big = t.st.cols.iter().flat_map(|l| l.iter()).filter(|l| l.len() >= n * 4 / 5 - 1).count();
+        assert!(big >= 1);
+        for k in (0..model.len() - 1).rev() {
+            t.undo();
+            if k % 37 == 0 { assert_eq!(grid(&t), model[k], "undo to {k}"); }
+        }
+        assert_eq!(grid(&t), model[0]);
+        assert!(!t.dirty());
+    }
+
+    /// A merge of millions of cells: the small layers typed over a big one are merged, not the big one.
+    #[test]
+    #[ignore]
+    fn perf_layer_merge() {
+        let n = 5_000_000;
+        let src: String = std::iter::once("a\n".to_string()).chain((0..n).map(|i| format!("{i}\n"))).collect();
+        let mut t = table(&src);
+        let t0 = std::time::Instant::now();
+        let mut c = Cells::default();
+        for p in 0..n { c.push(t.st.data_id(p), "computed"); }
+        let p = Patch::column(0, vec![c]);
+        eprintln!("patch of {n} cells: {:?}", t0.elapsed());
+        let t0 = std::time::Instant::now();
+        t.apply(p);
+        eprintln!("apply: {:?}", t0.elapsed());
+        let mut worst = std::time::Duration::ZERO;
+        for k in 0..40 {
+            let t0 = std::time::Instant::now();
+            t.set_cells(&[(t.st.data_id(k * 1000), 0, format!("v{k}"))]);
+            worst = worst.max(t0.elapsed());
+        }
+        eprintln!("40 cells typed after it, the slowest: {worst:?}");
+        let t0 = std::time::Instant::now();
+        let all: Vec<Arc<Layer>> = t.st.cols[0].iter().cloned().collect();
+        let _ = merge(&all);
+        eprintln!("a merge of every layer ({} cells): {:?}", all.iter().map(|l| l.len()).sum::<usize>(), t0.elapsed());
+        let no = AtomicBool::new(false);
+        let ids: Vec<RowId> = (0..n).map(|p| t.st.data_id(p)).collect();
+        let t0 = std::time::Instant::now();
+        let p = Patch::fill(&t.st, &ids, &[0], "", &no).unwrap();
+        eprintln!("fill patch over {n} rows: {:?}", t0.elapsed());
+        let t0 = std::time::Instant::now();
+        let ch: Vec<(RowId, usize, String)> = ids.iter().map(|&id| (id, 0, String::new())).collect();
+        let q = Patch::new(&ch);
+        eprintln!("the same as {n} changes: {:?}", t0.elapsed());
+        drop((p, q));
+    }
+
+    /// Rows inserted anywhere, in a file never reordered and in one already reordered, across
+    /// the blocks the new order is written in.
+    #[test]
+    fn rows_inserted_across_blocks() {
+        let n = 150_000usize;
+        let src: String = std::iter::once("a\n".to_string()).chain((0..n).map(|i| format!("{i}\n"))).collect();
+        let mut t = table(&src);
+        let mut model: Vec<RowId> = (0..t.st.len()).map(|p| t.st.data_id(p)).collect();
+        for &pos in &[0usize, 65_535, 65_536, 70_000, 131_071, 150_000, 3] {
+            let ids = t.insert_rows(pos, 3);
+            let at = pos.min(model.len());
+            model.splice(at..at, ids);
+            assert_eq!((0..t.st.len()).map(|p| t.st.data_id(p)).collect::<Vec<_>>(), model, "at {pos}");
+            assert_eq!(t.st.all_id(0), 0, "the titles stay first");
+        }
+        while t.undo().is_some() {}
+        assert_eq!(t.st.len(), n);
     }
 
     #[test]

@@ -583,6 +583,8 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, ba
     }
     let b = &st.base;
     if b.cut_short() { return Err(SaveError::CutShort); }
+    // Its first rows only, the rest still being read: written, they would cut the file short.
+    if b.partial { return Err(SaveError::Io(io::Error::other("the file is still loading"))); }
     let p = Plan::new(st, o);
     let mut ix = (reindex && st.eol.is_none() && o.rows.is_none() && p.same && p.utf16.is_none() && p.enc == b.enc && b.qerr == 0 && b.n > 0 && !b.partial)
         .then(|| Index { pos: 0, starts: Offsets::U32(Vec::with_capacity(st.all_len() + 1)), width: None, odd: Vec::new(), ok: true });

@@ -498,3 +498,119 @@ fn rename_in_the_title() {
     assert_eq!(h.state().tabs[0].st().unwrap().headers(), vec!["town", "city"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The grid's body (the biggest widget that senses clicks and drags), clicked near its top
+/// left: the grid has the keyboard, the cell there is selected.
+fn click_grid(h: &mut egui_kittest::Harness<'static, App>) {
+    let body = h.ctx.viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && w.sense.senses_drag()).map(|w| w.rect).max_by(|a, b| a.area().total_cmp(&b.area()))).unwrap();
+    let at = body.min + egui::vec2(body.width() * 0.3, 12.0);
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(2);
+}
+
+fn key(h: &mut egui_kittest::Harness<'static, App>, key: egui::Key, modifiers: egui::Modifiers) {
+    h.event(Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+    h.event(Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
+}
+
+/// Ctrl+A then Delete on more cells than are cleared at once: the patch comes from a job, the
+/// cells that held something are emptied (and counted), the empty ones stay as read; one
+/// undo step brings it all back.
+#[test]
+fn big_selection_cleared_in_a_job() {
+    let mut csv = String::from("a,b,c\n");
+    for i in 0..30_000 { csv += &format!("{i},{},z\n", if i % 3 == 0 { String::new() } else { format!("b{i}") }); }
+    let (mut h, dir) = app_on(&csv, "bigclear");
+    click_grid(&mut h);
+    key(&mut h, egui::Key::A, egui::Modifiers::COMMAND);
+    h.run_steps(1);
+    key(&mut h, egui::Key::Delete, egui::Modifiers::NONE);
+    h.run_steps(1);
+    assert!(!h.state().tabs[0].grid.idle(), "a selection this big is cleared in a job");
+    for _ in 0..500 {
+        h.run_steps(1);
+        if h.state().tabs[0].grid.idle() && !h.state().tabs[0].busy() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let t = &h.state().tabs[0];
+    let st = t.st().unwrap();
+    assert!((0..st.len()).all(|p| (0..3).all(|c| st.cell(st.data_id(p), c).is_empty())));
+    assert_eq!(st.headers(), vec!["a", "b", "c"]);
+    assert_eq!(t.table.as_ref().unwrap().undo_depth(), 1);
+    let filled = 30_000 * 2 + 20_000;
+    assert!(h.state().toasts.iter().any(|x| x.text == format!("{} cells cleared", crate::grid::fmt_int(filled))), "{:?}", h.state().toasts.iter().map(|t| &t.text).collect::<Vec<_>>());
+    let ctx = h.ctx.clone();
+    h.state_mut().undo(false, &ctx);
+    h.run_steps(2);
+    let st = h.state().tabs[0].st().unwrap().clone();
+    assert_eq!((st.cell(st.data_id(4), 1), st.cell(st.data_id(3), 1), st.cell(st.data_id(29_999), 2)), ("b4".into(), String::new(), "z".into()));
+    assert!(!h.state().tabs[0].dirty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A cell typed under the totals row: its sum follows at once, without a pass over the rows;
+/// the other columns' totals are not counted again either.
+#[test]
+fn totals_follow_a_typed_cell() {
+    use crate::grid::Action;
+    let mut csv = String::from("id,amount,qty\n");
+    for i in 0..2000 { csv += &format!("{i},{}.50,{}\n", i % 10, i % 7); }
+    let (mut h, dir) = app_on(&csv, "totals-edit");
+    h.state_mut().tabs[0].show_totals = true;
+    for _ in 0..400 {
+        h.run_steps(1);
+        if !crate::totals_ui::pending(&h.state().tabs[0]) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let sum = |h: &egui_kittest::Harness<'static, App>, c: usize| crate::totals_ui::value(&h.state().tabs[0], c);
+    let before = sum(&h, 1).expect("a sum under amount");
+    assert_eq!(before, crate::totals_ui::value(&h.state().tabs[0], 1).unwrap());
+    let ctx = h.ctx.clone();
+    let id = h.state().tabs[0].shown_id(3);
+    h.state_mut().apply(vec![Action::SetCells(vec![(id, 1, "1003.75".into())])], &ctx);
+    // Right away: no pass to wait for.
+    assert!(!crate::totals_ui::pending(&h.state().tabs[0]));
+    let want: f64 = (0..2000).map(|i| if i == 3 { 1003.75 } else { (i % 10) as f64 + 0.5 }).sum();
+    assert_eq!(sum(&h, 1).unwrap(), csvfab_engine::stats::fmt_num(want, 2, 2, true));
+    // And what a count over the rows gives, once one is made.
+    h.state_mut().tabs[0].totals.set_choices(Default::default());
+    for _ in 0..400 {
+        h.run_steps(1);
+        if !crate::totals_ui::pending(&h.state().tabs[0]) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(sum(&h, 1).unwrap(), csvfab_engine::stats::fmt_num(want, 2, 2, true));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A column moved: its kind and reading aids go with it, the rows shown stay (no recount of
+/// the view, the sort kept on its column).
+#[test]
+fn moved_column_keeps_its_analysis() {
+    use csvfab_engine::view::{Kind, SortKey};
+    let (mut h, dir) = app_on("n,mail,when\n3,a@b.fr,2024-01-02\n1,c@d.fr,2024-02-03\n2,e@f.fr,2024-03-04\n", "movecol");
+    let ctx = h.ctx.clone();
+    {
+        let t = &mut h.state_mut().tabs[0];
+        t.sort = vec![SortKey { col: 0, desc: false }];
+        t.refresh(&ctx);
+    }
+    for _ in 0..200 { h.run_steps(1); if !h.state().tabs[0].busy() { break; } std::thread::sleep(Duration::from_millis(5)); }
+    let (kinds, rich) = (h.state().tabs[0].kinds.clone(), h.state().tabs[0].rich.clone());
+    assert_eq!(kinds, vec![Kind::Number, Kind::Text, Kind::Date]);
+    let view = h.state().tabs[0].view.clone().unwrap();
+    crate::grid::move_column(&mut h.state_mut().tabs[0], 0, 2, &ctx);
+    let t = &h.state().tabs[0];
+    assert!(!t.busy(), "no view to compute again");
+    assert!(std::sync::Arc::ptr_eq(t.view.as_ref().unwrap(), &view));
+    assert_eq!(t.kinds, vec![Kind::Text, Kind::Date, Kind::Number]);
+    assert_eq!(t.rich, vec![rich[1].clone(), rich[2].clone(), rich[0].clone()]);
+    assert_eq!(t.sort, vec![SortKey { col: 2, desc: false }]);
+    let st = h.state().tabs[0].st().unwrap().clone();
+    let t = &h.state().tabs[0];
+    assert_eq!((0..3).map(|p| st.cell(t.shown_id(p), 2)).collect::<Vec<_>>(), ["1", "2", "3"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

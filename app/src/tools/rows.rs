@@ -224,6 +224,18 @@ pub(crate) fn clear_filters(tab: &mut Tab) {
 pub fn paste(tab: &mut Tab, text: &str, ctx: &egui::Context) -> Option<String> {
     let (rows, cols) = tab.grid.range()?;
     let grid = parse_tsv(text);
+    // One value: the whole selection takes it, as one text (a big selection in a job, its
+    // line told when it is in).
+    if let [line] = grid.as_slice() {
+        if let [v] = line.as_slice() {
+            let a = crate::grid::fill_selection(tab, v.clone(), true, ctx)?;
+            let crate::grid::Action::Patch { patch, .. } = a else { return None };
+            let n = patch.cells();
+            if n == 0 { return Some("Nothing changed.".into()); }
+            tab.apply_patch(patch, ctx);
+            return Some(csvfab_engine::edit::not_saved(&format!("{} cells pasted", csvfab_engine::edit::fmt_int(n))));
+        }
+    }
     let st = tab.st()?.clone();
     let can_grow = tab.view.is_none();
     let widest = grid.iter().map(Vec::len).max().unwrap_or(0);
@@ -235,8 +247,12 @@ pub fn paste(tab: &mut Tab, text: &str, ctx: &egui::Context) -> Option<String> {
     let extra = if can_grow { need } else { 0 };
     let vis: Vec<usize> = shown.into_iter().chain(st.ncols..st.ncols + extra).collect();
     let sel = Rect { r0: *rows.start(), r1: *rows.end(), c0: *cols.start(), c1: *cols.end() };
-    let ids = tab.shown_ids();
-    let plan = plan_paste(&st, &ids, &vis, sel, &grid, false, can_grow, &AtomicBool::new(false))?;
+    // The rows the block reaches only (not every id shown), the plan made from its first one.
+    let r0 = sel.r0.min(tab.shown());
+    let ids: Vec<_> = (r0..(r0 + grid.len().max(sel.r1 + 1 - sel.r0)).min(tab.shown())).map(|p| tab.shown_id(p)).collect();
+    let local = Rect { r0: sel.r0 - r0, r1: sel.r1 - r0, ..sel };
+    let mut plan = plan_paste(&st, &ids, &vis, local, &grid, false, can_grow, &AtomicBool::new(false))?;
+    plan.end.0 += r0;
     let end = plan.end;
     let added = plan.new_rows.len();
     let t = tab.table.as_mut()?;

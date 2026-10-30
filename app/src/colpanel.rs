@@ -23,12 +23,15 @@ use std::sync::Arc;
 /// Values listed at once; the search reaches the others.
 const MAX_LISTED: usize = 300;
 
+/// Up to this many values, a search or a recount runs at once; past it, in a job.
+const AT_ONCE: usize = 20_000;
+
 /// The count the panel shows.
 pub struct Counted {
     vc: ValueCounts,
     prof: PanelProfile,
     /// Value indices by count, most frequent first.
-    order: Vec<u32>,
+    order: Arc<Vec<u32>>,
     /// Rows counted, and the file's.
     scope: usize,
     total: usize,
@@ -41,20 +44,128 @@ pub struct Panel {
     counted: Option<Arc<Counted>>,
     query: String,
     /// `order` filtered by the query, and the query it was for.
-    matching: Vec<u32>,
+    matching: Arc<Vec<u32>>,
     matched: Option<String>,
-    /// Values unticked, trimmed (the filter compares trimmed cells).
-    excluded: HashSet<String>,
+    /// A search among many values under way, for this query (the list shown meanwhile is the last one).
+    search: Option<(String, Job<Vec<u32>>)>,
+    /// Values unticked, trimmed (the filter compares trimmed cells); shared with the jobs reading it.
+    excluded: Arc<HashSet<String>>,
+    /// Bumped at every change of `excluded`.
+    ex_ver: u64,
+    /// Whether every value listed is ticked, for (the list, `ex_ver`) — never a look at every
+    /// value each frame; the look under way among many values.
+    all_on: Option<((usize, u64), bool)>,
+    all_job: Option<((usize, u64), Job<bool>)>,
+    /// "(Select all)" over many values, in the background: what the values listed become
+    /// (ticked or not), and the job making the new `excluded`.
+    toggling: Option<(bool, Job<Option<HashSet<String>>>)>,
     add_open: bool,
     focus: bool,
 }
 
 impl Panel {
+    /// The values are counted (the list can be drawn).
+    pub fn counted(&self) -> bool {
+        self.counted.is_some()
+    }
+
+    /// The list matches the search typed, and the ticks are all known.
+    pub fn searched(&self) -> bool {
+        self.matched.as_deref() == Some(self.query.as_str()) && self.search.is_none() && self.toggling.is_none() && self.all_job.is_none()
+    }
+
     fn new(tab: &Tab, col: usize, ctx: &egui::Context) -> Panel {
-        let excluded = tab.filter.hidden.iter().find(|(c, _)| *c == col).map(|(_, s)| (**s).clone()).unwrap_or_default();
-        let mut p = Panel { col, job: None, counted: None, query: String::new(), matching: Vec::new(), matched: None, excluded, add_open: false, focus: true };
+        // The values hidden now, shared (not copied: they may be millions).
+        let excluded = tab.filter.hidden.iter().find(|(c, _)| *c == col).map(|(_, s)| s.clone()).unwrap_or_default();
+        let mut p = Panel { col, job: None, counted: None, query: String::new(), matching: Arc::default(), matched: None, search: None, excluded, ex_ver: 0, all_on: None, all_job: None, toggling: None, add_open: false, focus: true };
         p.job = count_job(tab, col, ctx);
         p
+    }
+
+    fn set_excluded(&mut self, e: Arc<HashSet<String>>) {
+        self.excluded = e;
+        self.ex_ver += 1;
+    }
+
+    /// The list for the query typed: at once among few values, else from a job (the last list
+    /// stays meanwhile; typing faster than it drops the stale one).
+    fn update_search(&mut self, c: &Arc<Counted>, ctx: &egui::Context) {
+        if let Some((q, j)) = &mut self.search {
+            if let Some(m) = j.poll() {
+                let q = std::mem::take(q);
+                self.search = None;
+                self.matching = Arc::new(m);
+                self.matched = Some(q);
+            }
+        }
+        if self.matched.as_deref() == Some(self.query.as_str()) || self.search.as_ref().is_some_and(|s| s.0 == self.query) {
+            if self.matched.as_deref() == Some(self.query.as_str()) { self.search = None; }
+            return;
+        }
+        if self.query.trim().is_empty() {
+            self.matching = c.order.clone();
+            self.matched = Some(self.query.clone());
+            self.search = None;
+        } else if c.order.len() <= AT_ONCE {
+            self.matching = Arc::new(c.vc.search(&c.order, &self.query));
+            self.matched = Some(self.query.clone());
+            self.search = None;
+        } else {
+            let (c2, q) = (c.clone(), self.query.clone());
+            self.search = Some((q.clone(), Job::spawn(ctx, move |_, _| c2.vc.search(&c2.order, &q))));
+        }
+    }
+
+    /// Whether every value listed is ticked (None: being looked at).
+    fn all_ticked(&mut self, c: &Arc<Counted>, ctx: &egui::Context) -> Option<bool> {
+        let key = (Arc::as_ptr(&self.matching) as usize, self.ex_ver);
+        if let Some((k, j)) = &mut self.all_job {
+            if let Some(v) = j.poll() {
+                self.all_on = Some((*k, v));
+                self.all_job = None;
+            }
+        }
+        if let Some((k, v)) = self.all_on { if k == key { return Some(v); } }
+        if self.excluded.is_empty() {
+            self.all_on = Some((key, true));
+            return Some(true);
+        }
+        if self.matching.len() <= AT_ONCE {
+            let v = self.matching.iter().all(|&i| !self.excluded.contains(c.vc.value(i as usize).trim()));
+            self.all_on = Some((key, v));
+            return Some(v);
+        }
+        if self.all_job.as_ref().is_none_or(|j| j.0 != key) {
+            let (c2, m, ex) = (c.clone(), self.matching.clone(), self.excluded.clone());
+            self.all_job = Some((key, Job::spawn(ctx, move |_, _| {
+                use rayon::prelude::*;
+                !m.par_iter().with_min_len(4096).any(|&i| ex.contains(c2.vc.value(i as usize).trim()))
+            })));
+        }
+        None
+    }
+
+    /// Ticks (or unticks) every value listed: among many, the new set made in a job.
+    fn tick_all(&mut self, c: &Arc<Counted>, on: bool, ctx: &egui::Context) {
+        let apply = move |ex: &mut HashSet<String>, c: &Counted, m: &[u32]| {
+            for &i in m {
+                let v = c.vc.value(i as usize).trim();
+                if on { ex.remove(v); } else if !ex.contains(v) { ex.insert(v.to_string()); }
+            }
+        };
+        if self.matching.len() <= AT_ONCE {
+            let m = self.matching.clone();
+            apply(Arc::make_mut(&mut self.excluded), c, &m);
+            self.ex_ver += 1;
+            return;
+        }
+        let (c2, m, ex) = (c.clone(), self.matching.clone(), self.excluded.clone());
+        self.toggling = Some((on, Job::spawn(ctx, move |_, _| {
+            let mut ex = Arc::try_unwrap(ex).unwrap_or_else(|a| (*a).clone());
+            if !on { ex.reserve(m.len()); }
+            apply(&mut ex, &c2, &m);
+            Some(ex)
+        })));
     }
 }
 
@@ -90,7 +201,7 @@ fn count_job(tab: &Tab, col: usize, ctx: &egui::Context) -> Option<Job<Option<Co
         if !st.base.partial { csvfab_engine::colcache::ensure(&st, col, csvfab_engine::colcache::Need::Dict, cancel); }
         let vc = stats::value_counts(&st, &ids, col, false, cancel)?;
         let prof = stats::panel_profile(&vc);
-        let order = vc.by_count();
+        let order = Arc::new(vc.by_count());
         Some(Counted { vc, prof, order, scope: ids.len(), total: st.len() })
     }))
 }
@@ -325,24 +436,17 @@ fn profile(ui: &mut Ui, c: &Counted, p: &Palette, m: &Metrics) -> Option<f64> {
 }
 
 /// The first row shown whose number in `col` is closest to `x`, selected in the middle of
-/// the view (the median may be no cell's value).
-fn go_to_value(tab: &mut Tab, col: usize, x: f64) {
+/// the view (the median may be no cell's value): looked for in the background
+/// (`GridState::goto_job`), every row shown read.
+fn go_to_value(tab: &mut Tab, col: usize, x: f64, ctx: &egui::Context) {
     let Some(st) = tab.st().cloned() else { return };
-    let mut tmp = Vec::new();
-    let mut best: Option<(f64, usize)> = None;
-    for pos in 0..tab.shown() {
-        st.with_cell(tab.shown_id(pos), col, &mut tmp, |s| {
-            if let Some(v) = csvfab_engine::stats::num_cell(s) {
-                let d = (v - x).abs();
-                if best.is_none_or(|b| d < b.0) { best = Some((d, pos)); }
-            }
-        });
-        if best.is_some_and(|b| b.0 == 0.0) { break; }
-    }
-    if let Some((_, row)) = best {
-        tab.grid.select(crate::grid::Cell { row, col }, false);
-        tab.grid.set_top(row.saturating_sub(tab.grid.page / 2));
-    }
+    let view = tab.view.clone();
+    let n = tab.shown();
+    tab.grid.goto_job = Some((Job::spawn(ctx, move |cancel, _| {
+        let id = |p: usize| view.as_ref().map_or_else(|| st.data_id(p), |v| v[p]);
+        let found = stats::closest(&st, n, id, col, x, cancel)?;
+        found.map(|row| (row, col))
+    }), col));
 }
 
 /// A checkbox 16 × 16: `bg_deep`, 1 px `brd_2`, radius 4; checked: `prim` with a white check.
@@ -369,6 +473,13 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
         pn.job = None;
         pn.counted = r.map(Arc::new);
         pn.matched = None;
+        pn.search = None;
+    }
+    if let Some((_, j)) = &mut pn.toggling {
+        if let Some(ex) = j.poll() {
+            pn.toggling = None;
+            if let Some(ex) = ex { pn.set_excluded(Arc::new(ex)); }
+        }
     }
     let Some(c) = pn.counted.clone() else {
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 60.0), Sense::hover());
@@ -376,7 +487,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
         return;
     };
     if let Some(x) = profile(ui, &c, p, m) {
-        go_to_value(tab, col, x);
+        go_to_value(tab, col, x, &ctx);
         ui.close();
         return;
     }
@@ -413,10 +524,9 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
         }
     }
     let Some(pn) = tab.grid.panel.as_mut() else { return };
-    if pn.matched.as_deref() != Some(pn.query.as_str()) {
-        pn.matching = c.vc.search(&c.order, &pn.query);
-        pn.matched = Some(pn.query.clone());
-    }
+    pn.update_search(&c, &ctx);
+    // A job under way: frames come when it ends.
+    let all_on = match pn.toggling.as_ref() { Some((on, _)) => Some(*on), None => pn.all_ticked(&c, &ctx) };
     // The values: (Select all), then the most frequent first, a bar of its share behind.
     let max_count = c.order.first().map_or(1, |&i| c.vc.count(i as usize)).max(1) as f32;
     let n = pn.matching.len().min(MAX_LISTED);
@@ -439,8 +549,8 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
                     continue;
                 }
                 let (value, count, on, label_color, italic) = if k == 0 {
-                    let all_on = pn.matching.iter().all(|&i| !pn.excluded.contains(c.vc.value(i as usize).trim()));
-                    (if q { "(Select all matches)".to_string() } else { "(Select all)".to_string() }, pn.matching.len(), all_on, p.txt_hi, false)
+                    // Not known yet (looked at among millions): drawn as it was.
+                    (if q { "(Select all matches)".to_string() } else { "(Select all)".to_string() }, pn.matching.len(), all_on.unwrap_or(true), p.txt_hi, false)
                 } else {
                     let i = pn.matching[k - 1] as usize;
                     let v = c.vc.value(i);
@@ -449,7 +559,8 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
                     let fw = (r.width() * n as f32 / max_count).max(1.0);
                     pt.rect_filled(Rect::from_min_size(r.min, vec2(fw, r.height())), 4.0, alpha(p.accent, 0.11));
                     let shown = if v.trim().is_empty() { if v.is_empty() { "(Empty)".to_string() } else { "(Blank)".to_string() } } else { grid::display(v).into_owned() };
-                    (shown, n, !pn.excluded.contains(v.trim()), if v.trim().is_empty() { p.txt_mut } else { p.txt_hi }, v.trim().is_empty())
+                    let on = pn.toggling.as_ref().map_or_else(|| !pn.excluded.contains(v.trim()), |t| t.0);
+                    (shown, n, on, if v.trim().is_empty() { p.txt_mut } else { p.txt_hi }, v.trim().is_empty())
                 };
                 if resp.hovered() { pt.rect_filled(r, 4.0, p.surf_2); }
                 let cb = Rect::from_min_size(pos2(r.min.x + 6.0, r.center().y - 8.0), vec2(16.0, 16.0));
@@ -463,18 +574,20 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
                 job.wrap = egui::text::TextWrapping { max_width: (r.width() - 30.0 - cw - 14.0).max(8.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
                 let g = pt.layout_job(job);
                 pt.galley(pos2(cb.max.x + 8.0, ((r.center().y - g.size().y / 2.0) * 2.0).round() / 2.0), g, label_color);
-                if resp.clicked() {
+                if resp.clicked() && pn.toggling.is_none() {
                     toggle = Some((if k == 0 { None } else { Some(pn.matching[k - 1]) }, !on));
                 }
             }
         });
         if let Some((which, on)) = toggle {
-            let set = |pn: &mut Panel, v: &str| { if on { pn.excluded.remove(v.trim()); } else { pn.excluded.insert(v.trim().to_string()); } };
             match which {
-                Some(i) => set(pn, c.vc.value(i as usize)),
-                None => {
-                    for &i in &pn.matching.clone() { set(pn, c.vc.value(i as usize)); }
+                Some(i) => {
+                    let v = c.vc.value(i as usize).trim();
+                    let ex = Arc::make_mut(&mut pn.excluded);
+                    if on { ex.remove(v); } else { ex.insert(v.to_string()); }
+                    pn.ex_ver += 1;
                 }
+                None => pn.tick_all(&c, on, &ctx),
             }
         }
     }
@@ -492,14 +605,16 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
     ui.painter().rect_filled(apply, 6.0, if ar.hovered() { p.prim_hover } else { p.prim });
     ui.painter().text(apply.center(), Align2::CENTER_CENTER, "Apply", bfont, p.on_prim);
     let enter = resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    // Not while "(Select all)" is being worked out: Apply would hide what was there before.
+    let ready = tab.grid.panel.as_ref().is_some_and(|x| x.toggling.is_none());
     if cr.clicked() {
         tab.hide_values(col, HashSet::new(), &ctx);
         tab.grid.panel = None;
         ui.close();
-    } else if ar.clicked() || enter {
-        let set = tab.grid.panel.as_ref().map(|x| x.excluded.clone()).unwrap_or_default();
+    } else if (ar.clicked() || enter) && ready {
+        // The set itself, not a copy of it (it may hold millions of values).
+        let set = tab.grid.panel.take().map(|x| x.excluded).unwrap_or_default();
         tab.hide_values(col, set, &ctx);
-        tab.grid.panel = None;
         ui.close();
     }
 }
@@ -670,4 +785,69 @@ pub fn manager(ui: &mut Ui, tab: &mut Tab, p: &Palette, ctx: &egui::Context) {
         }
     }
     tab.grid.manager = Some(mg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Until `done`, polling as frames would (a minute at most).
+    fn wait(mut done: impl FnMut() -> bool) {
+        let t0 = Instant::now();
+        while !done() {
+            assert!(t0.elapsed() < Duration::from_secs(60), "never done");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// A column of 50 000 distinct values: the search, "(Select all)" and its tick are worked
+    /// out in jobs, and give what the plain loops gave.
+    #[test]
+    fn many_values_in_jobs() {
+        let ctx = egui::Context::default();
+        // The first pass loads the fonts (a tab measures its columns).
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let m = crate::theme::Metrics::default();
+        let mut csv = String::from("id,v\n");
+        for i in 0..50_000 { csv += &format!("{i},{}\n", i % 3); }
+        let tab = Tab::memory("t".into(), csv.into_bytes(), &ctx, &m);
+        let mut pn = Panel::new(&tab, 0, &ctx);
+        wait(|| { if let Some(r) = pn.job.as_mut().and_then(|j| j.poll()) { pn.counted = r.map(Arc::new); } pn.counted.is_some() });
+        let c = pn.counted.clone().unwrap();
+        assert_eq!(c.vc.len(), 50_000);
+        pn.update_search(&c, &ctx);
+        assert_eq!(pn.matching.len(), 50_000, "no query: every value, at once");
+        assert_eq!(pn.all_ticked(&c, &ctx), Some(true));
+        // A search among them: from a job, the same values the search gives.
+        pn.query = "1".into();
+        pn.update_search(&c, &ctx);
+        assert!(pn.search.is_some());
+        wait(|| { pn.update_search(&c, &ctx); pn.searched() });
+        assert_eq!(*pn.matching, c.vc.search(&c.order, "1"));
+        assert!(pn.matching.len() > AT_ONCE);
+        // Unticked, all of them: the new set made in a job.
+        pn.tick_all(&c, false, &ctx);
+        let (_, j) = pn.toggling.as_mut().unwrap();
+        let mut got = None;
+        wait(|| { got = j.poll(); got.is_some() });
+        pn.toggling = None;
+        pn.set_excluded(Arc::new(got.unwrap().unwrap()));
+        assert_eq!(pn.excluded.len(), pn.matching.len());
+        assert!(pn.matching.iter().all(|&i| pn.excluded.contains(c.vc.value(i as usize))));
+        let mut ticked = None;
+        wait(|| { ticked = pn.all_ticked(&c, &ctx); ticked.is_some() });
+        assert_eq!(ticked, Some(false));
+        // Every value listed again: one value unticked among 50 000, looked for in a job.
+        pn.query.clear();
+        pn.update_search(&c, &ctx);
+        Arc::make_mut(&mut pn.excluded).retain(|v| v == "4123");
+        pn.ex_ver += 1;
+        let mut ticked = None;
+        wait(|| { ticked = pn.all_ticked(&c, &ctx); ticked.is_some() });
+        assert_eq!(ticked, Some(false));
+        Arc::make_mut(&mut pn.excluded).clear();
+        pn.ex_ver += 1;
+        assert_eq!(pn.all_ticked(&c, &ctx), Some(true));
+    }
 }

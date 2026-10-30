@@ -82,9 +82,13 @@ pub fn pills_from_spark(spark: &Spark, kinds: &[Kind], rich: &[Option<Rich>]) ->
 
 /// The same when the charts are off: from the first LOOK_ROWS rows.
 pub fn pills_from_rows(st: &State, kinds: &[Kind], rich: &[Option<Rich>]) -> Vec<Option<Pills>> {
-    (0..st.ncols)
-        .into_par_iter()
-        .map(|c| {
+    pills_of(st, kinds, rich, &(0..st.ncols).collect::<Vec<_>>())
+}
+
+/// `pills_from_rows` of the columns `cols` only (`kinds`, `rich`: every column's).
+pub fn pills_of(st: &State, kinds: &[Kind], rich: &[Option<Rich>], cols: &[usize]) -> Vec<Option<Pills>> {
+    cols.par_iter()
+        .map(|&c| {
             if kinds.get(c) != Some(&Kind::Text) || rich.get(c).is_some_and(|r| r.is_some()) {
                 return None;
             }
@@ -158,10 +162,14 @@ impl Rich {
 
 /// Per column, its kind of rich values (text columns only), from the first LOOK_ROWS rows.
 pub fn rich_cols(st: &State, kinds: &[Kind]) -> Vec<Option<Rich>> {
+    rich_cols_of(st, kinds, &(0..st.ncols).collect::<Vec<_>>())
+}
+
+/// `rich_cols` of the columns `cols` only (`kinds`: every column's).
+pub fn rich_cols_of(st: &State, kinds: &[Kind], cols: &[usize]) -> Vec<Option<Rich>> {
     let r = res();
-    (0..st.ncols)
-        .into_par_iter()
-        .map(|c| {
+    cols.par_iter()
+        .map(|&c| {
             if kinds.get(c) != Some(&Kind::Text) {
                 return None;
             }

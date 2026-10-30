@@ -4,7 +4,7 @@
 //! event loop would drive them — a frame when egui or a background job asks for
 //! one (`request_repaint`), none otherwise.
 //!
-//!     bench_ui <file.csv> [--ops open,filter_global,…] [--repeat 3] [--size 1920x1080] [--ppp 1]
+//!     bench_ui <file.csv> [--ops open,filter_global,…|edits] [--repeat 3] [--size 1920x1080] [--ppp 1]
 //!              [--out DIR] [--timeout SECS] [--probe]
 //!     bench_ui <file.csv> --serve [--repeat N]   # one op per line on stdin (N: runs planned, for the hooks)
 //!     bench_ui <file.csv> --startup        # process start → grid drawn, then exit
@@ -21,6 +21,21 @@
 //! `@reset` — flushed at once. `--probe` prints the texts on screen after each op (stderr).
 
 use csvfab::app::App;
+
+/// The benchmark's columns are those of benchmark/gen.py's files; `CSVFAB_BENCH_COLS` maps
+/// them onto another file's (`city=ville,total_spent=montant,…`).
+fn col_name(name: &str) -> String {
+    std::env::var("CSVFAB_BENCH_COLS").ok().and_then(|m| m.split(',').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == name).map(|(_, v)| v.to_string()))).unwrap_or_else(|| name.to_string())
+}
+
+/// A formula with its `{column}` names mapped (`col_name`).
+fn cols_in(expr: &str) -> String {
+    let mut out = expr.to_string();
+    for k in ["city", "total_spent", "last_name", "signup_date", "country"] {
+        out = out.replace(&format!("{{{k}}}"), &format!("{{{}}}", col_name(k)));
+    }
+    out
+}
 use csvfab_engine::view::SortKey;
 use eframe::egui::{self, Pos2, Rect};
 use std::io::Write;
@@ -34,6 +49,10 @@ const ALL_OPS: &[&str] = &[
     "open", "filter_global", "filter_col", "filter_num", "filter_expr", "sort_num", "sort_text", "sort_date", "sort_multi", "clear", "find",
     "totals", "col_values", "group_by", "pivot", "dupes", "insights", "profile", "formula", "save_csv", "export_xlsx",
 ];
+
+/// Edits, timed with the longest frame they cost the UI thread (`frame_max`): not in the
+/// default run (each leaves the table edited, so the next run opens the file again).
+const EDIT_OPS: &[&str] = &["clear_all", "fill_all", "move_col", "insert_row", "dup_row", "paste", "totals_edit", "panel_id", "merge_layers"];
 
 fn say(line: &str) {
     let mut o = std::io::stdout().lock();
@@ -84,6 +103,9 @@ struct Bench {
     out_dir: PathBuf,
     timeout: Duration,
     probe: bool,
+    /// The longest frame since `mark` (the UI thread's longest wait), while `timing`.
+    worst: Duration,
+    timing: bool,
 }
 
 /// Every text drawn in the last frame, with its rectangle, in painting order (topmost last).
@@ -163,7 +185,7 @@ impl Bench {
             w.cv.notify_all();
         });
         let ctx = h.ctx.clone();
-        Bench { h, wake, ctx, ppp, out_dir: file.parent().unwrap_or(Path::new(".")).join("out"), file, timeout: Duration::from_secs(900), probe: false }
+        Bench { h, wake, ctx, ppp, out_dir: file.parent().unwrap_or(Path::new(".")).join("out"), file, timeout: Duration::from_secs(900), probe: false, worst: Duration::ZERO, timing: false }
     }
 
     fn app(&mut self) -> &mut App {
@@ -177,13 +199,73 @@ impl Bench {
     }
 
     fn col(&mut self, name: &str) -> usize {
-        self.tab().st().and_then(|s| s.headers().iter().position(|h| h == name)).unwrap_or_else(|| panic!("no column {name}"))
+        let name = col_name(name);
+        self.tab().st().and_then(|s| s.headers().iter().position(|h| *h == name)).unwrap_or_else(|| panic!("no column {name}"))
     }
 
     /// One frame (its queued input events each get one).
     fn frame(&mut self) {
         *self.wake.at.lock().unwrap() = None;
+        let t0 = Instant::now();
         self.h.step();
+        if self.timing { self.worst = self.worst.max(t0.elapsed()); }
+    }
+
+    /// The timed part starts: its mark said, the longest frame counted from here.
+    fn mark(&mut self, op: &str) -> Instant {
+        say(&format!("@op {op}"));
+        self.worst = Duration::ZERO;
+        self.timing = true;
+        Instant::now()
+    }
+
+    /// Presses a key with modifiers on the grid (focused first by a click on its first cell).
+    fn grid_key(&mut self, key: egui::Key, modifiers: egui::Modifiers) {
+        self.h.event(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers });
+        self.h.event(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers });
+    }
+
+    /// Clicks a cell of the first row shown (focuses the grid, selects it): the grid's body
+    /// is the biggest widget that senses clicks and drags.
+    fn click_cell(&mut self) -> Result<(), String> {
+        let body = self.ctx.viewport(|v| {
+            v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && w.sense.senses_drag()).map(|w| w.rect).max_by(|a, b| a.area().total_cmp(&b.area()))
+        }).ok_or("no grid body")?;
+        let p = body.min + egui::vec2(body.width() * 0.3, 12.0);
+        self.press(p);
+        self.release(p);
+        self.frame();
+        Ok(())
+    }
+
+    /// `f` on the app, counted as a frame (an action applied between frames is the UI thread's time too).
+    fn timed(&mut self, f: impl FnOnce(&mut Bench)) {
+        let t0 = Instant::now();
+        f(self);
+        if self.timing { self.worst = self.worst.max(t0.elapsed()); }
+    }
+
+    /// The ▾ of column `name`'s title: the square button right in it, found among the
+    /// widgets of the last frame (between its title and the next one's, `next`).
+    fn panel_button(&self, name: &str, next: &str) -> Result<Pos2, String> {
+        let (name, next) = (&col_name(name), &col_name(next));
+        let ts = texts(&self.h);
+        let hy = ts.iter().find(|(t, _)| t == name).map(|x| x.1).ok_or(format!("no {name} title"))?;
+        let next = ts.iter().find(|(t, _)| t == next).map(|x| x.1.min.x).unwrap_or(f32::INFINITY);
+        self.ctx.viewport(|v| {
+            v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && (w.rect.width() - 20.0).abs() < 1.5 && (w.rect.height() - 20.0).abs() < 1.5 && (w.rect.center().y - hy.center().y).abs() < 8.0 && w.rect.min.x > hy.max.x && w.rect.max.x < next).map(|w| w.rect.center()).next()
+        }).ok_or(format!("no ▾ button in the {name} title"))
+    }
+
+    fn cell_at(&mut self, pos: usize, col: usize) -> String {
+        let t = self.tab();
+        let id = t.shown_id(pos);
+        t.st().map(|s| s.cell(id, col)).unwrap_or_default()
+    }
+
+    fn edited(h: &mut H) -> bool {
+        let a = h.state_mut();
+        a.tabs.get(a.active).is_some_and(|t| !t.busy() && t.grid.idle())
     }
 
     /// Waits as an event loop does: until a frame is asked for (now or after a delay), at most `max`.
@@ -398,7 +480,7 @@ impl Bench {
             }
             "filter_expr" => {
                 // The search box in formula mode (the web's only numeric condition).
-                let d = self.view_op(op, |t| { t.expr_mode = true; t.filter.global = "num({total_spent}) > 1000".into(); })?;
+                let d = self.view_op(op, |t| { t.expr_mode = true; t.filter.global = cols_in("num({total_spent}) > 1000").into(); })?;
                 let n = self.shown();
                 self.tab().expr_mode = false;
                 Ok((d, obj(&[("n", n.to_string())])))
@@ -451,8 +533,7 @@ impl Bench {
                 self.tab().grid.xoff = 100_000.0;
                 self.frame();
                 self.quiesce();
-                say("@op totals");
-                let t0 = Instant::now();
+                let t0 = self.mark("totals");
                 self.tab().show_totals = true;
                 self.until(op, |h| { let v = totals_drawn(h); !v.is_empty() && !v.iter().any(|t| t == "…") })?;
                 let d = t0.elapsed();
@@ -460,17 +541,9 @@ impl Bench {
                 Ok((d, obj(&[("values", list(&vals))])))
             }
             "col_values" => {
-                // The ▾ of the city column: the square button right in its title, found
-                // among the widgets of the last frame (between its title and the next one's).
-                let ts = texts(&self.h);
-                let hy = ts.iter().find(|(t, _)| t == "city").map(|x| x.1).ok_or("no city title")?;
-                let next = ts.iter().find(|(t, _)| t == "country").map(|x| x.1.min.x).unwrap_or(f32::INFINITY);
-                let m = self.ctx.viewport(|v| {
-                    v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && (w.rect.width() - 20.0).abs() < 1.5 && (w.rect.height() - 20.0).abs() < 1.5 && (w.rect.center().y - hy.center().y).abs() < 8.0 && w.rect.min.x > hy.max.x && w.rect.max.x < next).map(|w| w.rect.center()).next()
-                }).ok_or("no ▾ button in the city title")?;
+                let m = self.panel_button("city", "country")?;
                 self.press(m);
-                say("@op col_values");
-                let t0 = Instant::now();
+                let t0 = self.mark("col_values");
                 self.release(m);
                 self.until(op, |h| {
                     let a = h.state_mut();
@@ -577,14 +650,13 @@ impl Bench {
             }
             "formula" => {
                 let n = self.tab().st().map_or(0, |s| s.ncols);
-                let tool = csvfab::tools::formula::open_with(self.tab(), None, "num({total_spent}) * 2");
+                let tool = csvfab::tools::formula::open_with(self.tab(), None, &cols_in("num({total_spent}) * 2"));
                 self.app().open_tool(tool);
                 self.ctx.request_repaint();
                 self.until("formula dialog", |h| has_text(h, |t| t == "Apply"))?;
                 self.quiesce();
                 let p = self.press_text("Apply")?;
-                say("@op formula");
-                let t0 = Instant::now();
+                let t0 = self.mark("formula");
                 self.release(p);
                 self.until(op, |h| {
                     let a = h.state_mut();
@@ -628,6 +700,154 @@ impl Bench {
                 let msg = find_text(&self.h, |t| t.contains("Workbook written") || t.starts_with("Could not")).unwrap_or_default();
                 let bytes = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
                 Ok((d, obj(&[("text", esc(&msg)), ("bytes", bytes.to_string()), ("path", esc(&dest.display().to_string()))])))
+            }
+            "clear_all" | "fill_all" => {
+                // Ctrl+A then Delete (or a value typed over the whole selection, Enter kept on the block).
+                self.click_cell()?;
+                self.grid_key(egui::Key::A, egui::Modifiers::COMMAND);
+                self.frame();
+                self.quiesce();
+                let t0 = self.mark(op);
+                if op == "clear_all" {
+                    self.grid_key(egui::Key::Delete, egui::Modifiers::NONE);
+                } else {
+                    let ctx = self.ctx.clone();
+                    self.timed(|b| b.app().apply(vec![csvfab::grid::Action::Paste("x".into())], &ctx));
+                    ctx.request_repaint();
+                }
+                let n = self.shown();
+                let want = if op == "clear_all" { "" } else { "x" };
+                self.until(op, |h| {
+                    if !Self::edited(h) { return false; }
+                    let a = h.state_mut();
+                    let t = &a.tabs[a.active];
+                    let st = t.st().unwrap();
+                    st.cell(t.shown_id(n - 1), 14) == want && st.cell(t.shown_id(0), 0) == want
+                })?;
+                let d = t0.elapsed();
+                let toast = self.app().toasts.last().map(|t| t.text.clone()).unwrap_or_default();
+                Ok((d, obj(&[("toast", esc(&toast)), ("mid", esc(&self.cell_at(n / 2, 7)))])))
+            }
+            "move_col" => {
+                let t0 = self.mark(op);
+                let ctx = self.ctx.clone();
+                let n = self.tab().st().unwrap().ncols;
+                self.timed(|b| csvfab::grid::move_column(b.tab(), 0, n - 1, &ctx));
+                ctx.request_repaint();
+                self.until(op, Self::edited)?;
+                let d = t0.elapsed();
+                Ok((d, obj(&[("last", esc(&self.tab().st().unwrap().headers()[n - 1]))])))
+            }
+            "insert_row" | "dup_row" => {
+                // Under a sort (the rows shown are a view): the row goes in the file and the view.
+                let c = self.col("total_spent");
+                self.view_op("sort setup", |t| t.sort = vec![SortKey { col: c, desc: true }])?;
+                self.quiesce();
+                let n = self.shown();
+                let t0 = self.mark(op);
+                let ctx = self.ctx.clone();
+                if op == "insert_row" {
+                    self.timed(|b| b.app().apply(vec![csvfab::grid::Action::InsertRows { before: 10, count: 1 }], &ctx));
+                } else {
+                    self.timed(|b| csvfab::grid::duplicate_row(b.tab(), 10, &ctx));
+                }
+                ctx.request_repaint();
+                self.until(op, |h| { let a = h.state_mut(); a.tabs[a.active].shown() == n + 1 } && Self::edited(h))?;
+                let d = t0.elapsed();
+                Ok((d, obj(&[("rows", self.shown().to_string()), ("at", esc(&self.cell_at(11, c)))])))
+            }
+            "paste" => {
+                self.click_cell()?;
+                self.quiesce();
+                let t0 = self.mark(op);
+                let ctx = self.ctx.clone();
+                self.timed(|b| b.app().apply(vec![csvfab::grid::Action::Paste("a\tb\nc\td\n".into())], &ctx));
+                ctx.request_repaint();
+                self.until(op, Self::edited)?;
+                let d = t0.elapsed();
+                Ok((d, obj(&[("cell", esc(&self.cell_at(1, 2)))])))
+            }
+            "totals_edit" => {
+                // The totals row on and counted; then one cell of a summed column typed in.
+                self.reopen()?;
+                self.tab().grid.xoff = 100_000.0;
+                self.tab().show_totals = true;
+                self.until("totals setup", |h| { let v = totals_drawn(h); !v.is_empty() && !v.iter().any(|t| t == "…") })?;
+                self.quiesce();
+                let before = totals_drawn(&self.h);
+                let c = self.col("total_spent");
+                let id = self.tab().shown_id(0);
+                let ctx = self.ctx.clone();
+                let t0 = self.mark(op);
+                self.timed(|b| b.app().apply(vec![csvfab::grid::Action::SetCells(vec![(id, c, "1000000".into())])], &ctx));
+                ctx.request_repaint();
+                self.until(op, |h| { let a = h.state_mut(); !csvfab::totals_ui::pending(&a.tabs[a.active]) } && totals_drawn(h) != before)?;
+                let d = t0.elapsed();
+                Ok((d, obj(&[("before", list(&before)), ("after", list(&totals_drawn(&self.h)))])))
+            }
+            "panel_id" => {
+                // The id column's panel (every value distinct): opened, searched, "(Select all)" unticked.
+                let m = self.panel_button("id", "first_name")?;
+                self.press(m);
+                let t0 = self.mark(op);
+                self.release(m);
+                self.until(op, |h| { let a = h.state_mut(); a.tabs[a.active].grid.panel.as_ref().is_some_and(|p| p.counted()) } && has_text(h, |t| t == "(Select all)"))?;
+                let open = t0.elapsed();
+                let open_max = self.worst;
+                self.quiesce();
+                // Frames with every value listed (hovering the list): what each one costs.
+                let sa = texts(&self.h).into_iter().find(|(t, _)| t == "(Select all)").map(|x| x.1).ok_or("no select all")?;
+                self.worst = Duration::ZERO;
+                for k in 0..5 { self.h.event(egui::Event::PointerMoved(sa.center() + egui::vec2(0.0, 40.0 + k as f32))); self.frame(); }
+                let idle_max = self.worst;
+                // A search typed, one letter a frame (the field has the keyboard), then erased.
+                self.worst = Duration::ZERO;
+                let t1 = Instant::now();
+                for ch in ["1", "2", "3"] { self.h.event(egui::Event::Text(ch.into())); self.frame(); }
+                self.until("panel search", |h| { let a = h.state_mut(); a.tabs[a.active].grid.panel.as_ref().is_some_and(|p| p.searched()) })?;
+                let search = t1.elapsed();
+                let search_max = self.worst;
+                for _ in 0..3 { self.grid_key(egui::Key::Backspace, egui::Modifiers::NONE); self.frame(); }
+                self.until("panel search erased", |h| { let a = h.state_mut(); a.tabs[a.active].grid.panel.as_ref().is_some_and(|p| p.searched()) })?;
+                self.quiesce();
+                // "(Select all)" unticked: every value at once.
+                let sa = texts(&self.h).into_iter().find(|(t, _)| t == "(Select all)").map(|x| x.1).ok_or("no select all after the search")?;
+                self.worst = Duration::ZERO;
+                let t2 = Instant::now();
+                self.press(sa.center());
+                self.release(sa.center());
+                for _ in 0..3 { self.frame(); }
+                let toggle = t2.elapsed();
+                let toggle_max = self.worst;
+                self.worst = Duration::ZERO;
+                for k in 0..5 { self.h.event(egui::Event::PointerMoved(sa.center() + egui::vec2(0.0, 40.0 + k as f32))); self.frame(); }
+                let idle_off_max = self.worst;
+                self.h.key_press(egui::Key::Escape);
+                self.frame();
+                let ms = |d: Duration| format!("{:.1}", d.as_secs_f64() * 1e3);
+                Ok((open, obj(&[("open_max", ms(open_max)), ("search", ms(search)), ("search_max", ms(search_max)), ("toggle", ms(toggle)), ("toggle_max", ms(toggle_max)), ("idle_max", ms(idle_max)), ("idle_off_max", ms(idle_off_max))])))
+            }
+            "merge_layers" => {
+                // A computed column, then 13 single-cell edits in it: the 13th merges its layers.
+                let n = self.tab().st().map_or(0, |s| s.ncols);
+                let tool = csvfab::tools::formula::open_with(self.tab(), None, &cols_in("num({total_spent}) * 2"));
+                self.app().open_tool(tool);
+                self.ctx.request_repaint();
+                self.until("formula dialog", |h| has_text(h, |t| t == "Apply"))?;
+                let p = self.press_text("Apply")?;
+                self.release(p);
+                self.until("formula", |h| { let a = h.state_mut(); let t = &a.tabs[a.active]; a.tools.is_empty() && t.st().is_some_and(|s| s.ncols == n + 1) && !t.busy() })?;
+                self.quiesce();
+                let ctx = self.ctx.clone();
+                let t0 = self.mark(op);
+                for k in 0..13 {
+                    let id = self.tab().shown_id(k * 7);
+                    self.timed(|b| b.app().apply(vec![csvfab::grid::Action::SetCells(vec![(id, n, format!("v{k}"))])], &ctx));
+                    self.frame();
+                }
+                self.until(op, Self::edited)?;
+                let d = t0.elapsed();
+                Ok((d, obj(&[("cell", esc(&self.cell_at(7, n)))])))
             }
             _ => Err(format!("unknown op {op}")),
         }
@@ -687,11 +907,19 @@ fn main() {
             }
         }
         opened = true;
+        b.timing = false;
         let r = b.run(op);
+        let worst = std::mem::take(&mut b.worst);
+        let timed = std::mem::take(&mut b.timing);
         say(&format!("@done {op}"));
         if b.probe { b.dump(op); }
         match r {
-            Ok((d, out)) => say(&obj(&[("op", esc(op)), ("run", run.to_string()), ("ms", format!("{:.3}", d.as_secs_f64() * 1e3)), ("out", out)])),
+            Ok((d, out)) => {
+                let mut kv = vec![("op", esc(op)), ("run", run.to_string()), ("ms", format!("{:.3}", d.as_secs_f64() * 1e3))];
+                if timed { kv.push(("frame_max", format!("{:.3}", worst.as_secs_f64() * 1e3))); }
+                kv.push(("out", out));
+                say(&obj(&kv))
+            }
             Err(e) => say(&obj(&[("op", esc(op)), ("run", run.to_string()), ("error", esc(&e))])),
         }
         *run += 1;
@@ -712,6 +940,7 @@ fn main() {
         return;
     }
     let ops: Vec<String> = flag("--ops").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_else(|| ALL_OPS.iter().map(|s| s.to_string()).collect());
+    let ops: Vec<String> = ops.into_iter().flat_map(|o| if o == "edits" { EDIT_OPS.iter().map(|s| s.to_string()).collect() } else { vec![o] }).collect();
     for op in &ops {
         for _ in 0..repeat {
             one(&mut b, op);

@@ -21,6 +21,7 @@ use csvfab_engine::edit::series;
 use csvfab_engine::look::{self, DataBars, Heat, Pills, Rich};
 use csvfab_engine::sparkline::{Keep, Spark};
 use csvfab_engine::text::fold_into;
+use csvfab_engine::table::Patch;
 use csvfab_engine::view::{Kind, SortKey};
 use csvfab_engine::{RowId, State};
 use eframe::egui;
@@ -114,8 +115,13 @@ pub struct GridState {
     look_jobs: Vec<(Job<Option<LookRes>>, usize)>,
     /// The column panel while its popup is open.
     pub panel: Option<colpanel::Panel>,
+    /// The row a column panel's "go to" looks for (the row shown, its column), in the background.
+    pub goto_job: Option<(Job<Option<(usize, usize)>>, usize)>,
     /// A fill (handle, Ctrl+D, Ctrl+Enter) computing its cells.
     fill_job: Option<Job<Option<Vec<(RowId, usize, String)>>>>,
+    /// A big selection cleared or given one value (Delete, Enter on a block, a value pasted),
+    /// its patch built in the background; true: told as a paste.
+    patch_job: Option<(Job<Option<Patch>>, bool)>,
     /// The fill handle being dragged: the selection, and the cell under the pointer.
     fill_drag: Option<(series::Rect, Option<Cell>)>,
     /// A title being dragged to another place.
@@ -158,6 +164,8 @@ pub struct GridState {
 /// What the grid asks the app to do (the app owns the table, its undo and dialogs).
 pub enum Action {
     SetCells(Vec<(RowId, usize, String)>),
+    /// Cells made ready as a patch (a selection cleared or filled); `pasted`: told as a paste.
+    Patch { patch: Patch, pasted: bool },
     Sort(Vec<SortKey>),
     FiltersChanged,
     InsertRows { before: usize, count: usize },
@@ -219,6 +227,11 @@ fn char_w(ctx: &egui::Context, m: &Metrics) -> f32 {
 }
 
 impl GridState {
+    /// No edit of the grid's own under way (a fill computing).
+    pub fn idle(&self) -> bool {
+        self.fill_job.is_none() && self.patch_job.is_none()
+    }
+
     /// Auto widths, as the web app: the widest of the first 80 rows (mono advance × chars)
     /// + 21, clamped to 60…480.
     pub fn reset_widths(&mut self, st: &State, ctx: &egui::Context, m: &Metrics) {
@@ -1327,6 +1340,7 @@ struct Band {
 
 /// Picks up the grid's own jobs: colour scales, fills.
 fn poll_jobs(tab: &mut Tab, actions: &mut Vec<Action>) {
+    let shown = tab.shown();
     let g = &mut tab.grid;
     let mut k = 0;
     while k < g.look_jobs.len() {
@@ -1344,6 +1358,49 @@ fn poll_jobs(tab: &mut Tab, actions: &mut Vec<Action>) {
             if let Some(ch) = r.filter(|c| !c.is_empty()) { actions.push(Action::SetCells(ch)); }
         }
     }
+    if let Some(r) = g.goto_job.as_mut().and_then(|j| j.0.poll()) {
+        g.goto_job = None;
+        if let Some((row, col)) = r.filter(|r| r.0 < shown) {
+            g.select(Cell { row, col }, false);
+            g.set_top(row.saturating_sub(g.page / 2));
+        }
+    }
+    if let Some((j, pasted)) = &mut g.patch_job {
+        if let Some(r) = j.poll() {
+            let pasted = *pasted;
+            g.patch_job = None;
+            if let Some(patch) = r.filter(|p| pasted || !p.is_empty()) { actions.push(Action::Patch { patch, pasted }); }
+        }
+    }
+}
+
+/// Selections up to this many cells are written at once; bigger ones in a job.
+const AT_ONCE: usize = 50_000;
+
+/// `value` in every cell of the selection (its columns shown) that does not hold it already
+/// (Delete, Enter on a block, one value pasted): a small selection at once (the action
+/// returned), a big one in the background — never a change per cell (a whole file cleared
+/// is one empty text per column over the rows, 4 bytes a cell).
+pub fn fill_selection(tab: &mut Tab, value: String, pasted: bool, ctx: &egui::Context) -> Option<Action> {
+    let (rows, cols) = tab.grid.range()?;
+    let st = tab.st()?.clone();
+    let shown = tab.shown();
+    let cols: Vec<usize> = cols.filter(|c| *c < st.ncols && !tab.grid.hidden.contains(c)).collect();
+    if shown == 0 || cols.is_empty() { return None; }
+    let (r0, r1) = (*rows.start(), (*rows.end()).min(shown - 1));
+    let view = tab.view.clone();
+    let big = (r1 + 1).saturating_sub(r0) * cols.len() > AT_ONCE;
+    let work = move |cancel: &std::sync::atomic::AtomicBool| {
+        // The rows of the selection only, made here (in the job for a big one).
+        let ids: Vec<RowId> = (r0..=r1).map(|p| view.as_ref().map_or_else(|| st.data_id(p), |v| v[p])).collect();
+        Patch::fill(&st, &ids, &cols, &value, cancel)
+    };
+    if !big {
+        return work(&std::sync::atomic::AtomicBool::new(false)).map(|patch| Action::Patch { patch, pasted });
+    }
+    // A newer one replaces it (the old one cancelled as it is dropped).
+    tab.grid.patch_job = Some((Job::spawn(ctx, move |cancel, _| work(cancel)), pasted));
+    None
 }
 
 /// Draws the grid and handles its input. Returns what the app must apply.
@@ -2345,11 +2402,18 @@ fn row_menu(ui: &mut Ui, tab: &mut Tab, st: &State, ncols: usize, p: &Palette, m
 }
 
 /// A copy of the row at `pos` right under it (in the file and in the view), as one undo step.
-fn duplicate_row(tab: &mut Tab, pos: usize, ctx: &egui::Context) {
+pub fn duplicate_row(tab: &mut Tab, pos: usize, ctx: &egui::Context) {
     let id = tab.shown_id(pos);
     let Some(t) = &mut tab.table else { return };
     let st = t.st.clone();
-    let Some(fpos) = (0..st.len()).find(|&q| st.data_id(q) == id) else { return };
+    // Unfiltered and unsorted, the row shown at `pos` is the file's.
+    let fpos = if tab.view.is_none() { Some(pos) } else {
+        match &st.order {
+            None => (id as usize).checked_sub(st.header as usize),
+            Some(o) => o.iter().skip(st.header as usize).position(|&x| x == id),
+        }
+    };
+    let Some(fpos) = fpos.filter(|&p| p < st.len()) else { return };
     let mut row = Vec::new();
     st.row(id, &mut row);
     let mut new_id = None;
@@ -2362,8 +2426,7 @@ fn duplicate_row(tab: &mut Tab, pos: usize, ctx: &egui::Context) {
         }
     });
     if let (Some(n), Some(v)) = (new_id, &mut tab.view) {
-        let at = (pos + 1).min(v.len());
-        Arc::make_mut(v).insert(at, n);
+        *v = Arc::new(csvfab_engine::table::splice_ids(v, pos + 1, &[n]));
     }
     tab.after_edit(false, ctx);
 }
@@ -2456,9 +2519,14 @@ fn editor(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, body:
         let (r, cs) = block.unwrap();
         let value = std::mem::take(&mut e.text);
         tab.grid.editing = None;
-        let sel = series::Rect { r0: *r.start(), r1: *r.end(), c0: *cs.start(), c1: *cs.end() };
-        let (st2, view, vis) = (st.clone(), tab.view.clone(), (0..ncols).filter(|c| !tab.grid.hidden.contains(c)).collect::<Vec<_>>());
-        tab.grid.fill_job = Some(Job::spawn(ui.ctx(), move |cancel, _| series::fill_value(&st2, &ids_of(&st2, &view), &vis, sel, &value, cmd, cancel)));
+        if cmd {
+            let sel = series::Rect { r0: *r.start(), r1: *r.end(), c0: *cs.start(), c1: *cs.end() };
+            let (st2, view, vis) = (st.clone(), tab.view.clone(), (0..ncols).filter(|c| !tab.grid.hidden.contains(c)).collect::<Vec<_>>());
+            tab.grid.fill_job = Some(Job::spawn(ui.ctx(), move |cancel, _| series::fill_value(&st2, &ids_of(&st2, &view), &vis, sel, &value, cmd, cancel)));
+        } else if let Some(a) = fill_selection(tab, value, false, &ui.ctx().clone()) {
+            // The same value everywhere: one text for the whole selection.
+            if matches!(&a, Action::Patch { patch, .. } if !patch.is_empty()) { actions.push(a); }
+        }
         resp.request_focus();
     } else if out.response.lost_focus() || enter || tab_key {
         // Enter or Tab: written, the cell stays the active one (as the web's editor).
@@ -3353,16 +3421,8 @@ fn keys(ui: &mut Ui, tab: &mut Tab, st: &State, rows: usize, ncols: usize, page:
         tab.grid.reveal(rows, view_w);
     }
     if clear {
-        if let Some((r, cs)) = tab.grid.range() {
-            let mut ch = Vec::new();
-            let mut tmp = Vec::new();
-            for pos in r {
-                let id = tab.shown_id(pos);
-                for c in cs.clone().filter(|c| !tab.grid.hidden.contains(c)) {
-                    if !st.with_cell(id, c, &mut tmp, |s| s.is_empty()) { ch.push((id, c, String::new())); }
-                }
-            }
-            if !ch.is_empty() { actions.push(Action::SetCells(ch)); }
+        if let Some(a) = fill_selection(tab, String::new(), false, &ui.ctx().clone()) {
+            if matches!(&a, Action::Patch { patch, .. } if !patch.is_empty()) { actions.push(a); }
         }
     }
 }

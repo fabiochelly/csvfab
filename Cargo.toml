@@ -3,7 +3,7 @@ resolver = "2"
 members = ["engine", "app"]
 
 [workspace.package]
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 license = "MIT"
 
@@ -15,6 +15,15 @@ panic = "abort"
 # The symbol table is never loaded at run time: 2.5 MB off the file, no effect on speed.
 # A crash's backtrace then shows addresses only: build without it to debug one.
 strip = "symbols"
+
+# Builds while working (benchmarks, the off-screen app): optimised as release, but thin LTO,
+# parallel codegen and incremental — a rebuild in seconds, not minutes; within a few % of
+# release's speed. `cargo build --profile fast`; outputs in target/fast/.
+[profile.fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
 
 [profile.dev.package."*"]
 opt-level = 2

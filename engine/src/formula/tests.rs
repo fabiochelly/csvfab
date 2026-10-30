@@ -321,6 +321,36 @@ fn runtime_errors_are_counted() {
     assert_eq!(compiled(&t, "{s}.repeat(-1)").unwrap().eval_row(&t.st, t.st.data_id(0)).unwrap_err(), "Invalid count value: -1");
 }
 
+/// A computed column as a patch: the same cells as its values written one by one (empty
+/// ones and errors left out), the same errors counted, rows moved or not.
+#[test]
+fn column_patch_as_the_values() {
+    let mut src = String::from("n,s\n");
+    for i in 0..20_000 { src += &format!("{},{}\n", if i % 9 == 0 { "x".to_string() } else { i.to_string() }, if i % 4 == 0 { "" } else { "s" }); }
+    for moved in [false, true] {
+        let mut t = table(&src);
+        if moved { let (a, b) = (t.st.data_id(3), t.st.data_id(15_000)); t.move_row(a, b, true); }
+        for f in ["{n}.num() * 2", "{s} + {n}.date().year()", "{s}"] {
+            let e = compiled(&t, f).unwrap();
+            let o = column(&t.st, &e, None, &no()).unwrap();
+            let p = column_patch(&t.st, &e, 2, &no()).unwrap();
+            assert_eq!((p.errors, p.first_error.clone()), (o.errors, o.first_error.clone()), "{f}");
+            let ch: Vec<_> = o.out.into_iter().enumerate().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (t.st.data_id(k), 2, v)).collect();
+            assert_eq!(p.out.cells(), ch.len(), "{f}");
+            let mut a = Table::new(t.st.base.clone(), None);
+            a.st = t.st.clone();
+            let mut b = Table::new(t.st.base.clone(), None);
+            b.st = t.st.clone();
+            a.apply(p.out);
+            b.set_cells(&ch);
+            for k in 0..t.st.len() {
+                let id = t.st.data_id(k);
+                assert_eq!(a.st.cell(id, 2), b.st.cell(id, 2), "{f} row {k}");
+            }
+        }
+    }
+}
+
 /// tests/test_regex_guard.py: (a+)+$ on « aaa…ab » froze the page; here it cannot.
 #[test]
 fn catastrophic_pattern_runs_in_linear_time() {
@@ -401,8 +431,23 @@ fn formula_bench() {
         let t1 = std::time::Instant::now();
         let c = column(&t.st, &e, None, &no()).unwrap();
         let tc = t1.elapsed();
-        println!("{src:<80} compile {compile_us:6.0} µs  filter {:>8.1} ms ({} rows)  column {:>8.1} ms ({} errors)",
-            tf.as_secs_f64() * 1e3, f.out.len(), tc.as_secs_f64() * 1e3, c.errors);
+        // As a new column: written as changes (one String a row, sorted and merged by the table),
+        // and as a patch built in place.
+        let t1 = std::time::Instant::now();
+        let ch: Vec<_> = c.out.into_iter().enumerate().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (t.st.data_id(k), 0, v)).collect();
+        let mut a = Table::new(t.st.base.clone(), None);
+        a.set_cells(&ch);
+        drop(ch);
+        let tw = tc + t1.elapsed();
+        let t1 = std::time::Instant::now();
+        let p = column_patch(&t.st, &e, 0, &no()).unwrap();
+        let tp = t1.elapsed();
+        let t1 = std::time::Instant::now();
+        let mut b = Table::new(t.st.base.clone(), None);
+        b.apply(p.out);
+        let ta = t1.elapsed();
+        println!("{src:<80} compile {compile_us:6.0} µs  filter {:>8.1} ms ({} rows)  column {:>8.1} ms ({} errors)  as changes {:>8.1} ms, as a patch {:>8.1} ms + {:.2} ms to apply",
+            tf.as_secs_f64() * 1e3, f.out.len(), tc.as_secs_f64() * 1e3, c.errors, tw.as_secs_f64() * 1e3, tp.as_secs_f64() * 1e3, ta.as_secs_f64() * 1e3);
         if src.starts_with("num({total_spent}) > 1000") {
             assert!(f.out.len() > 0 && f.out.len() <= 75_010);
         }

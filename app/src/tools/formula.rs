@@ -11,6 +11,7 @@ use crate::job::Job;
 use crate::tab::Tab;
 use crate::theme::{alpha, Metrics, Palette};
 use csvfab_engine::formula::{self, doc};
+use csvfab_engine::table::Patch;
 use csvfab_engine::RowId;
 use eframe::egui::{self, pos2, text::LayoutJob, vec2, Align2, Color32, FontId, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
 use std::time::{Duration, Instant};
@@ -235,7 +236,8 @@ struct Preview {
     rows: Vec<(Vec<String>, Result<String, String>)>,
 }
 
-type Applied = (Dest, Vec<(RowId, usize, String)>, usize);
+/// The cells to write, made ready in the job (nothing per row left for the UI thread), and the errors.
+type Applied = (Dest, Patch, usize);
 
 pub struct Formula {
     src: String,
@@ -369,13 +371,12 @@ impl Formula {
         self.applying = Some(Job::spawn(ctx, move |cancel, _| {
             Some(Ok(match dest {
                 Dest::New(at) => {
-                    let o = formula::column(&st, &e, None, cancel)?;
-                    let ch = o.out.into_iter().enumerate().filter(|(_, v)| !v.is_empty()).map(|(p, v)| (st.data_id(p), at + 1, v)).collect();
-                    (dest, ch, o.errors)
+                    let o = formula::column_patch(&st, &e, at + 1, cancel)?;
+                    (dest, o.out, o.errors)
                 }
                 Dest::Set(c) => {
                     let o = formula::changes(&st, &e, view.as_deref().map(|v| v.as_slice()), c, cancel)?;
-                    (dest, o.out, o.errors)
+                    (dest, Patch::new(&o.out), o.errors)
                 }
             }))
         }));
@@ -392,12 +393,12 @@ impl Formula {
                 let at = at + 1;
                 let t = tab.table.as_mut().unwrap();
                 let old_n = t.st.ncols;
+                let w = new_width(cx.ctx, cx.m, &name, ch.texts().take(80));
                 t.batch(|t| {
                     t.insert_column(at, &name);
-                    t.set_cells(&ch);
+                    t.apply(ch);
                 });
                 super::edit_kit::remap_columns(tab, old_n, |c| Some(super::edit_kit::after_insert(at, 1, c)), cx.ctx);
-                let w = new_width(cx.ctx, cx.m, &name, ch.iter().take(80).map(|c| c.2.as_str()));
                 if let Some(x) = tab.grid.widths.get_mut(at) { *x = w; }
                 let e = if errors > 0 { format!(", {} rows with an error left empty", fmt(errors)) } else { String::new() };
                 cx.toast(format!("Column \"{name}\" computed{e}"));
@@ -408,9 +409,10 @@ impl Formula {
                     return;
                 }
                 let name = t.st.headers().get(c).cloned().unwrap_or_default();
-                tab.apply_changes(&ch, cx.ctx);
+                let n = ch.cells();
+                tab.apply_patch(ch, cx.ctx);
                 let e = if errors > 0 { format!(", {} errors left empty", fmt(errors)) } else { String::new() };
-                cx.toast(format!("{} cells computed in {name}{e}", fmt(ch.len())));
+                cx.toast(format!("{} cells computed in {name}{e}", fmt(n)));
             }
         }
     }

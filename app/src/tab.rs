@@ -589,9 +589,10 @@ impl Tab {
     }
 
     /// Hides (or shows again) one value of a column, as the column panel and the charts do.
-    pub fn hide_values(&mut self, col: usize, values: std::collections::HashSet<String>, ctx: &egui::Context) {
+    pub fn hide_values(&mut self, col: usize, values: impl Into<Arc<HashSet<String>>>, ctx: &egui::Context) {
+        let values = values.into();
         self.filter.hidden.retain(|(c, _)| *c != col);
-        if !values.is_empty() { self.filter.hidden.push((col, Arc::new(values))); }
+        if !values.is_empty() { self.filter.hidden.push((col, values)); }
         self.grid.scroll = 0.0;
         self.refresh(ctx);
     }
@@ -744,7 +745,22 @@ impl Tab {
     pub fn apply_changes(&mut self, changes: &[(RowId, usize, String)], ctx: &egui::Context) {
         let Some(t) = &mut self.table else { return };
         let grow = changes.iter().any(|c| c.1 >= t.st.ncols);
+        // A few cells typed under the totals row: told to it, not counted again (a view's rows
+        // are looked through for each, hence so few).
+        let few = if self.view.is_some() { 4 } else { 64 };
+        let before = (self.show_totals && !grow && changes.len() <= few).then(|| t.st.clone());
         t.set_cells(changes);
+        if let Some(b) = before { crate::totals_ui::edited(self, &b, changes); }
+        self.generation += 1;
+        self.after_edit(grow, ctx);
+    }
+
+    /// Puts in cells made ready beforehand (`Patch`, often in a job) as one undo step; the rows
+    /// stay where they are.
+    pub fn apply_patch(&mut self, p: csvfab_engine::table::Patch, ctx: &egui::Context) {
+        let Some(t) = &mut self.table else { return };
+        let grow = p.columns().any(|c| c >= t.st.ncols);
+        t.apply(p);
         self.generation += 1;
         self.after_edit(grow, ctx);
     }
@@ -796,6 +812,43 @@ impl Tab {
             self.sort.retain(|k| k.col < n);
             self.refresh(ctx);
         }
+    }
+
+    /// After columns were inserted, deleted or moved (`map`: an old column's new place): the
+    /// kinds and reading aids follow their columns — only a new column is looked at — and
+    /// the view is recomputed, but for a move: the same rows in the same order.
+    pub fn after_columns(&mut self, old_n: usize, map: &dyn Fn(usize) -> Option<usize>, ctx: &egui::Context) {
+        self.generation += 1;
+        let Some(st) = self.table.as_ref().map(|t| t.st.clone()) else { return };
+        let n = st.ncols;
+        self.col_filters.resize(n, String::new());
+        self.grid.fit_count(n);
+        let (mut kinds, mut rich, mut pills) = (vec![None; n], vec![None; n], vec![None; n]);
+        for c in 0..old_n.min(self.kinds.len()) {
+            if let Some(k) = map(c).filter(|&k| k < n) {
+                kinds[k] = Some(self.kinds[c]);
+                rich[k] = Some(self.rich.get(c).cloned().flatten());
+                pills[k] = Some(self.pills.get(c).cloned().flatten());
+            }
+        }
+        let new: Vec<usize> = (0..n).filter(|&k| kinds[k].is_none()).collect();
+        let moved = new.is_empty() && n == old_n;
+        let found = view::detect_kinds_of(&st, &new);
+        for (&k, f) in new.iter().zip(found) { kinds[k] = Some(f); }
+        self.kinds = kinds.into_iter().map(|k| k.unwrap_or(Kind::Text)).collect();
+        for (&k, r) in new.iter().zip(look::rich_cols_of(&st, &self.kinds, &new)) { rich[k] = Some(r); }
+        self.rich = rich.into_iter().map(Option::flatten).collect();
+        for (&k, p) in new.iter().zip(look::pills_of(&st, &self.kinds, &self.rich, &new)) { pills[k] = Some(p); }
+        self.pills = pills.into_iter().map(Option::flatten).collect();
+        self.sort.retain(|k| k.col < n);
+        if moved && self.job.is_none() {
+            // The filters follow their columns (`filter.cols` from the texts moved with them);
+            // the rows they keep are the same, in the same order.
+            self.filter.cols = self.col_filters.iter().enumerate().filter(|(_, s)| !s.is_empty()).map(|(c, s)| (c, s.clone())).collect();
+            self.memo = None;
+            return;
+        }
+        self.refresh(ctx);
     }
 
     /// `enc`, `delim`: None leaves it as it is, Some(None) goes back to detecting it.

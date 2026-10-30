@@ -38,6 +38,40 @@ frame ≤ 10 ms CPU (first frames of a load or a dialog: first reads of the mapp
 layout), median ≤ 2 ms, idle frames 0. Nothing regressed; the remaining first-frame costs vary by
 ±50 % between runs and were not worth chasing.
 
+## Edits off the UI thread (2026-10-30, 5M rows, `bench_ui --ops edits,formula,totals`)
+
+Whole-selection and whole-column edits no longer build a `(RowId, col, String)` per cell
+on the UI thread: `table::Patch` holds each column's layers ready (sorted ids, one arena
+or one text for all), built in a job, linked in by `Table::apply` (O(columns)). A cleared
+or filled selection is one *uniform* layer per column (4 bytes a cell, the id list shared
+by the columns where every row changes). Past 12 layers only the run of the smallest is
+merged (a linear k-way merge, id ranges in parallel): a computed column is not merged
+again for every few cells typed after it. Totals keep, per column, what they counted
+(rows + the column's layers, held as `Weak`): an edit recounts only its columns, a few
+typed cells are told to the totals (`Totals::edit`), dictionary columns count codes. The
+column panel searches, ticks "(Select all)" and finds "go to" rows in jobs.
+
+| op (UI thread's longest frame in brackets) | before 4 thr | after 4 thr | before 16 thr | after 16 thr |
+|---|---|---|---|---|
+| Ctrl+A, Delete (73M cells) | 4.45 s [4.45 s] | 0.38 s [3 ms] | 4.94 s [4.94 s] | 0.14 s [3 ms] |
+| Ctrl+A, paste one value (75M) | 7.4 s [7.4 s] | 0.37 s [2 ms] | — | 0.14 s [2 ms] |
+| computed column | 590 ms [190 ms] | 365 ms [3 ms] | 460 ms [220 ms] | 136 ms [3 ms] |
+| 13 cells typed after it (layer merge) | 205 ms [200 ms] | 64 ms [12 ms] | 270 ms [247 ms] | 27 ms [2 ms] |
+| totals row turned on | 233 ms | 188 ms | 129 ms | 70 ms |
+| one cell typed under the totals | 250 ms | 5 ms | — | 5 ms |
+| column panel on `id` (5M values): open / idle frame / search / "(Select all)" | 22 / 40 / 179 / 815 ms frames | 2 / 1.6 / 1 / 3 ms frames | 26 / 40 / — / 915 | 1.3 / 2 / 2 / 3 |
+| insert / duplicate a row under a sort | [15 ms] / [14 ms] | [5 ms] / [7 ms] | | |
+| paste a 2×2 block | [7.5 ms] | [3 ms] | | |
+| move a column | 17 ms [8.5 ms] | 10 ms [9 ms, the redraw] | | |
+
+Engine (`cargo test --profile fast -p csvfab-engine -- --ignored --nocapture formula_bench
+perf_layer_merge`, 16 threads): a computed column as a patch 64–284 ms vs 359–754 ms as
+changes; 5M cells as `Patch::fill` 42 ms vs 186 ms as changes; applying either < 0.1 ms.
+Not done: totals do not read the non-dictionary number cache (`colcache` num is
+`parse_number`, totals count `num_cell` — dates and text-led values would count
+differently); inserting a row still writes a new order (one parallel pass, ~2 ms at 5M)
+rather than editing it in place, since every cache keys the order by its address.
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

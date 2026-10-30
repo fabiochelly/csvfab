@@ -42,6 +42,8 @@ centring, every padding, the original SVG icons, silky instant scrolling, no fli
 
 `Cx` gives the tab (`cx.tab.st()` → `&State` snapshot, `cx.tab.table` to edit,
 `tab.apply_changes(&changes, ctx)` = one undo step and the grid updated,
+`tab.apply_patch(patch, ctx)` for cells made ready in a job (`table::Patch::new(&changes)`,
+`Patch::fill`, `Patch::column`: nothing per cell left for the UI thread),
 `tab.table.batch(|t| …)` for several edits as one step, then `tab.after_edit(true, ctx)` after
 structural changes; `tab.restrict_to(label, ids, ctx)` shows these rows (a chip lets the user
 leave); `tab.marks` marks rows/cells; `tab.hide_values(col, set, ctx)`; `tab.shown_ids()`,

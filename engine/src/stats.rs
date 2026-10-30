@@ -12,6 +12,7 @@ use crate::table::{RowId, State};
 use crate::text::{fold_into, parse_date, parse_number};
 use crate::view::Kind;
 use hashbrown::HashTable;
+use std::sync::Arc;
 use rayon::prelude::*;
 use std::cmp::Ordering as Ord;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -896,56 +897,101 @@ struct TotAcc {
     set: Option<Sharded>,
 }
 
+/// One cell read for a column's totals: empty, not of the column's kind, or its key and decimals.
+#[derive(Clone, Copy)]
+enum Read {
+    Empty,
+    Bad,
+    Val(f64, u8),
+    /// Filled, in a text column.
+    Text,
+}
+
+#[inline]
+fn read_total(kind: Kind, v: &str) -> Read {
+    let v = v.trim();
+    if v.is_empty() {
+        return Read::Empty;
+    }
+    match kind {
+        Kind::Number => num_cell(v).map_or(Read::Bad, |x| Read::Val(x, decimals(v, x) as u8)),
+        Kind::Date => parse_date(v).map_or(Read::Bad, |x| Read::Val(x, 0)),
+        Kind::Text => Read::Text,
+    }
+}
+
+impl TotAcc {
+    #[inline]
+    fn add(&mut self, r: &TotalReq, c: Read, pos: u32) {
+        match c {
+            Read::Empty => self.empty += 1,
+            Read::Bad => { self.filled += 1; self.bad += 1; }
+            Read::Text => self.filled += 1,
+            Read::Val(x, d) => {
+                self.filled += 1;
+                self.n += 1;
+                self.lo.lower(x, pos);
+                self.hi.higher(x, pos);
+                if r.kind == Kind::Number {
+                    self.sum += x;
+                    if r.median { self.vals.push(x); }
+                    if self.decs.len() < TOT_DEC_ROWS { self.decs.push(d); }
+                }
+            }
+        }
+    }
+}
+
 /// The totals of columns `reqs` over rows `ids`, in one parallel pass (a row
-/// still as read is split once for all of them). None if cancelled.
+/// still as read is split once for all of them). None if cancelled. A column
+/// with a dictionary (`colcache`) is not read at all: each distinct value is
+/// read once, every row only gives its code (the rows edited here aside).
 ///
 /// Incremental as the JS: the caller keeps each column's `Totals` for the
 /// rows they were computed on, and asks again only for the columns whose
-/// rows changed or whose new function needs what they lack (`has`).
+/// rows changed or whose new function needs what they lack (`has`) — and a
+/// few cells edited are told to their totals (`Totals::edit`).
 pub fn totals(st: &State, ids: &[RowId], reqs: &[TotalReq], cancel: &AtomicBool) -> Option<Vec<Totals>> {
     if reqs.is_empty() {
         return Some(Vec::new());
     }
-    // The columns in ascending order for one split of the row; `slot[k]`: where req k's cells come.
-    let mut cols: Vec<usize> = reqs.iter().map(|r| r.col).collect();
+    // Per request with a dictionary: each value read once, and the rows the dictionary does not give.
+    let dicts: Vec<Option<(Arc<crate::colcache::Dict>, Vec<Read>, Option<crate::colcache::Bits>)>> = reqs.iter().map(|r| {
+        if r.distinct { return None; }
+        let d = crate::colcache::get(st, r.col).dict?;
+        let reads = d.values.par_iter().map(|v| read_total(r.kind, v)).collect();
+        Some((d, reads, crate::colcache::edited_rows(st, r.col)))
+    }).collect();
+    // The other columns in ascending order for one split of the row; `slot[k]`: where req k's cells come.
+    let mut cols: Vec<usize> = reqs.iter().zip(&dicts).filter(|(_, d)| d.is_none()).map(|(r, _)| r.col).collect();
     cols.sort_unstable();
     cols.dedup();
-    let slot: Vec<usize> = reqs.iter().map(|r| cols.binary_search(&r.col).unwrap()).collect();
-    let by_slot: Vec<Vec<usize>> = (0..cols.len()).map(|s| (0..reqs.len()).filter(|&k| slot[k] == s).collect()).collect();
+    let by_slot: Vec<Vec<usize>> = cols.iter().map(|&c| (0..reqs.len()).filter(|&k| dicts[k].is_none() && reqs[k].col == c).collect()).collect();
+    let coded: Vec<usize> = (0..reqs.len()).filter(|&k| dicts[k].is_some()).collect();
+    let n = st.base.n;
     let new = || {
         let accs: Vec<TotAcc> = reqs.iter().map(|r| TotAcc { n: 0, sum: 0.0, lo: Best::NONE, hi: Best::NONE, filled: 0, empty: 0, bad: 0, decs: Vec::new(), vals: Vec::new(), set: r.distinct.then(Sharded::new) }).collect();
         (accs, Vec::new())
     };
     let parts = chunked(ids.len(), cancel, new, |(accs, tmp), p| {
-        let pos = p as u32;
-        visit_cols(st, ids[p], &cols, tmp, |s, v| {
-            let v = v.trim();
+        let (pos, id) = (p as u32, ids[p]);
+        for &k in &coded {
+            let (d, reads, edited) = dicts[k].as_ref().unwrap();
+            let r = &reqs[k];
+            if (id as usize) < n && !edited.as_ref().is_some_and(|e| e.has(id)) {
+                accs[k].add(r, reads[d.codes[id as usize] as usize], pos);
+            } else {
+                let c = st.with_cell(id, r.col, tmp, |v| read_total(r.kind, v));
+                accs[k].add(r, c, pos);
+            }
+        }
+        if cols.is_empty() { return; }
+        visit_cols(st, id, &cols, tmp, |s, v| {
             for &k in &by_slot[s] {
                 let (r, a) = (&reqs[k], &mut accs[k]);
-                if v.is_empty() {
-                    a.empty += 1;
-                    continue;
-                }
-                a.filled += 1;
-                if let Some(set) = &mut a.set { set.add(v, pos); }
-                match r.kind {
-                    Kind::Number => {
-                        let Some(x) = num_cell(v) else { a.bad += 1; continue };
-                        a.n += 1;
-                        a.sum += x;
-                        a.lo.lower(x, pos);
-                        a.hi.higher(x, pos);
-                        if r.median { a.vals.push(x); }
-                        if a.decs.len() < TOT_DEC_ROWS { a.decs.push(decimals(v, x) as u8); }
-                    }
-                    Kind::Date => {
-                        let Some(x) = parse_date(v) else { a.bad += 1; continue };
-                        a.n += 1;
-                        a.lo.lower(x, pos);
-                        a.hi.higher(x, pos);
-                    }
-                    Kind::Text => {}
-                }
+                let c = read_total(r.kind, v);
+                if let (Some(set), Read::Bad | Read::Text | Read::Val(..)) = (&mut a.set, c) { set.add(v.trim(), pos); }
+                a.add(r, c, pos);
             }
         });
     })?;
@@ -985,6 +1031,34 @@ pub fn totals(st: &State, ids: &[RowId], reqs: &[TotalReq], cancel: &AtomicBool)
     if cancel.load(Ordering::Relaxed) { None } else { Some(out) }
 }
 
+/// Of rows `0..n` (row `p` is `id(p)`), the first whose number in `col` is closest to `x`
+/// (the column panel's "go to"), read in parallel. None if cancelled; Some(None): no number.
+pub fn closest(st: &State, n: usize, id: impl Fn(usize) -> RowId + Sync + Send, col: usize, x: f64, cancel: &AtomicBool) -> Option<Option<usize>> {
+    let parts = chunked(n, cancel, || (None::<(f64, usize)>, Vec::new()), |(best, tmp), p| {
+        st.with_cell(id(p), col, tmp, |s| {
+            if let Some(v) = num_cell(s) {
+                let d = (v - x).abs();
+                if best.is_none_or(|b| d < b.0) { *best = Some((d, p)); }
+            }
+        });
+    })?;
+    Some(parts.into_iter().filter_map(|p| p.0).min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))).map(|b| b.1))
+}
+
+/// The decimals a number column's totals write: the most among its first TOT_DEC_ROWS numbers
+/// over `rows` (what a pass of `totals` finds), for totals kept up by `Totals::edit`.
+pub fn total_decimals(st: &State, rows: impl Iterator<Item = RowId>, col: usize) -> usize {
+    let (mut seen, mut dec, mut tmp) = (0, 0, Vec::new());
+    for id in rows {
+        if let Read::Val(_, d) = st.with_cell(id, col, &mut tmp, |v| read_total(Kind::Number, v)) {
+            dec = dec.max(d as usize);
+            seen += 1;
+            if seen == TOT_DEC_ROWS { break; }
+        }
+    }
+    dec
+}
+
 /// The middle value (the mean of the two middle ones for an even count), by selection, not a sort.
 pub fn median(mut v: Vec<f64>) -> Option<f64> {
     if v.is_empty() {
@@ -1020,6 +1094,41 @@ pub fn quantiles(v: &mut [f64], a: f64, b: f64) -> (f64, f64) {
 }
 
 impl Totals {
+    /// One cell of the rows counted changed from `old` to `new`: the totals follow without
+    /// counting the rows again. False when they cannot — a median or a distinct count kept, a
+    /// bound that may move inwards, a date bound whose text is the first row's —: count again.
+    /// The decimals written stay to be found again (`total_decimals`).
+    pub fn edit(&mut self, old: &str, new: &str) -> bool {
+        if self.median.is_some() || self.distinct.is_some() {
+            return false;
+        }
+        let dec = |a: &mut u64| a.checked_sub(1).map(|x| *a = x).is_some();
+        match read_total(self.kind, old) {
+            Read::Empty => if !dec(&mut self.empty) { return false },
+            Read::Text => if !dec(&mut self.filled) { return false },
+            Read::Bad => if !dec(&mut self.filled) || !dec(&mut self.bad) { return false },
+            Read::Val(x, _) => {
+                if !dec(&mut self.filled) || !dec(&mut self.n) || x <= self.min || x >= self.max { return false; }
+                if self.kind == Kind::Number { self.sum -= x; }
+            }
+        }
+        match read_total(self.kind, new) {
+            Read::Empty => self.empty += 1,
+            Read::Text => self.filled += 1,
+            Read::Bad => { self.filled += 1; self.bad += 1; }
+            Read::Val(x, _) => {
+                if self.kind == Kind::Date && (x == self.min || x == self.max) { return false; }
+                self.filled += 1;
+                self.n += 1;
+                if self.kind == Kind::Number { self.sum += x; }
+                let text = || if self.kind == Kind::Date { new.trim().to_string() } else { String::new() };
+                if x < self.min { self.min_s = text(); self.min = x; }
+                if x > self.max { self.max_s = text(); self.max = x; }
+            }
+        }
+        true
+    }
+
     /// Whether this pass computed what `f` needs.
     pub fn has(&self, f: TotalFn) -> bool {
         match f {
@@ -1293,6 +1402,60 @@ mod tests {
         let r = totals(&t.st, &vip, &reqs[2..3], &no).unwrap();
         let tot: f64 = (1..=120).filter(|&i| i != 60 && i % 4 == 1).map(|i| num(MONTANTS[i % 4])).sum();
         assert_eq!(r[0].value(TotalFn::Sum).unwrap().text, fmt_num(tot, 1, 1, true));
+    }
+
+    /// A column with a dictionary is counted from its codes: the same totals as read cell by
+    /// cell, its edited and new rows read live.
+    #[test]
+    fn totals_from_the_dictionary() {
+        let mut t = table(&ventes());
+        let no = AtomicBool::new(false);
+        let kinds = crate::view::detect_kinds(&t.st);
+        let reqs: Vec<TotalReq> = (0..5).map(|c| TotalReq { col: c, kind: kinds[c], median: c == 2, distinct: false }).collect();
+        let id = t.st.data_id(4);
+        t.set_cells(&[(id, 2, "99,99".into()), (id, 3, "".into())]);
+        let fresh = t.insert_rows(0, 1)[0];
+        t.set_cells(&[(fresh, 2, "1".into()), (fresh, 1, "vip".into())]);
+        let ids = all(&t);
+        let read = totals(&t.st, &ids, &reqs, &no).unwrap();
+        for c in 0..5 { crate::colcache::ensure(&t.st, c, crate::colcache::Need::Dict, &no); }
+        assert!([1, 2].iter().all(|&c| crate::colcache::get(&t.st, c).dict.is_some()));
+        let coded = totals(&t.st, &ids, &reqs, &no).unwrap();
+        assert_eq!(coded, read);
+        assert_eq!(read[2].dec, 2);
+    }
+
+    /// Cells edited one by one, told to the totals: what a count over the rows gives (the sum to
+    /// rounding), or a refusal where only a count can say.
+    #[test]
+    fn totals_follow_edits() {
+        let mut t = table(&ventes());
+        let no = AtomicBool::new(false);
+        let kinds = crate::view::detect_kinds(&t.st);
+        let reqs: Vec<TotalReq> = (0..5).map(|c| TotalReq { col: c, kind: kinds[c], median: false, distinct: false }).collect();
+        let ids = all(&t);
+        let mut kept = totals(&t.st, &ids, &reqs, &no).unwrap();
+        let vals = ["", "7", "1 250,00", "n/a", "2024-01-03", "2030-12-31", "2001-01-01", "0,5", "  ", "-4"];
+        let (mut told, mut refused) = (0, 0);
+        for step in 0..300usize {
+            let (p, c) = ((step * 37) % ids.len(), [2, 3, 1, 0][step % 4]);
+            let v = vals[(step * 7 + c) % vals.len()];
+            let old = t.st.cell(ids[p], c);
+            t.set_cells(&[(ids[p], c, v.into())]);
+            let full = totals(&t.st, &ids, &reqs[c..c + 1], &no).unwrap().remove(0);
+            if kept[c].edit(&old, v) {
+                told += 1;
+                kept[c].dec = if kinds[c] == Kind::Number { total_decimals(&t.st, ids.iter().copied(), c) } else { 0 };
+                let k = &kept[c];
+                assert!((k.sum - full.sum).abs() < 1e-6 * full.sum.abs().max(1.0), "step {step}");
+                assert_eq!((k.n, k.filled, k.empty, k.bad, k.min, k.max, &k.min_s, &k.max_s, k.dec), (full.n, full.filled, full.empty, full.bad, full.min, full.max, &full.min_s, &full.max_s, full.dec), "step {step}: {old:?} → {v:?} in {c}");
+                kept[c].sum = full.sum;
+            } else {
+                refused += 1;
+                kept[c] = full;
+            }
+        }
+        assert!(told > 200 && refused > 0, "{told} told, {refused} refused");
     }
 
     #[test]

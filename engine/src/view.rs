@@ -104,6 +104,9 @@ enum Pat {
         blank: bool,
         /// The needle's bytes (bit b: byte b).
         mask: u128,
+        /// An ASCII needle, case ignored: found in the raw bytes as they are (SIMD, both cases
+        /// at once), not in a lower-cased copy of them.
+        ci: Option<crate::cifind::CiFinder>,
     },
     Re {
         re: regex::Regex,
@@ -150,7 +153,8 @@ impl Pat {
         let raw_ok = rec_ok && needle.is_ascii();
         let blank = needle.bytes().all(|b| b == b' ' || b == b'\t');
         let mask = needle.bytes().filter(|&b| b < 0x80).fold(0u128, |m, b| m | 1 << b);
-        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask })
+        let ci = (!case && raw_ok).then(|| crate::cifind::CiFinder::new(needle.as_bytes())).flatten();
+        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask, ci })
     }
 
     #[inline]
@@ -658,7 +662,7 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
         while e < end && b.starts.get(e + 1) - bs <= 1 << 16 { e += 1; }
         let raw = &bytes[bs..b.starts.get(e)];
         let hay: &[u8] = match g {
-            Pat::Sub { .. } if !case => {
+            Pat::Sub { ci: None, .. } if !case => {
                 s.low.clear();
                 s.low.extend(raw.iter().map(u8::to_ascii_lowercase));
                 &s.low
@@ -669,6 +673,7 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
         let mut rec = r;
         loop {
             let found = match g {
+                Pat::Sub { ci: Some(ci), .. } if !case => ci.find(&hay[pos..]),
                 Pat::Sub { finder, .. } => finder.find(&hay[pos..]),
                 Pat::Re { pre: Some(p), .. } => p.ac.find(&hay[pos..]).map(|m| m.start()),
                 Pat::Re { .. } => unreachable!(),
@@ -729,10 +734,11 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
 /// whether its raw bytes hold the needle, if already known.
 fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scratch, raw_hit: Option<bool>) -> bool {
     let rec = b.record(id);
-    if let Pat::Sub { finder, raw_ok: true, needle, blank, mask, .. } = g {
+    if let Pat::Sub { finder, raw_ok: true, needle, blank, mask, ci, .. } = g {
         if needle.is_empty() { return true; }
         let hit = raw_hit.unwrap_or_else(|| {
             if case { return finder.find(rec).is_some(); }
+            if let Some(ci) = ci { return ci.find(rec).is_some(); }
             s.low.clear();
             s.low.extend(rec.iter().map(u8::to_ascii_lowercase));
             finder.find(&s.low).is_some()
@@ -851,11 +857,15 @@ pub fn filter_ids(st: &State, f: &Filter, ids: &[RowId], cancel: &AtomicBool) ->
 /// What a column holds, from a sample of its non-empty cells: numbers or dates
 /// when 95 % of them read as such.
 pub fn detect_kinds(st: &State) -> Vec<Kind> {
+    detect_kinds_of(st, &(0..st.ncols).collect::<Vec<_>>())
+}
+
+/// `detect_kinds` of the columns `cols` only (one inserted, the others moved).
+pub fn detect_kinds_of(st: &State, cols: &[usize]) -> Vec<Kind> {
     let n = st.len();
     let sample: Vec<usize> = if n <= 4000 { (0..n).collect() } else { (0..4000).map(|k| k * n / 4000).collect() };
-    (0..st.ncols)
-        .into_par_iter()
-        .map(|c| {
+    cols.par_iter()
+        .map(|&c| {
             let (mut filled, mut nums, mut dates) = (0, 0, 0);
             let mut tmp = Vec::new();
             for &p in &sample {

@@ -2,6 +2,11 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.2 · 30 October 2026
+
+- **Fixed: saving while a big file was still loading** wrote only the rows read so far, cutting the file short. Save, Save as and the tools now wait until the file is read whole.
+- **Nothing that grows with the file runs on the window's thread any more**: clearing a huge selection (5 million rows × 15 columns: 4.5 s frozen → 0.14 s in the background), computed columns (3 times faster, and scaling with the cores), typing after a big edit, the column panel of a column with millions of values, pasting, inserting rows, moving columns and the totals row (a typed cell updates it in 5 ms instead of recounting 5 million rows).
+
 ## 2.0.1 · 30 October 2026
 
 - **Fixed: a crash could lose recent edits.** An error in a background task closed the app; it is now caught, said, and the app goes on.

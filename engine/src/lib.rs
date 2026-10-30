@@ -3,6 +3,7 @@
 
 pub mod anonymize;
 pub mod base;
+pub mod cifind;
 pub mod colcache;
 pub mod combine;
 pub mod compare;

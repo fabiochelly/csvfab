@@ -633,7 +633,7 @@ pub fn remap_columns(tab: &mut Tab, old_n: usize, map: impl Fn(usize) -> Option<
         cur.col = map(cur.col).unwrap_or(0).min(new_n.saturating_sub(1));
     }
     tab.grid.anchor = tab.grid.cursor;
-    tab.after_edit(true, ctx);
+    tab.after_columns(old_n, &to, ctx);
 }
 
 /// A dialog by its short name, for the screenshot hooks (`CSVFAB_SHOT=tool:bulk`).

@@ -230,6 +230,16 @@ impl<'e> Worker<'e> {
         eval::eval(&self.e.root, &cx, &mut self.sc).map(|v| value::into_out(v, self.e.comma))
     }
 
+    /// `out`, appended to `buf`: no String of its own per row.
+    fn out_into(&mut self, row: f64, today: f64, buf: &mut String) -> Result<(), String> {
+        let cx = Cx { cells: &self.cells, row, v: "", comma: self.e.comma, today };
+        match eval::eval(&self.e.root, &cx, &mut self.sc)? {
+            value::Val::Str(s) => buf.push_str(&s),
+            v => value::write_out(&v, self.e.comma, buf),
+        }
+        Ok(())
+    }
+
     fn test(&mut self, row: f64, today: f64) -> Result<bool, String> {
         let cx = Cx { cells: &self.cells, row, v: "", comma: self.e.comma, today };
         eval::eval(&self.e.root, &cx, &mut self.sc).map(|v| value::truthy(&v))
@@ -335,6 +345,38 @@ pub fn column(st: &State, e: &Expr, rows: Option<&[RowId]>, cancel: &AtomicBool)
     let mut out = Vec::with_capacity(rows.len());
     let (errors, first_error) = merge(parts, |v| out.extend(v));
     Some(Outcome { out, errors, first_error })
+}
+
+/// The formula's value on every data row as column `col`'s new cells (`Table::apply`; the
+/// empty ones left out): written chunk by chunk into arenas side by side, made one layer
+/// in parallel — nothing per row left for the caller to sort, copy or free.
+pub fn column_patch(st: &State, e: &Expr, col: usize, cancel: &AtomicBool) -> Option<Outcome<crate::table::Patch>> {
+    let rows = Rows::new(st, e, None);
+    let today = date::today();
+    let parts = chunks(e, rows.len(), cancel, |w, r| {
+        let mut t = Tally::new();
+        let mut out = crate::table::Cells::with_capacity(r.len());
+        let mut buf = String::new();
+        for k in r {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            let (id, num) = rows.at(k);
+            w.load(st, id);
+            buf.clear();
+            if let Err(m) = w.out_into(num, today, &mut buf) {
+                t.fail(m);
+                buf.clear();
+            }
+            if !buf.is_empty() {
+                out.push(id, &buf);
+            }
+        }
+        (out, t)
+    })?;
+    let mut pieces = Vec::with_capacity(parts.len());
+    let (errors, first_error) = merge(parts, |p| pieces.push(p));
+    Some(Outcome { out: crate::table::Patch::column(col, pieces), errors, first_error })
 }
 
 /// The cells of column `col` the formula would change (its value differs from

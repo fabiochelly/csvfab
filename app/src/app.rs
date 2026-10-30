@@ -12,7 +12,6 @@ use csvfab_engine::save::{self, SaveError, SaveOptions};
 use csvfab_engine::RowId;
 use eframe::egui;
 use egui::{Key, KeyboardShortcut, Modifiers, RichText};
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock};
@@ -438,6 +437,10 @@ impl App {
             }
         }
         let Some(tab) = self.tabs.get_mut(self.active) else { return };
+        if tab.partial() {
+            self.status = Some((tab.uid, "The file is still loading: save once it is read whole.".into(), ctx.input(|i| i.time)));
+            return;
+        }
         let Some(table) = &tab.table else { return };
         let Some(path) = as_path.or_else(|| tab.path.clone()) else {
             self.save_as(ctx);
@@ -566,9 +569,13 @@ impl App {
     }
 
     /// The save dialog (name, format, encoding, the rows shown only): tools::export.
-    pub fn save_as(&mut self, _ctx: &egui::Context) {
+    pub fn save_as(&mut self, ctx: &egui::Context) {
         let Some(tab) = self.tabs.get(self.active) else { return };
         if tab.table.is_none() { return; }
+        if tab.partial() {
+            self.status = Some((tab.uid, "The file is still loading: save once it is read whole.".into(), ctx.input(|i| i.time)));
+            return;
+        }
         let tool = tools::export::save_as(tab);
         self.open_tool(tool);
     }
@@ -686,6 +693,21 @@ impl App {
                     tab.apply_changes(&ch, ctx);
                     if tab.marks.dups.is_some() { deferred.push(Box::new(crate::tools::dupes::refresh) as Box<dyn FnOnce(&mut Cx)>); }
                 }
+                Action::Patch { patch, pasted } => {
+                    let n = patch.cells();
+                    let fmt = csvfab_engine::edit::fmt_int;
+                    // As the changes it stands for would say it (a paste's line, a block's count).
+                    let msg = if pasted {
+                        Some(if n == 0 { "Nothing changed.".to_string() } else { csvfab_engine::edit::not_saved(&format!("{} cells pasted", fmt(n))) })
+                    } else {
+                        (n > 1).then(|| format!("{} cells {}", grid::fmt_int(n), if patch.blank() { "cleared" } else { "changed" }))
+                    };
+                    if let Some(m) = msg { self.pending.push(Cmd::Toast(m)); }
+                    if !patch.is_empty() {
+                        tab.apply_patch(patch, ctx);
+                        if tab.marks.dups.is_some() { deferred.push(Box::new(crate::tools::dupes::refresh) as Box<dyn FnOnce(&mut Cx)>); }
+                    }
+                }
                 Action::Sort(s) => { tab.sort = s; tab.refresh(ctx); }
                 Action::MoveRow { id, target, after } => {
                     let moved = tab.table.as_mut().and_then(|t| t.move_row(id, target, after));
@@ -708,19 +730,18 @@ impl App {
                     self.pending.push(Cmd::Toast(if count == 1 { "Row inserted".into() } else { format!("{} rows inserted", grid::fmt_int(count)) }));
                     // Before the row shown at `before`, in file order.
                     let len = table.st.len();
-                    let pos = if before < tab.shown() { file_pos(tab, tab.shown_id(before)) } else { len };
+                    // Unfiltered and unsorted, the row shown at `before` is the file's: no look for it.
+                    let pos = if tab.view.is_none() { before.min(len) } else if before < tab.shown() { file_pos(tab, tab.shown_id(before)) } else { len };
                     let ids = tab.table.as_mut().unwrap().insert_rows(pos, count);
                     if let Some(v) = &mut tab.view {
-                        let at = before.min(v.len());
-                        Arc::make_mut(v).splice(at..at, ids);
+                        *v = Arc::new(csvfab_engine::table::splice_ids(v, before, &ids));
                     }
                     tab.generation += 1;
                 }
                 Action::DeleteRows(ids) => {
                     self.pending.push(Cmd::Toast(if ids.len() == 1 { "Row deleted".into() } else { format!("{} rows deleted", grid::fmt_int(ids.len())) }));
                     let mask = csvfab_engine::table::RowMask::new(ids.iter().copied());
-                    let set: HashSet<RowId> = ids.into_iter().collect();
-                    table.delete_rows(&set);
+                    if !ids.is_empty() { table.delete_mask(&mask); }
                     // The view without them: one pass, a bit per row (a view of millions).
                     if let Some(v) = &mut tab.view { *v = Arc::new(v.iter().copied().filter(|&id| !mask.contains(id)).collect()); }
                     tab.grid.anchor = tab.grid.cursor;
@@ -846,7 +867,7 @@ impl App {
             (Some(v), _) => v.iter().position(|&x| x == id),
             (None, Some(st)) => match &st.order {
                 None => (id as usize).checked_sub(st.header as usize).filter(|&p| p < st.len()),
-                Some(_) => (0..st.len()).find(|&p| st.data_id(p) == id),
+                Some(o) => o.iter().skip(st.header as usize).position(|&x| x == id),
             },
             _ => None,
         };

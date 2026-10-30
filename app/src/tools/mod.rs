@@ -92,8 +92,10 @@ pub struct Command {
     pub run: fn(&mut Cx),
 }
 
+/// A table to work on: read whole (while a big file loads, its first rows show and can be
+/// edited, but a tool or a save would only see those).
 pub fn has_table(t: &Tab) -> bool {
-    t.table.is_some()
+    t.table.is_some() && !t.partial()
 }
 
 /// Every tool's commands, in menu order.
