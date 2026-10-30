@@ -176,6 +176,8 @@ pub struct Ghost {
     pub values: std::collections::HashMap<RowId, String>,
     /// The rule, spelled out.
     pub rule: String,
+    /// When offered: the ghosts come in as a wave down the rows (`grid::GHOST_IN`).
+    pub born: std::time::Instant,
 }
 
 /// What the rows shown were computed from: a filter that only narrows them
@@ -908,6 +910,8 @@ impl Tab {
         let slot = memo.filtered.clone();
         let keep_filtered = !sort.is_empty() && !q.is_empty();
         let errors = self.expr_errors.clone();
+        // The duplicates view sorted: its groups kept together, ordered by their first row.
+        let groups = if sort.is_empty() || !crate::tools::dupes::in_view(self) { None } else { self.marks.dups.as_ref().map(|d| d.dupes.clone()) };
         self.pending = Some(memo);
         self.job = Some(Job::spawn(ctx, move |cancel, _| {
             let (mut ids, sorted) = match start {
@@ -928,6 +932,7 @@ impl Tab {
             if !sorted {
                 if keep_filtered { *slot.lock().unwrap() = Some(Arc::new(ids.clone())); }
                 if !view::sort(&st, &mut ids, &sort, &kinds, cancel) { return None; }
+                if let Some(d) = &groups { d.keep_together(&mut ids); }
             }
             Some(ids)
         }));

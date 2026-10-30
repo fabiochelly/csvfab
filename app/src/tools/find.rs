@@ -93,6 +93,12 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
         tab.find.open = true;
         tab.find.text = if q.is_empty() { "Paris".into() } else { q };
     }
+    // `findre:<pattern>`: the same in Regex mode.
+    if let Some(q) = crate::shot::take("findre") {
+        tab.find.open = true;
+        tab.find.regex = true;
+        tab.find.text = q;
+    }
     // Screenshot hook: `tool:bulk`, `tool:clean`… opens that dialog.
     if let Some(name) = crate::shot::take("tool") {
         if let Some(t) = super::edit_kit::by_name(&name, tab) {
@@ -374,10 +380,17 @@ fn show(ui: &mut Ui, tab: &mut Tab, w: &mut Work, p: &Palette, m: &Metrics, ctx:
             form::checkbox_with(ui, p, &mut tab.find.match_case, "Match case", p.txt, 6.0);
             let can = !tab.find.text.is_empty() && w.error.is_none() && w.replace.is_none();
             apply = form::button_icon(ui, p, Btn::Warn, Some(Icon::Bolt), "Apply", can).clicked();
-            if !w.done.is_empty() {
-                let g = form::line(ui, &w.done, form::ui_font(12.0), p.txt_mut, ui.available_width());
-                let (r, _) = ui.allocate_exact_size(g.size(), Sense::hover());
-                ui.painter().galley(r.min, g, p.txt_mut);
+            // A pattern that does not compile: why, where the count of the last replace goes.
+            let (note, col) = match &w.error {
+                Some(e) => (e.as_str(), p.warn),
+                None => (w.done.as_str(), p.txt_mut),
+            };
+            if !note.is_empty() {
+                let g = form::line(ui, note, form::ui_font(12.0), col, ui.available_width());
+                let (r, resp) = ui.allocate_exact_size(g.size(), Sense::hover());
+                let cut = g.elided;
+                ui.painter().galley(r.min, g, col);
+                if cut { resp.on_hover_text(note); }
             }
             if (fr.has_focus() || rr.has_focus()) && ui.input(|i| i.key_pressed(Key::Escape)) {
                 close = true;

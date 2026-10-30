@@ -3,6 +3,10 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.0.5', date: '2026-10-30', items: [
+        ['Full regular expressions', 'Look-arounds and back-references now work in the filter box, column filters and Find & replace, not only in formulas.'],
+        ['Font samples', 'The font picker shows each monospace font in its own face.'],
+    ] },
     { v: '2.0.3', date: '2026-10-30', items: [
         ['Natural sort', 'Text sorts as people read it: accents and case ignored, numbers in order ("Lot 2" before "Lot 10").'],
         ['Chart clicks filter', 'A click on a chart value keeps its rows, stacks with the other filters and has its own chip.'],

@@ -241,7 +241,7 @@ impl Offer {
                 values.insert(id, v);
             }
         }
-        let g = Arc::new(Ghost { col: self.col, values, rule: rule.describe(&st.headers()) });
+        let g = Arc::new(Ghost { col: self.col, values, rule: rule.describe(&st.headers()), born: std::time::Instant::now() });
         tab.ghost = Some(g.clone());
         self.ghost = Some(g);
         self.window = Some(key);

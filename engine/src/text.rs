@@ -161,6 +161,36 @@ pub fn sort_key_into(f: &[u8], out: &mut Vec<u8>) {
     }
 }
 
+/// What tells apart texts of equal sort keys, as the web's collator did (ICU, French): accents
+/// first ("e" < "é" < "è" < "ê" < "ë"), then case (lower first), position by position; appended
+/// to `out` for a trimmed cell as written. One accent byte per character (1: none), 0, one case
+/// byte per character.
+pub fn tie_key_into(s: &str, out: &mut Vec<u8>) {
+    if s.is_ascii() {
+        out.extend(std::iter::repeat_n(1, s.len()));
+        out.push(0);
+        out.extend(s.bytes().map(|c| c.is_ascii_uppercase() as u8));
+        return;
+    }
+    // ICU's order of the marks; other marks after them, letters that fold to others (œ, ß) last.
+    const MARKS: [char; 13] = ['\u{301}', '\u{300}', '\u{306}', '\u{302}', '\u{30c}', '\u{30a}', '\u{308}', '\u{30b}', '\u{303}', '\u{307}', '\u{327}', '\u{328}', '\u{304}'];
+    for c in s.chars() {
+        out.push(if c.is_ascii() {
+            1
+        } else {
+            let mut mark = None;
+            decompose_canonical(c, |d| if mark.is_none() && d != c && !d.is_alphanumeric() { mark = Some(d) });
+            match (mark, c) {
+                (Some(m), _) => 2 + MARKS.iter().position(|&k| k == m).unwrap_or(MARKS.len()) as u8,
+                (None, 'œ' | 'Œ' | 'æ' | 'Æ' | 'ß' | '\u{a0}' | '\u{202f}') => 0x40,
+                (None, _) => 1,
+            }
+        });
+    }
+    out.push(0);
+    out.extend(s.chars().map(|c| c.is_uppercase() as u8));
+}
+
 /// `sort_key_into` of a cell as written: trimmed and folded first.
 pub fn sort_key(s: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len() + 4);
@@ -322,6 +352,18 @@ mod tests {
         assert!(!sort_key(&"9".repeat(400)).contains(&0xFF));
         assert_eq!(sort_key("007"), sort_key("7"));
         assert!(sort_key("0") < sort_key("1") && sort_key("00") == sort_key("0"));
+    }
+
+    #[test]
+    fn equal_keys_by_accents_then_case() {
+        let key = |s: &str| {
+            let mut t = Vec::new();
+            tie_key_into(s, &mut t);
+            (sort_key(s), t)
+        };
+        let mut v = vec!["Émile", "émile", "Emile", "emile", "èmile", "EMILE", "œuvre", "oeuvre", "Oeuvre"];
+        v.sort_by_key(|s| key(s));
+        assert_eq!(v, ["emile", "Emile", "EMILE", "émile", "Émile", "èmile", "oeuvre", "Oeuvre", "œuvre"]);
     }
 
     #[test]

@@ -73,6 +73,8 @@ struct HlKey {
 pub struct GridState {
     /// The search's and the column filters' highlights (a regex compiled once, not every frame).
     hl: Option<(HlKey, Arc<(Hl, Vec<Hl>)>, u64)>,
+    /// A regex find's pattern, by its text and case.
+    find_re: Option<((String, bool), Option<Arc<csvfab_engine::re::Re>>)>,
     /// The navigator held down, and whether the pointer has reached the magnified map
     /// since (the view then follows the pointer on it).
     nav_hold: Option<bool>,
@@ -469,14 +471,14 @@ pub fn is_link(s: &str) -> bool {
 struct Hl {
     words: Vec<String>,
     case: bool,
-    re: Option<regex::Regex>,
+    re: Option<csvfab_engine::re::Re>,
 }
 
 impl Hl {
     fn new(text: &str, regex: bool, case: bool) -> Hl {
         if text.trim().is_empty() { return Hl::default(); }
         if regex {
-            return Hl { re: regex::RegexBuilder::new(text).case_insensitive(!case).size_limit(1 << 20).build().ok(), ..Default::default() };
+            return Hl { re: csvfab_engine::re::Re::new(text, !case, 1 << 20).ok(), ..Default::default() };
         }
         let words = csvfab_engine::view::terms(text).into_iter().map(|w| if case { w } else { csvfab_engine::text::fold(&w) }).filter(|w| !w.is_empty()).collect();
         Hl { words, case, re: None }
@@ -490,7 +492,7 @@ impl Hl {
     fn hits(&self, s: &str, out: &mut Vec<(usize, usize)>, tmp: &mut Vec<(usize, usize)>) {
         out.clear();
         if let Some(re) = &self.re {
-            out.extend(re.find_iter(s).filter(|m| !m.is_empty()).take(16).map(|m| (m.start(), m.end())));
+            spans(re, s, out);
             return;
         }
         for w in &self.words {
@@ -502,6 +504,12 @@ impl Hl {
             }
         }
     }
+}
+
+/// A regex's first 16 non-empty matches in `s`, appended to `out`.
+fn spans(re: &csvfab_engine::re::Re, s: &str, out: &mut Vec<(usize, usize)>) {
+    let mut k = 0;
+    re.for_each_match(s, |a, b| if b > a && k < 16 { out.push((a, b)); k += 1; });
 }
 
 /// Byte ranges of `s` where the folded `needle` matches (accents and case ignored).
@@ -720,12 +728,18 @@ pub fn fit_width(ctx: &egui::Context, st: &State, tab: &Tab, c: usize, m: &Metri
     w.clamp(m.col_min_w, m.col_fit_max)
 }
 
+/// Fill by example's ghosts coming in (as the web's `ffin`): the delay from one row to the
+/// next, how long the wave runs at most, each ghost's fade, in seconds.
+pub const GHOST_IN: (f32, f32, f32) = (0.016, 1.6, 0.45);
+
 /// What a find highlights: its text (folded unless it matches case), its column, its matches.
 struct FindLook {
     needle: String,
     case: bool,
     regex: bool,
     col: Option<usize>,
+    /// The regex of a regex find (None: not valid).
+    re: Option<Arc<csvfab_engine::re::Re>>,
     matches: Arc<Vec<(usize, usize)>>,
     current: Option<(usize, usize)>,
 }
@@ -749,6 +763,8 @@ struct Look<'a> {
     hl_gen: u64,
     find: Option<FindLook>,
     ghost: Option<&'a Ghost>,
+    /// Seconds since the ghosts were offered (infinite: no motion).
+    ghost_t: f32,
     editing: Option<Cell>,
     range: Option<(std::ops::RangeInclusive<usize>, std::ops::RangeInclusive<usize>)>,
     multi: bool,
@@ -1009,12 +1025,18 @@ impl Look<'_> {
                 // Fill by example: the value it would write, in grey.
                 if let Some(g) = self.ghost.filter(|g| g.col == c) {
                     if let Some(v) = g.values.get(&id) {
-                        let mut f = TextFormat::simple(self.font.clone(), p.txt_dim);
+                        // The wave: each row 16 ms after the one above, sliding 8 px in as it shows.
+                        let k = ((ry - clip.min.y) / m.row_h).max(0.0);
+                        let t = ((self.ghost_t - k * GHOST_IN.0) / GHOST_IN.2).clamp(0.0, 1.0);
+                        let a = 1.0 - (1.0 - t).powi(3);
+                        let col = p.txt_dim.gamma_multiply(a);
+                        let mut f = TextFormat::simple(self.font.clone(), col);
                         f.italics = true;
                         let mut job = LayoutJob::single_section(display(v).into_owned(), f);
                         job.wrap = TextWrapping { max_width: (w - 2.0 * m.cell_pad_x - 1.0).max(1.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
                         let g = pt.layout_job(job);
-                        pt.with_clip_rect(inner.intersect(clip)).galley(pos2(self.snap(x + m.cell_pad_x), self.snap(ry + (m.row_h - 1.0 - g.size().y) / 2.0)), g, p.txt_dim);
+                        let gx = x + m.cell_pad_x - 8.0 * (1.0 - a);
+                        pt.with_clip_rect(inner.intersect(clip)).galley(pos2(self.snap(gx), self.snap(ry + (m.row_h - 1.0 - g.size().y) / 2.0)), g, col);
                     }
                 }
                 return;
@@ -1089,7 +1111,7 @@ impl Look<'_> {
                     if let Some(fl) = &self.find {
                         if fl.col.is_none_or(|fc| fc == c) && fl.matches.binary_search(&(pos, c)).is_ok() {
                             if fl.regex {
-                                hits.push((0, text.len()));
+                                if let Some(re) = &fl.re { spans(re, text, hits); }
                             } else if fl.case {
                                 hits.extend(text.match_indices(fl.needle.as_str()).take(16).map(|(a, t)| (a, a + t.len())));
                             } else {
@@ -1786,6 +1808,20 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
         }
     };
     let (hl, hl_n) = hl;
+    // A regex find's pattern, compiled once per change of it.
+    let find_re = if tab.find.open && tab.find.regex && !tab.find.text.is_empty() {
+        let key = (tab.find.text.clone(), tab.find.match_case);
+        match &tab.grid.find_re {
+            Some((k, re)) if *k == key => re.clone(),
+            _ => {
+                let re = csvfab_engine::re::Re::new(&key.0, !key.1, 1 << 20).ok().map(Arc::new);
+                tab.grid.find_re = Some((key, re.clone()));
+                re
+            }
+        }
+    } else {
+        None
+    };
     {
         let tabr: &Tab = tab;
         let fold = csvfab_engine::text::fold;
@@ -1794,6 +1830,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             case: tabr.find.match_case,
             regex: tabr.find.regex,
             col: tabr.find.col,
+            re: find_re.clone(),
             matches: tabr.find.matches.clone(),
             current: tabr.find.current.and_then(|i| tabr.find.matches.get(i).copied()),
         });
@@ -1826,6 +1863,14 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             },
             find,
             ghost: tabr.ghost.as_deref(),
+            ghost_t: match &tabr.ghost {
+                Some(g) if ctx.global_style().animation_time > 0.0 => {
+                    let t = g.born.elapsed().as_secs_f32();
+                    if t < GHOST_IN.1 { ctx.request_repaint(); }
+                    t
+                }
+                _ => f32::INFINITY,
+            },
             editing: tabr.grid.editing.as_ref().map(|e| e.at),
             range,
             multi,
@@ -2679,6 +2724,17 @@ fn header(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, band:
             }
         } else {
             ctx.set_cursor_icon(CursorIcon::Grabbing);
+            // Near the left or right edge the columns scroll under it, faster the closer (and
+            // past it): far titles are reached by dragging (the frame clamps `xoff`).
+            if let Some(q) = q {
+                const ZONE: f32 = 32.0;
+                let depth = if q.x > all.max.x - ZONE { ((q.x - (all.max.x - ZONE)) / ZONE).min(1.5) } else if q.x < scroll_x0 + ZONE { -((scroll_x0 + ZONE - q.x) / ZONE).min(1.5) } else { 0.0 };
+                if depth != 0.0 {
+                    let dt = ui.input(|i| i.stable_dt).min(0.05);
+                    tab.grid.xoff = (tab.grid.xoff + depth * 900.0 * dt).max(0.0);
+                    ctx.request_repaint();
+                }
+            }
         }
     }
     if let Some(s) = new_sort { actions.push(Action::Sort(s)); }

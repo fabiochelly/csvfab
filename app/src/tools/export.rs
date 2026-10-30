@@ -355,7 +355,13 @@ impl SaveAs {
             Done::Workbook(j) => {
                 let what = if plan.fmt == Fmt::Xlsx { "Workbook" } else { "Database" };
                 let limits = if j.truncated_rows || j.truncated_cols { " · truncated to Excel's limits" } else { "" };
-                cx.out.push(Cmd::Toast(format!("{} | {what} written: {file} — {} rows{limits}.", tab.name, form::n(j.rows as usize))));
+                // A cell holds 32 767 characters at most in a workbook: the rest is not written.
+                let cut = match j.truncated_cells {
+                    0 => String::new(),
+                    1 => " · 1 cell cut to 32 767 characters (Excel's limit)".into(),
+                    k => format!(" · {} cells cut to 32 767 characters (Excel's limit)", form::n(k as usize)),
+                };
+                cx.out.push(Cmd::Toast(format!("{} | {what} written: {file} — {} rows{limits}{cut}.", tab.name, form::n(j.rows as usize))));
             }
             Done::Csv(..) if plan.rows.is_some() => {
                 cx.out.push(Cmd::Toast(format!("{} | {} rows exported to {file}.", tab.name, form::n(total))));
@@ -541,8 +547,10 @@ impl Tool for SaveAs {
                 Some(Err((true, _))) => self.stage = Stage::Changed(plan),
                 Some(Err((_, e))) if e == convert::CANCELLED => {}
                 Some(Err((_, e))) => {
-                    let what = match plan.fmt { Fmt::Xlsx => "Could not build the workbook:", Fmt::Sqlite => "Could not build the database:", _ => "Could not save:" };
-                    self.stage = Stage::Failed(Alert::new(format!("{what}\n\n{e}")));
+                    let what = match plan.fmt { Fmt::Xlsx => "Could not build the workbook:".into(), Fmt::Sqlite => "Could not build the database:".into(), _ => format!("Could not write \"{}\":", plan.dest.display()) };
+                    // Written beside, then renamed: a failed save leaves the file as it was.
+                    let safe = if plan.in_place { "\n\nThe original file is untouched." } else { "" };
+                    self.stage = Stage::Failed(Alert::new(format!("{what}\n\n{e}{safe}")));
                 }
                 None => {
                     // A big file takes a moment: say so, and let it be stopped.

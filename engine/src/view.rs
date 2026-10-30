@@ -174,7 +174,7 @@ enum Pat {
         fold2: Box<[u64; 30]>,
     },
     Re {
-        re: regex::Regex,
+        re: crate::re::Re,
         pre: Option<Pre>,
         /// No anchor or word boundary: a match in a cell is a match in any text holding the cell.
         local: bool,
@@ -208,9 +208,12 @@ fn literals(pattern: &str, case_insensitive: bool) -> Option<Pre> {
 impl Pat {
     fn new(text: &str, regex: bool, case: bool) -> Result<Pat, String> {
         if regex {
-            let re = regex::RegexBuilder::new(text).case_insensitive(!case).size_limit(1 << 22).build().map_err(|e| regex_error(&e))?;
-            let local = regex_syntax::ParserBuilder::new().case_insensitive(!case).build().parse(text).is_ok_and(|h| h.properties().look_set().is_empty());
-            return Ok(Pat::Re { re, pre: literals(text, !case), local });
+            let re = crate::re::Re::new(text, !case, 1 << 22)?;
+            // Look-around and back-references: the records told by the pattern relaxed.
+            let plain = re.plain_pattern().unwrap_or("").to_string();
+            let local = !plain.is_empty() && regex_syntax::ParserBuilder::new().case_insensitive(!case).build().parse(&plain).is_ok_and(|h| h.properties().look_set().is_empty());
+            let pre = if plain.is_empty() { None } else { literals(&plain, !case) };
+            return Ok(Pat::Re { re, pre, local });
         }
         let needle = if case { text.to_string() } else { fold(text) };
         let finder = memmem::Finder::new(needle.as_bytes()).into_owned();
@@ -249,18 +252,6 @@ impl Pat {
             Pat::Sub { finder, needle, .. } => needle.is_empty() || finder.find(folded.as_bytes()).is_some(),
             Pat::Re { .. } => unreachable!(),
         }
-    }
-}
-
-/// A regex's error on one line (the regex crate draws a caret under the pattern), with what to
-/// do instead of look-around and back-references, which a filter cannot run in linear time.
-pub fn regex_error(e: &regex::Error) -> String {
-    let s = e.to_string();
-    let line = s.lines().rev().find_map(|l| l.strip_prefix("error: ")).unwrap_or(&s).to_string();
-    if line.contains("look-around") || line.contains("backreferences") {
-        format!("{line} — a formula (ƒx) runs them: test(/…/, {{Column}})")
-    } else {
-        line
     }
 }
 
@@ -922,7 +913,7 @@ fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scrat
                 if !p.ac.is_match(rec) { return false; }
             }
             // Without quotes the record is its cells end to end: one search for all.
-            if *local && memchr::memchr(b'"', rec).is_none() && !re.is_match(&b.text(rec)) {
+            if *local && memchr::memchr(b'"', rec).is_none() && !re.maybe(&b.text(rec)) {
                 return false;
             }
         }
@@ -1100,7 +1091,9 @@ fn key_words(st: &State, ids: &[RowId], key: SortKey, kind: Kind, cancel: &Atomi
                     }
                 });
                 if cancel.load(Ordering::Relaxed) { return None; }
-                let (_, rank, nr) = crate::radix::text_order(ids.len(), |p| keys.get(p));
+                let (_, rank, nr) = crate::radix::text_order_ties(ids.len(), |p| keys.get(p), |p| !live(ids[p]) && cache.plain(ids[p] as usize), |p, out| {
+                    FOLD.with_borrow_mut(|(tmp, _)| st.with_cell(ids[p], col, tmp, |v| crate::text::tie_key_into(v.trim(), out)))
+                });
                 rank.par_iter().with_min_len(4096).map(|&r| rank_word(r, nr, desc)).collect()
             }
         }

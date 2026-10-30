@@ -13,9 +13,12 @@ use eframe::egui::{self, pos2, vec2, FontId, Id, Rect, Sense, Stroke};
 
 const SENTENCE: &str = "The quick brown fox jumps over the lazy dog.";
 const SYMBOLS: &str = "0O Il1 {}[]()<> => != 12 345,67 € @#%& éàçô";
+/// A family's line in the list: what tells monospace faces apart.
+const SAMPLE: &str = "0O Il1 {}[] => != 12 345,67 € éàç";
 
 pub struct Picker {
-    job: Option<Job<Vec<String>>>,
+    /// The families and their regular faces (each shown in its own: `fonts::set_samples`).
+    job: Option<Job<Vec<(String, Option<crate::fonts::Pick>)>>>,
     list: Vec<String>,
     q: String,
     /// The advance of '0' before a change: the widths scale once the new font is in.
@@ -30,7 +33,7 @@ pub struct Picker {
 impl Picker {
     pub fn new(ctx: &egui::Context) -> Picker {
         // fc-list and a look into each family's file: off the UI thread.
-        Picker { job: Some(Job::spawn(ctx, |_, _| crate::fonts::list_monospace())), list: Vec::new(), q: String::new(), rescale: None, focus: true, installing: None, hot: None }
+        Picker { job: Some(Job::spawn(ctx, |_, _| crate::fonts::list_monospace_faces())), list: Vec::new(), q: String::new(), rescale: None, focus: true, installing: None, hot: None }
     }
 }
 
@@ -41,8 +44,10 @@ fn advance(ctx: &egui::Context, m: &crate::theme::Metrics) -> f32 {
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(pk) = &mut app.font_picker else { return };
     if let Some(l) = pk.job.as_mut().and_then(|j| j.poll()) {
-        pk.list = l;
         pk.job = None;
+        let faces = l.iter().filter_map(|x| x.1.clone()).collect();
+        pk.list = l.into_iter().map(|x| x.0).collect();
+        crate::fonts::set_samples(ctx, faces, app.config.mono_font.as_deref());
     }
     // The new font is in since this frame: the widths follow its advance.
     if let Some(old) = pk.rescale.take() {
@@ -61,7 +66,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             pk.installing = None;
             match r {
                 Ok(i) => {
-                    pk.job = Some(Job::spawn(ctx, |_, _| crate::fonts::list_monospace()));
+                    pk.job = Some(Job::spawn(ctx, |_, _| crate::fonts::list_monospace_faces()));
                     pick = Some(i.family.to_string());
                     said = Some(format!("{} {}installed ({} files) and chosen.", i.family, i.version.map(|v| format!("{v} ")).unwrap_or_default(), i.files));
                 }
@@ -118,17 +123,22 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
             let w = ui.available_width() - 10.0;
             for (k, (val, label, note)) in rows.iter().enumerate() {
-                let h = if note.is_empty() { 32.0 } else { 44.0 };
+                // An installed family: a line in its own face under its name (as the web's cards).
+                let face = if val.is_empty() || val == "monospace" { None } else { crate::fonts::sample_family(ui.ctx(), val) };
+                let h = if note.is_empty() && face.is_none() { 32.0 } else { 44.0 };
                 let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
                 let on = *val == cur;
                 let hot = resp.hovered() || pk.hot == Some(k);
                 if pk.hot == Some(k) && (up || down) { resp.scroll_to_me(None); }
                 if on || hot { ui.painter().rect_filled(r, 6.0, if on { alpha(p.prim, 0.14) } else { p.menu_bg_hover }); }
                 let col = if on { p.accent_2 } else { p.txt_hi };
-                let ty = if note.is_empty() { r.center().y } else { r.min.y + 15.0 };
+                let ty = if h < 44.0 { r.center().y } else { r.min.y + 15.0 };
                 ui.painter().text(pos2(r.min.x + 12.0, ty), egui::Align2::LEFT_CENTER, label, if on { semibold(13.0) } else { FontId::proportional(13.0) }, col);
                 if !note.is_empty() {
                     ui.painter().text(pos2(r.min.x + 12.0, r.min.y + 31.0), egui::Align2::LEFT_CENTER, *note, FontId::proportional(11.5), p.txt_dim);
+                } else if let Some(f) = face {
+                    let clip = Rect::from_min_max(r.min, pos2(r.max.x - 36.0, r.max.y)).intersect(ui.clip_rect());
+                    ui.painter().with_clip_rect(clip).text(pos2(r.min.x + 12.0, r.min.y + 31.0), egui::Align2::LEFT_CENTER, SAMPLE, FontId::new(12.5, f), p.txt_mut);
                 }
                 if on { icons::paint(ui.painter(), Icon::Check, Rect::from_center_size(pos2(r.max.x - 18.0, r.center().y), vec2(14.0, 14.0)), p.accent_2); }
                 if hot { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
@@ -179,5 +189,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     let done = close && pk.rescale.is_none() && pk.installing.is_none();
     if let Some(s) = said { app.toast(s, ctx); }
-    if done { app.font_picker = None; }
+    if done {
+        app.font_picker = None;
+        // The samples' faces go: the fonts as they were, with the one chosen.
+        crate::fonts::set_samples(ctx, Vec::new(), app.config.mono_font.as_deref());
+    }
 }

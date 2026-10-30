@@ -255,8 +255,8 @@ pub fn detect_kinds(st: &State) -> Vec<Kind> {
 enum Keys {
     /// NaN: empty or not a number — always last.
     Num(Vec<f64>),
-    /// Folded text, in arenas of CH rows; empty — always last.
-    Text(Vec<(Vec<u8>, Vec<u32>)>),
+    /// Folded text, in arenas of CH rows; empty — always last. Then each row's tie key.
+    Text(Vec<(Vec<u8>, Vec<u32>)>, Vec<Vec<u8>>),
 }
 
 const CH: usize = 1 << 14;
@@ -264,10 +264,15 @@ const CH: usize = 1 << 14;
 impl Keys {
     #[inline]
     fn text(&self, p: usize) -> &[u8] {
-        let Keys::Text(ch) = self else { unreachable!() };
+        let Keys::Text(ch, _) = self else { unreachable!() };
         let (arena, offs) = &ch[p / CH];
         let k = p % CH;
         &arena[offs[k] as usize..offs[k + 1] as usize]
+    }
+
+    fn tie(&self, p: usize) -> &[u8] {
+        let Keys::Text(_, ties) = self else { unreachable!() };
+        &ties[p]
     }
 }
 
@@ -306,6 +311,13 @@ fn build_keys(st: &State, ids: &[RowId], col: usize, kind: Kind, cancel: &Atomic
                     (arena, offs)
                 })
                 .collect(),
+            ids.par_iter()
+                .map_init(Vec::new, |tmp, &id| {
+                    let mut out = Vec::new();
+                    st.with_cell(id, col, tmp, |v| crate::text::tie_key_into(v.trim(), &mut out));
+                    out
+                })
+                .collect(),
         ),
     }
 }
@@ -335,13 +347,13 @@ pub fn sort(st: &State, ids: &mut Vec<RowId>, keys: &[SortKey], kinds: &[Kind], 
                         _ => { let o = x.partial_cmp(&y).unwrap(); if *desc { o.reverse() } else { o } }
                     }
                 }
-                Keys::Text(_) => {
+                Keys::Text(..) => {
                     let (x, y) = (k.text(a), k.text(b));
                     match (x.is_empty(), y.is_empty()) {
                         (true, true) => std::cmp::Ordering::Equal,
                         (true, false) => return std::cmp::Ordering::Greater,
                         (false, true) => return std::cmp::Ordering::Less,
-                        _ => { let o = x.cmp(y); if *desc { o.reverse() } else { o } }
+                        _ => { let o = x.cmp(y).then_with(|| k.tie(a).cmp(k.tie(b))); if *desc { o.reverse() } else { o } }
                     }
                 }
             };

@@ -313,6 +313,18 @@ impl Dupes {
         self.order(how).into_iter().flat_map(|g| self.members(g).iter().copied()).collect()
     }
 
+    /// Rows in an order (a sort of the duplicates view) with each group kept together: at the
+    /// place of its first row there, its rows in their order there.
+    pub fn keep_together(&self, ids: &mut Vec<RowId>) {
+        let mut first = vec![u32::MAX; self.groups()];
+        for (p, &id) in ids.iter().enumerate() {
+            if let Some(g) = self.group(id) { first[g as usize] = first[g as usize].min(p as u32); }
+        }
+        let keys: Vec<u64> = ids.par_iter().enumerate().map(|(p, &id)| self.group(id).map_or(p as u64, |g| first[g as usize] as u64)).collect();
+        let perm = crate::radix::sort_perm(&keys);
+        *ids = perm.par_iter().map(|&p| ids[p as usize]).collect();
+    }
+
     /// How many groups score at least `lo` and below `hi`.
     pub fn count_scored(&self, lo: u8, hi: u16) -> usize {
         self.score.iter().filter(|&&s| s >= lo && (s as u16) < hi).count()
@@ -2102,6 +2114,16 @@ mod tests {
         assert_eq!(d.order(Order::LeastSure), vec![2, 1, 0]);
         assert_eq!(d.order(Order::SurestFirst), vec![0, 1, 2]);
         assert_eq!(d.side_by_side(Order::LeastSure).len(), 6);
+        // A sort of the view keeps each group together, where its first row went.
+        let mut v = d.side_by_side(Order::File);
+        v.reverse();
+        let (g0, g2) = (d.members(0).to_vec(), d.members(2).to_vec());
+        v.swap(0, 3);
+        d.keep_together(&mut v);
+        let grp: Vec<u32> = v.iter().map(|&id| d.group(id).unwrap()).collect();
+        assert!(grp.windows(2).filter(|w| w[0] != w[1]).count() == 2, "{grp:?}");
+        assert_eq!(v.len(), 6);
+        assert!(g0.iter().chain(&g2).all(|id| v.contains(id)));
         assert_eq!(d.count_scored(90, 101), 2);
         // A chain is as sure as its weakest link.
         let t = table("first,last,email,city\nJean,Dupont,jd@x.fr,Lyon\nJean,Dupont,,Lyon\nX,Y,jd@x.fr,Nice\n");

@@ -254,9 +254,21 @@ pub struct Formula {
     stats_job: Option<(Job<Option<Stats>>, (String, Dest, u64))>,
     preview: Option<Preview>,
     applying: Option<Job<Option<Result<Applied, String>>>>,
+    /// The tab: where `dest` is kept for the next opening.
+    uid: u64,
 }
 
-/// The computed column's dialog, its new column after `after` (else after the last).
+/// Each tab's last "Write to" (as the web's select kept it while its column is there).
+static LAST: std::sync::Mutex<Option<std::collections::HashMap<u64, Dest>>> = std::sync::Mutex::new(None);
+
+impl Drop for Formula {
+    fn drop(&mut self) {
+        if let Ok(mut m) = LAST.lock() { m.get_or_insert_with(Default::default).insert(self.uid, self.dest); }
+    }
+}
+
+/// The computed column's dialog, its new column after `after` (else the last "Write to" of
+/// the tab, else after the last column).
 pub fn open(tab: &Tab, after: Option<usize>) -> Box<dyn Tool> {
     open_with(tab, after, "")
 }
@@ -264,10 +276,15 @@ pub fn open(tab: &Tab, after: Option<usize>) -> Box<dyn Tool> {
 /// The same with a formula already typed.
 pub fn open_with(tab: &Tab, after: Option<usize>, src: &str) -> Box<dyn Tool> {
     let n = tab.st().map_or(0, |s| s.ncols);
+    let last = LAST.lock().ok().and_then(|m| m.as_ref()?.get(&tab.uid).copied()).filter(|d| matches!(*d, Dest::New(c) | Dest::Set(c) if c < n));
     Box::new(Formula {
         src: src.to_string(),
         name: "Computed".into(),
-        dest: Dest::New(after.unwrap_or(n.saturating_sub(1)).min(n.saturating_sub(1))),
+        dest: match (after, last) {
+            (None, Some(d)) => d,
+            _ => Dest::New(after.unwrap_or(n.saturating_sub(1)).min(n.saturating_sub(1))),
+        },
+        uid: tab.uid,
         open: true,
         first: true,
         ac: Ac::default(),

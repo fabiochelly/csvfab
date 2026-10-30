@@ -36,7 +36,7 @@ enum How {
     /// Case ignored: the text as an escaped regex, its replacement literal
     /// (a `$` in it stays a `$`).
     LitCi(Regex),
-    Re(Regex, Vec<Tok>),
+    Re(crate::re::Re, Vec<Tok>),
 }
 
 /// Plain text that cannot straddle two fields: a record whose raw bytes do
@@ -60,7 +60,8 @@ const SIZE_LIMIT: usize = 1 << 22;
 impl Replace {
     /// None when there is nothing to find; Err: the message for a regex that
     /// does not compile. Unlike the web app's, a regex here runs in linear
-    /// time, so no pattern needs to be tried out first, nor refused as too slow.
+    /// time, so no pattern needs to be tried out first, nor refused as too slow
+    /// (look-around and back-references: bounded backtracking, `re::Re`).
     pub fn new(spec: &ReplaceSpec, st: &State) -> Result<Option<Replace>, String> {
         let f = &spec.find;
         if f.is_empty() {
@@ -68,8 +69,8 @@ impl Replace {
         }
         let build = |p: &str| RegexBuilder::new(p).case_insensitive(!spec.match_case).size_limit(SIZE_LIMIT).build();
         if spec.regex {
-            let re = build(f).map_err(|e| format!("This regular expression is not valid: {}", crate::view::regex_error(&e)))?;
-            let toks = js_template(&spec.replace, &re);
+            let re = crate::re::Re::new(f, !spec.match_case, SIZE_LIMIT).map_err(|e| format!("This regular expression is not valid: {e}"))?;
+            let toks = js_template(&spec.replace, re.captures_len() - 1, re.has_names());
             return Ok(Some(Replace { how: How::Re(re, toks), rep: spec.replace.clone(), raw: None }));
         }
         let b = &st.base;
@@ -111,7 +112,10 @@ impl Replace {
                 Cow::Owned(out)
             }
             How::LitCi(re) => re.replace_all(v, regex::NoExpand(&self.rep)),
-            How::Re(re, toks) => re.replace_all(v, JsRep { toks, hay: v }),
+            How::Re(crate::re::Re::Fast(re), toks) => re.replace_all(v, JsRep { toks, hay: v }),
+            How::Re(crate::re::Re::Fancy(re, loose), toks) => {
+                if loose.as_ref().is_some_and(|l| !l.0.is_match(v)) { Cow::Borrowed(v) } else { fancy_replace(re, v, toks) }
+            }
         }
     }
 }
@@ -147,9 +151,7 @@ impl CellOp for Replace {
 /// A replacement as JavaScript's `String.prototype.replace` reads it: `$$`,
 /// `$&`, `` $` ``, `$'`, `$1`…`$99` (a number past the groups: one digit, or
 /// the text as is), `$<name>` when the regex names groups.
-fn js_template(rep: &str, re: &Regex) -> Vec<Tok> {
-    let m = re.captures_len() - 1;
-    let named = re.capture_names().any(|n| n.is_some());
+fn js_template(rep: &str, m: usize, named: bool) -> Vec<Tok> {
     let c: Vec<char> = rep.chars().collect();
     let (mut out, mut lit, mut i) = (Vec::new(), String::new(), 0);
     let tok = |t: Tok, lit: &mut String, out: &mut Vec<Tok>| {
@@ -213,6 +215,31 @@ impl Replacer for JsRep<'_> {
             }
         }
     }
+}
+
+/// `JsRep` on fancy-regex's matches. A cell where the search gives up (too much
+/// backtracking) is left as it is.
+fn fancy_replace<'a>(re: &fancy_regex::Regex, v: &'a str, toks: &[Tok]) -> Cow<'a, str> {
+    let (mut out, mut last) = (String::new(), 0);
+    for caps in re.captures_iter(v) {
+        let Ok(caps) = caps else { return Cow::Borrowed(v) };
+        let m = caps.get(0).unwrap();
+        out.push_str(&v[last..m.start()]);
+        for t in toks {
+            match t {
+                Tok::Lit(s) => out.push_str(s),
+                Tok::Group(g) => out.push_str(caps.get(*g).map_or("", |x| x.as_str())),
+                Tok::Named(n) => out.push_str(caps.name(n).map_or("", |x| x.as_str())),
+                Tok::Whole => out.push_str(m.as_str()),
+                Tok::Before => out.push_str(&v[..m.start()]),
+                Tok::After => out.push_str(&v[m.end()..]),
+            }
+        }
+        last = m.end();
+    }
+    if last == 0 && out.is_empty() { return Cow::Borrowed(v); }
+    out.push_str(&v[last..]);
+    Cow::Owned(out)
 }
 
 /// The replace bar's line once done.
@@ -389,6 +416,12 @@ mod tests {
         assert_eq!(ch[0].2, "Dupont, Jean (Jean Dupont) $ $3 $0");
         let ch = rep(&t, r"(?<first>\w+) (?<last>\w+)", "$<last> $<nope>|$<first", true, true, &[0]);
         assert_eq!(ch[1].2, "Curie |$<first");
+        // Look-around and back-references (fancy-regex), the template the same.
+        let ch = rep(&t, r"(?<=Jean )(\w+)", "<$1>", true, true, &[0]);
+        assert_eq!(ch.len(), 1);
+        assert_eq!(ch[0].2, "Jean <Dupont>");
+        let ch = rep(&t, r"(r)(?!\1)", "R", true, true, &[0]);
+        assert_eq!(ch[0].2, "MaRie CuRie");
         let ch = rep(&t, "Cu", "[$`|$']", true, true, &[0]);
         assert_eq!(ch[0].2, "Marie [Marie |rie]rie");
         let ch = rep(&t, "o", "0", true, false, &[0]);

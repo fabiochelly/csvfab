@@ -100,6 +100,39 @@ pub fn csv_path_for(src: &Path, sheet: Option<&str>) -> PathBuf {
     src.with_file_name(out)
 }
 
+/// Whether files can be made in `dir` (not a read-only mount, an archive's view, a share or a
+/// folder of someone else's).
+pub fn dir_writable(dir: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+        // access() answers for the mount too (EROFS); no file is made.
+        std::ffi::CString::new(dir.as_os_str().as_bytes()).is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let probe = dir.join(format!(".csvfab-{}.probe", std::process::id()));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&probe) {
+            Ok(_) => { let _ = std::fs::remove_file(&probe); true }
+            Err(_) => false,
+        }
+    }
+}
+
+/// Where a CSV goes when the folder of what it is made from cannot be written: the user's
+/// documents folder (XDG's, else ~/Documents), else the home folder, if it can be.
+pub fn fallback_dir() -> Option<PathBuf> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)?;
+    let xdg = std::env::var_os("XDG_DOCUMENTS_DIR").map(PathBuf::from).or_else(|| {
+        let conf = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+        let text = std::fs::read_to_string(conf.join("user-dirs.dirs")).ok()?;
+        let v = text.lines().find_map(|l| l.trim().strip_prefix("XDG_DOCUMENTS_DIR="))?.trim().trim_matches('"').to_string();
+        Some(match v.strip_prefix("$HOME") { Some(r) => home.join(r.trim_start_matches('/')), None => PathBuf::from(v) })
+    });
+    [xdg, Some(home.join("Documents")), Some(home)].into_iter().flatten().find(|d| d.is_dir() && dir_writable(d))
+}
+
 /// The stem of a table's file name, without the extension of a CSV, a text
 /// file, a workbook or a database.
 fn stem_of(name: &str) -> &str {
@@ -581,6 +614,23 @@ mod tests {
         assert_eq!(s(|o| py_repr(1.5e300, o)), "1.5e+300");
         assert_eq!(s(|o| py_repr(123456789012345678.0, o)), "1.2345678901234568e+17");
         assert_eq!(s(|o| py_repr(-2.5, o)), "-2.5");
+    }
+
+    #[test]
+    fn read_only_folders_told() {
+        let dir = std::env::temp_dir().join(format!("csvfab-ro-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(dir_writable(&dir));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            // root writes anywhere but on a read-only mount.
+            if unsafe { libc::geteuid() } != 0 { assert!(!dir_writable(&dir)); }
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(!dir_writable(&dir.join("missing")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

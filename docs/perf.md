@@ -248,6 +248,31 @@ The passes bound by CPU gain 5–20 %; first sorts and column caches (bound by r
 `~/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-profdata`.) Each RUSTFLAGS change rebuilds every
 crate (5–6 min here, 20 min for the instrumented build plus its runs).
 
+## Parity batch E (2026-10-30, customers-5m, 16 threads, machine busy and swapping: medians of 8, A/B back to back)
+
+| measure (`engine/examples/bench`, `view_bench`, fast profile) | before | after |
+|---|---|---|
+| text sort, first (rank cache built): email / street / company / city | 500 / 176 / 115 / 23 ms | 490 / 167 / 120 / 22 ms |
+| sort last_name (first) | 61 ms | 60 ms |
+| filter, ordinary regexes (`^Lyo`, `lyon\|paris`, `\d{3}-\d{4}`, city `^Ly`) | same results and times (±noise) | same |
+| filter `(?<=@)gmail` (look-behind, refused before) | — | 81 ms (4.65 s without the pre-check) |
+| filter email `(\w)\1` (back-reference) | — | 680 ms |
+
+- **Ties of the text sort** (`radix::text_order_ties`): only the runs of equal keys are looked at,
+  found in the pass that ranks them; a run whose cells are all their own fold (a bit per record
+  kept with the fold cache, `Folded::plain`) is skipped, and a column whose cells all are (most
+  e-mail columns) skips the pass. A first attempt that read every tied cell again cost email
+  +25 % (384 → 482 ms): not kept. Dictionary columns break ties on their distinct values.
+- **Look-around and back-references** (`engine/src/re.rs`): the `regex` crate first (nothing
+  changed for what it takes); fancy-regex only for what it refuses, behind the pattern relaxed
+  for the `regex` crate, whose literals also feed the record prefilter — without it a
+  look-behind ran the backtracking engine on every cell (4.65 s on 5M rows).
+- Row moved by its number: the two positions found in parallel and the new order made in one
+  copy (was: two scans, a copy, a remove and an insert, each O(n), on the UI thread).
+- Marked rows (review, compare, the marked-rows chip) put in table order by a sort of the
+  marked ids when the table has its file's order, else one parallel pass (was one pass with a
+  hash lookup per row, on the UI thread).
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

@@ -92,13 +92,14 @@ pub fn stat(ui: &mut Ui, p: &Palette, text: &str) {
 }
 
 /// A stat line `top` px below what precedes it.
-pub fn stat_at(ui: &mut Ui, p: &Palette, text: &str, top: f32) {
+pub fn stat_at(ui: &mut Ui, p: &Palette, text: &str, top: f32) -> egui::Response {
     ui.add_space(top);
     let mut job = rich(p, text, 12.0, p.txt_mut, ui.available_width());
     for s in &mut job.sections { s.format.line_height = Some(19.0); }
     let g = ui.painter().layout_job(job);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), g.size().y), Sense::hover());
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), g.size().y), Sense::hover());
     ui.painter().galley(r.min, g, p.txt_mut);
+    resp
 }
 
 // --- Dialog frames ----------------------------------------------------------

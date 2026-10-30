@@ -722,6 +722,22 @@ impl Keep<'_> {
     }
 }
 
+/// Whether some row of the table holds the part `keep` tests, and whether every row does:
+/// every row read (a sampled picture's counts tell neither when they say none or all). None
+/// if cancelled.
+pub fn holds(st: &State, col: usize, keep: &Keep, cancel: &AtomicBool) -> Option<(bool, bool)> {
+    let any = |want: bool| {
+        (0..st.len())
+            .into_par_iter()
+            .with_min_len(4096)
+            .map_init(Vec::new, |tmp, p| !cancel.load(Ordering::Relaxed) && st.with_cell(st.data_id(p), col, tmp, |v| keep.test(v)) == want)
+            .any(|x| x)
+    };
+    let some = any(true);
+    let all = some && !any(false);
+    (!cancel.load(Ordering::Relaxed)).then_some((some, all))
+}
+
 /// The rows among `ids` whose cell in `col` passes `keep`, in parallel. None if cancelled.
 pub fn refine(st: &State, ids: &[RowId], col: usize, keep: &Keep, cancel: &AtomicBool) -> Option<Vec<RowId>> {
     let out: Vec<RowId> = ids
@@ -833,6 +849,12 @@ mod tests {
         assert_eq!(s.filter_texts(1, Pick::Other), None);
         assert_eq!(refine(&t.st, &ids, 1, &s.keep(1, Pick::Other), &no).unwrap().len(), 0);
         assert_eq!(refine(&t.st, &ids, 3, &s.keep(3, Pick::Empty), &no).unwrap().len(), 200);
+        assert_eq!(holds(&t.st, 3, &s.keep(3, Pick::Empty), &no), Some((true, false)));
+        assert_eq!(holds(&t.st, 1, &s.keep(1, Pick::Other), &no), Some((false, false)));
+        // A sample that misses the one row holding a value: every row says so.
+        let few = spark_base(&t.st, &detect_kinds(&t.st), Sample::Rows(10), &no).unwrap();
+        assert!(few.sampled);
+        assert_eq!(holds(&t.st, 3, &few.keep(3, Pick::Filled), &no), Some((true, false)));
         assert_eq!(filtered(&t, vec![(3, "=".into())]).len(), 200);
         assert_eq!(filtered(&t, vec![(3, "!".into())]).len(), 800);
         // A range of dates: the bars' edges as dates the filter reads.

@@ -2,6 +2,19 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.5 · 30 October 2026
+
+- **Full regular expressions everywhere**: look-arounds and back-references (`(?<=@)gmail`, `(\w)\1`) now work in the filter box, the column filters and Find & replace, not only in formulas, with a limit that stops a runaway pattern. Ordinary patterns run as fast as before.
+- **Sort ties in reading order**: values equal once accents and case are ignored now sort emile, Emile, émile, Émile, at the same speed.
+- **The font picker shows each font** in its own face.
+- **Compare names the columns** found in only one of the two files.
+- **Excel export says how many cells were cut** to Excel's 32 767-character limit.
+- **Importing from a read-only folder** writes the CSV to your Documents folder and says so.
+- **Dragging a column title** near the window's edge scrolls the columns; fill-by-example suggestions fade in.
+- **Find (Ctrl+F) with a regular expression** highlights only the part found, and an invalid pattern says why.
+- **A sorted duplicates view keeps each group together**; a chart click's "every row already holds these values" is now exact.
+- **Moving a row in a big file** is faster, and the computed column remembers where it last wrote.
+
 ## 2.0.4 · 30 October 2026
 
 - **Columns are read 64 bytes at a time**, on Intel and AMD as on Apple silicon, which until now fell back to reading byte by byte: totals, group by, pivot, formulas, duplicates and the file profile are 10 to 30 % faster.

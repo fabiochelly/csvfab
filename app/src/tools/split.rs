@@ -182,7 +182,12 @@ impl Tool for SplitFiles {
                     let name = cx.tab.name.clone();
                     let folder = r.folder.as_ref().map(|f| form::file_name(f)).unwrap_or_default();
                     match r.error {
-                        Some(e) if e.kind() == std::io::ErrorKind::Interrupted => return false,
+                        Some(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                            // Stopped: what is on disk now.
+                            let at = if folder.is_empty() || r.written == 0 { String::new() } else { format!(" in the folder “{folder}”") };
+                            cx.toast(format!("{name} | Split stopped: {} of {} written{at}.", form::n(r.written), form::plural(n, "file")));
+                            return false;
+                        }
                         Some(e) => {
                             let at = if folder.is_empty() { String::new() } else { format!(" in “{folder}”") };
                             self.stage = Stage::Failed(Alert::new(format!("The split stopped: {e}\n\n{} of {} files were written{at}. {name} itself is untouched.", form::n(r.written), form::n(n))));

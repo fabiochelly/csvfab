@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "csvfab"
-version = "2.0.4"
+version = "2.0.5"
 dependencies = [
  "csvfab-engine",
  "eframe",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "csvfab-engine"
-version = "2.0.4"
+version = "2.0.5"
 dependencies = [
  "aho-corasick",
  "blake2",

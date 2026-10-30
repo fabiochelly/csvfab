@@ -42,6 +42,8 @@ struct Import {
     format: Format,
     name: String,
     stage: Stage,
+    /// The source's folder, when it cannot be written: the CSV goes to `convert::fallback_dir`.
+    elsewhere: Option<PathBuf>,
 }
 
 /// Paths the user chose to open as raw text (a JSON file read line by line):
@@ -59,7 +61,7 @@ pub fn open(path: PathBuf) -> Option<Box<dyn Tool>> {
     let format = convert::import_format(&path)?;
     let name = file_name(&path);
     let stage = if format == Format::Json { Stage::AskJson } else { Stage::Start };
-    Some(Box::new(Import { path, format, name, stage }))
+    Some(Box::new(Import { path, format, name, stage, elsewhere: None }))
 }
 
 fn file_name(p: &Path) -> String {
@@ -85,7 +87,16 @@ impl Import {
 
     /// The sheet is known: convert, unless its CSV is already there.
     fn go(&mut self, sheet: Option<String>, cx: &mut Cx) {
-        let dest = convert::csv_path_for(&self.path, sheet.as_deref());
+        let mut dest = convert::csv_path_for(&self.path, sheet.as_deref());
+        // A folder that cannot be written (a read-only mount, an archive's view): the CSV goes
+        // to the documents folder, and the toast says so.
+        let dir = dest.parent().map(Path::to_path_buf).unwrap_or_default();
+        if !convert::dir_writable(&dir) {
+            if let (Some(f), Some(n)) = (convert::fallback_dir(), dest.file_name()) {
+                dest = f.join(n);
+                self.elsewhere = Some(dir);
+            }
+        }
         // Its CSV is open in a tab: that tab, as it is (converting again would write under it).
         let canon = std::fs::canonicalize(&dest).unwrap_or_else(|_| dest.clone());
         if super::lookup::open_tabs().iter().any(|(_, _, st)| st.base.path.as_deref() == Some(canon.as_path())) {
@@ -149,7 +160,10 @@ impl Tool for Import {
             Stage::Exists { sheet, dest } => {
                 let csv = file_name(dest);
                 let a = Ask {
-                    main: &format!("\"{csv}\" already exists beside {name}."),
+                    main: &match &self.elsewhere {
+                        None => format!("\"{csv}\" already exists beside {name}."),
+                        Some(_) => format!("\"{csv}\" already exists in {}.", dest.parent().map_or(String::new(), |d| d.display().to_string())),
+                    },
                     sub: &format!("Open it as it is, or convert {name} again and overwrite it (a .bak copy is kept)?"),
                     choices: &["Open the existing CSV"],
                     cancel: Some("Cancel"),
@@ -173,7 +187,11 @@ impl Tool for Import {
                 if let Some(r) = job.poll() {
                     match r {
                         Ok(j) => {
-                            cx.toast(convert::import_note(&name, &file_name(dest), self.format, &j));
+                            let mut note = convert::import_note(&name, &file_name(dest), self.format, &j);
+                            if let Some(ro) = &self.elsewhere {
+                                note += &format!(" Its folder ({}) cannot be written: the CSV is in {}.", ro.display(), dest.parent().map_or(String::new(), |d| d.display().to_string()));
+                            }
+                            cx.toast(note);
                             cx.out.push(Cmd::Open(dest.clone()));
                             return false;
                         }

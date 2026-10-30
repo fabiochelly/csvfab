@@ -22,6 +22,8 @@ pub const CH: usize = 1 << 16;
 /// fold(cell) of every record of the file, end to end.
 pub struct Folded {
     chunks: Vec<(Vec<u8>, Vec<u32>)>,
+    /// A bit per record: its fold is not the text as read (capitals, accents…).
+    changed: Vec<u64>,
 }
 
 impl Folded {
@@ -34,8 +36,19 @@ impl Folded {
         unsafe { std::str::from_utf8_unchecked(&a[o[k] as usize..o[k + 1] as usize]) }
     }
 
+    /// Whether record `id`'s text is its own fold (plain lower case, no accent).
+    #[inline]
+    pub fn plain(&self, id: usize) -> bool {
+        self.changed[id / 64] >> (id % 64) & 1 == 0
+    }
+
+    /// Whether every record's text is its own fold (equal keys are then equal texts).
+    pub fn all_plain(&self) -> bool {
+        self.changed.par_iter().with_min_len(1 << 12).all(|&w| w == 0)
+    }
+
     pub fn bytes(&self) -> usize {
-        self.chunks.iter().map(|(a, o)| a.capacity() + o.capacity() * 4).sum()
+        self.chunks.iter().map(|(a, o)| a.capacity() + o.capacity() * 4).sum::<usize>() + self.changed.capacity() * 8
     }
 
     /// The arena chunk holding record `id`: its bytes, offsets, and first record.
@@ -109,6 +122,13 @@ impl Col {
     pub fn folded(&self, id: usize) -> Option<&str> {
         if let Some(d) = &self.dict { return Some(&d.folded[d.codes[id] as usize]); }
         self.folded.as_ref().map(|f| f.get(id))
+    }
+
+    /// Whether record `id`'s text is known to be its own fold (false: not known).
+    #[inline]
+    pub fn plain(&self, id: usize) -> bool {
+        if let Some(d) = &self.dict { let c = d.codes[id] as usize; return d.folded[c] == d.values[c]; }
+        self.folded.as_ref().is_some_and(|f| f.plain(id))
     }
 
     /// parse_number(cell) of record `id` (NaN: not a number), if cached.
@@ -412,7 +432,17 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
             if need == Need::Rank {
                 // The sort compares keys many times: made once (`text::sort_key_into`), end to end.
                 let keys = crate::radix::Keys::build(n, |i, out| crate::text::sort_key_into(folded.get(i).trim().as_bytes(), out));
-                let (_, rank, nranks) = crate::radix::text_order(n, |i| keys.get(i));
+                // Equal keys ("Émile", "emile") told apart by the cells as written, read again.
+                // A run of plain texts (most e-mails) is equal as written: not read; a column of
+                // nothing but plain texts has no ties to tell apart.
+                let (_, rank, nranks) = if folded.all_plain() {
+                    crate::radix::text_order(n, |i| keys.get(i))
+                } else {
+                    crate::radix::text_order_ties(n, |i| keys.get(i), |i| folded.plain(i), |i, out| {
+                        if folded.plain(i) { return crate::text::tie_key_into(folded.get(i).trim(), out); }
+                        TMP.with_borrow_mut(|tmp| with_base_cell(b, i, field, tmp, |v| crate::text::tie_key_into(v.trim(), out)))
+                    })
+                };
                 drop(keys);
                 // Kept even if the sort that asked was cancelled meanwhile: the next one uses it.
                 update(base, field, |s| s.col.ranks = Some(Arc::new(Ranks { rank, nranks })));
@@ -428,27 +458,41 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
     Some(get_field(base, field))
 }
 
+thread_local! {
+    /// A quoted field's unquoted bytes (`with_base_cell`), per thread.
+    static TMP: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 fn chunks(n: usize) -> impl IndexedParallelIterator<Item = std::ops::Range<usize>> {
     (0..n.div_ceil(CH)).into_par_iter().map(move |c| c * CH..((c + 1) * CH).min(n))
 }
 
 fn build_folded(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Folded> {
-    let chunks: Vec<(Vec<u8>, Vec<u32>)> = chunks(b.n)
+    let parts: Vec<((Vec<u8>, Vec<u32>), Vec<u64>)> = chunks(b.n)
         .map(|r| {
             let mut arena = String::new();
             let mut offs = Vec::with_capacity(r.len() + 1);
             offs.push(0u32);
+            let mut changed = vec![0u64; r.len().div_ceil(64)];
             let mut tmp = Vec::new();
+            let first = r.start;
             for id in r {
                 if cancel.load(Ordering::Relaxed) { break; }
-                with_base_cell(b, id, field, &mut tmp, |v| fold_into(v, &mut arena));
+                with_base_cell(b, id, field, &mut tmp, |v| {
+                    let at = arena.len();
+                    fold_into(v, &mut arena);
+                    if arena.as_bytes()[at..] != *v.as_bytes() { changed[(id - first) / 64] |= 1 << ((id - first) % 64); }
+                });
                 offs.push(arena.len() as u32);
             }
             arena.shrink_to_fit();
-            (arena.into_bytes(), offs)
+            ((arena.into_bytes(), offs), changed)
         })
         .collect();
-    if cancel.load(Ordering::Relaxed) { None } else { Some(Folded { chunks }) }
+    if cancel.load(Ordering::Relaxed) { return None; }
+    // CH is a multiple of 64: the chunks' bits end to end.
+    let (chunks, bits): (Vec<_>, Vec<_>) = parts.into_iter().unzip();
+    Some(Folded { chunks, changed: bits.concat() })
 }
 
 fn build_nums(b: &Base, field: usize, parse: fn(&str) -> Option<f64>, cancel: &AtomicBool) -> Option<Vec<f64>> {
@@ -540,7 +584,7 @@ fn build_dict(b: &Base, field: usize, sure: bool, cancel: &AtomicBool) -> Result
     let num: Vec<f64> = values.par_iter().map(|v| parse_number(v).unwrap_or(f64::NAN)).collect();
     let date: Vec<f64> = values.par_iter().map(|v| parse_date(v).unwrap_or(f64::NAN)).collect();
     let keys = crate::radix::Keys::build(values.len(), |i, out| crate::text::sort_key_into(folded[i].trim().as_bytes(), out));
-    let (_, rank, nranks) = crate::radix::text_order(values.len(), |i| keys.get(i));
+    let (_, rank, nranks) = crate::radix::text_order_ties(values.len(), |i| keys.get(i), |_| false, |i, out| crate::text::tie_key_into(values[i].trim(), out));
     let (num_rank, date_rank) = (num_ranks(&num), num_ranks(&date));
     Ok(Dict { codes, values, folded, num, date, rank, nranks, num_rank, date_rank })
 }

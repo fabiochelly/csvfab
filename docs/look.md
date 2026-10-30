@@ -178,7 +178,9 @@ behind everything: `bg`.
   (opens the columns manager), fill `surf_2`.
 - Synthetic titles (file without a header line): italic, `txt_dim`, no number.
 - Drag a title to move the column: drop marker = 3 px `prim` inset bar on the left or
-  right of the target title; the dragged title at opacity .45.
+  right of the target title; the dragged title at opacity .45. Within 32 px of the
+  scrolling part's left or right edge (or past it) the columns scroll under the pointer,
+  faster the closer (up to 900 px/s past the edge).
 
 ### Column charts band (62)
 
@@ -282,8 +284,9 @@ behind everything: `bg`.
   sort column (6 px inset each side, hidden when < 40 px): the value at the top of the
   view (or "(empty)"), ui 600 12 / 18 line `txt_strong`, padding 1 × 9, radius 10,
   fill `alpha(accent, .22)`, 1 px `alpha(accent, .45)`.
-- Row drag (gutter): drop marker 2 px `prim` line at the top / bottom of the target
-  row; the dragged row at .45.
+- Row-number drag: selects rows; dragging a row already selected moves it (the user's
+  choice, as Excel; not 1.x). Drop marker 2 px `prim` line at the top / bottom of the
+  target row; the dragged row at .45.
 - Cell editor (double-click / typing): a box over the cell (grows with its content),
   padding 7 × 10, mono 13 / 19 line, text `txt_strong`, fill `bg`, 2 px `prim`
   border, radius 3, shadow 0 8 24 `rgba(0,0,0,.5)`; the cell's own text hidden.
@@ -521,7 +524,10 @@ window tall, padding 7 × 10, mono 12.5 / 1.5, wrapped, fade-in 120 ms.
 **rows shown**:" ui 13; find field; "‹ n / N ›" (arrows 24 × 26 outline radius 5 ui 18,
 the count ui 12 `txt_mut`, `warn` when none); replace field; column select (max 220);
 Regex and Match case checkboxes ui 13; **Apply** (`.btn-warn`, a lightning icon 14);
-the count ui 12 `txt_mut`. Invalid find: field border `danger`.
+the count ui 12 `txt_mut`. Invalid find: field border `danger`, "invalid" in `warn` as the
+count, and the reason ("This regular expression is not valid: unclosed group") in ui 12
+`warn` where the count of a replace goes (cut with …, in full as its tooltip). Regex
+matches are tinted where they match, not the whole cell.
 
 ## Welcome screen (no file)
 
@@ -539,10 +545,24 @@ hover; up to 12 as fit; a file no longer there: name `txt_faint`, "missing", a c
 so and forgets it; sizes looked up in the background, never on a frame); footer "open · filter · clean · rewrite in
 place" ui 12, letter-spacing .04em, `txt_faint`, dots `alpha(accent, .6)`.
 
+## Monospace font dialog
+
+460 wide (`dialog_frame`): title ui 600 15, a line ui 12.5 `txt_dim`, the sample box
+(`bg_deep`, radius 8, the sentence and the symbols in the font in use, mono 14), the search
+field 32 tall, then the list (max 300 tall): rows radius 6, the selected one
+`alpha(prim, .14)` with a check; Default and System monospace show a note ui 11.5
+`txt_dim`; each installed family its name ui 13 `txt_hi` and, under it, a line in its own
+face, 12.5 `txt_mut` ("0O Il1 {}[] => != 12 345,67 € éàç": the web's cards' sample), cut
+before the check. The faces are mapped and added to the fonts while the dialog is open
+(`fonts::set_samples`), dropped when it closes.
+
 ## Motion
 
 Short and few: menus / panels pop (scale .96 → 1 + fade, 140 ms), dialogs 160 ms, a
-tab's grid fades in 200 ms, chips pop 150 ms, toasts as above, edited cells flash. No
+tab's grid fades in 200 ms, chips pop 150 ms, toasts as above, edited cells flash. Fill by
+example's ghosts come in as a wave down the rows (the web's `ffin`): each row 16 ms after
+the one above, fading in and sliding 8 px from the left over 450 ms, ease-out
+(`grid::GHOST_IN`). No
 animation on hover colours of the toggles (they switch at once). Respect a
 reduced-motion setting by skipping them.
 

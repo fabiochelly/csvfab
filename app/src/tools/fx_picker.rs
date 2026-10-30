@@ -480,7 +480,7 @@ fn selected_col(tab: &Tab) -> Option<usize> {
 /// The column a value of `kind` most likely comes from (see `doc::likely_column`).
 fn likely(tab: &Tab, kind: Kind, pick: Option<doc::Pick>) -> Option<usize> {
     let st = tab.st()?;
-    doc::likely_column(st, &tab.kinds, kind, pick, selected_col(tab), &|_| false)
+    doc::likely_column(st, &tab.kinds, kind, pick, selected_col(tab), &|c| tab.grid.hidden.contains(&c))
 }
 
 /// {N} {D} {T} {T2} → columns of the file of that kind; the web app's stand-ins without a file.
@@ -491,9 +491,12 @@ pub fn example(tab: &Tab, src: &str, pick: Option<doc::Pick>) -> String {
         return doc::fill_example_default(src);
     }
     let (n, d, x) = (likely(tab, Kind::Number, None), likely(tab, Kind::Date, None), likely(tab, Kind::Text, pick));
-    let x2 = tab.kinds.iter().enumerate().position(|(c, &k)| k == Kind::Text && Some(c) != x);
+    // Columns the grid shows, as the web's (a hidden one makes an example nobody sees).
+    let shown = |c: &usize| !tab.grid.hidden.contains(c);
+    let x2 = (0..tab.kinds.len()).filter(shown).find(|&c| tab.kinds[c] == Kind::Text && Some(c) != x);
+    let first = (0..headers.len()).find(shown).unwrap_or(0);
     let name = |c: Option<usize>, fb: usize| headers.get(c.unwrap_or(fb)).cloned().unwrap_or_default();
-    doc::fill_example(src, &name(n, 0), &name(d, 0), &name(x, 0), &name(x2, x.unwrap_or(0)))
+    doc::fill_example(src, &name(n, first), &name(d, first), &name(x, first), &name(x2, x.unwrap_or(first)))
 }
 
 /// The column put in an entry's first argument on insert ("{City}"), if any.

@@ -63,6 +63,8 @@ fn main() {
         ("f global 2024-0", g("2024-0")),
         ("f global regex lyon|paris", FilterSpec { global: "lyon|paris".into(), regex: true, ..Default::default() }),
         ("f global regex \\d{3}-\\d{4}", FilterSpec { global: r"\d{3}-\d{4}".into(), regex: true, ..Default::default() }),
+        ("f global regex look-behind (?<=@)gmail", FilterSpec { global: "(?<=@)gmail".into(), regex: true, ..Default::default() }),
+        ("f email regex back-reference (\\w)\\1", FilterSpec { cols: vec![(col("email"), r"(\w)\1".into())], regex: true, ..Default::default() }),
         ("f city regex ^Ly", FilterSpec { cols: vec![(col("city"), "^Ly".into())], regex: true, ..Default::default() }),
         ("f city=lyon & total>1000", FilterSpec { cols: vec![(col("city"), "lyon".into()), (col("total_spent"), ">1000".into())], ..Default::default() }),
     ];

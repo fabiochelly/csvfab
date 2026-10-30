@@ -104,6 +104,10 @@ cancel on close. Never block the UI thread on anything that grows with the file.
 - **Duplicate marks** follow every change of the table: `Tab::poll` counts them again 300 ms after
   the last one, one job per tab (a newer one cancels the one under way).
 
+- **Imports from a folder that cannot be written** (a read-only mount, an archive's view):
+  the CSV goes to the documents folder (`convert::fallback_dir`: XDG's, else ~/Documents,
+  else home) and the toast names both folders.
+
 ## Filters (choices that differ from a plain reading)
 
 - **Value filters** (`FilterSpec::hidden`, `picks`): values hidden from a column's panel or a
@@ -113,8 +117,20 @@ cancel on close. Never block the UI thread on anything that grows with the file.
 - **Invert** flips the text tests (search, column filters, expression) as one test — never the
   value filters, which are ticked by hand (as the web's). Column filters of several words: AND.
 - **Text sort**: the web's French numeric collator (`text::sort_key`): accents and case ignored,
-  digit runs as numbers ("Lot 2" < "Lot 10"), punctuation before digits before letters; ties keep
-  the file's order. Keys made once per column (`colcache` ranks), radix sorted.
+  digit runs as numbers ("Lot 2" < "Lot 10"), punctuation before digits before letters. Equal
+  keys are then told apart as the collator did, accents first, then case, lower first
+  (`text::tie_key_into`: emile < Emile < émile < Émile); only then the file's order. Keys made
+  once per column (`colcache` ranks), radix sorted; the cells of equal keys read again only
+  where the fold changed them (`Folded::plain`).
+- **Regexes** (search, column boxes, find & replace, their highlights: `engine::re::Re`): the
+  `regex` crate for every pattern it takes; look-around and back-references, which it
+  refuses, run on fancy-regex (backtracking bounded to 1M steps a cell: past it, no match,
+  a replace leaves the cell), checked first by the pattern relaxed for the `regex` crate
+  (`re::relax`: look-arounds out, a back-reference = any text), whose literals also skip
+  the records.
+- **Chart picks**: a sampled picture whose counts say none or all of the rows read hold the
+  part is checked on every row in a job (`sparkline::holds`) before "No row holds those
+  values." / "every row already holds those values" (as the web's, on all the rows).
 - **Sort** is a view (Save keeps the file's order; "Write the sorted order to the file" writes it).
   Enter and Tab keep the cell after writing it.
 

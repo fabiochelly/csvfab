@@ -115,7 +115,7 @@ impl Cmp {
             m.rows.insert(c.id);
             for (col, v) in &c.cells { m.cells.insert((c.id, *col), format!("In {}: {}", o.name, if v.is_empty() { "(empty)" } else { v })); }
         }
-        let ids: Vec<RowId> = (0..st.len()).map(|p| st.data_id(p)).filter(|id| m.rows.contains(id)).collect();
+        let ids: Vec<RowId> = st.in_order(&m.rows);
         cx.tab.marks = Arc::new(m);
         cx.tab.restrict_to(format!("differences with {}", o.name), ids, cx.ctx);
         cx.toast(format!("{} | {} and {} only here, marked — hover a tinted cell to see the value in {}.", cx.tab.name, plural(res.changed.len(), "changed row"), plural(res.only_here.len(), "row"), o.name));
@@ -229,12 +229,23 @@ impl Tool for Cmp {
                         format!("{} only in {oname}", b(form::n(r.only_there.len()))),
                     ].join(" · ");
                     s += &format!("\nCompared on {} common column{}", r.pairs.len(), if r.pairs.len() == 1 { "" } else { "s" });
-                    if !r.only_here_cols.is_empty() { s += &format!(" · {} only here", r.only_here_cols.len()); }
-                    if !r.only_there_cols.is_empty() { s += &format!(" · {} only in {oname}", r.only_there_cols.len()); }
+                    // The columns left out, named (a few inline, all in the tooltip).
+                    let names = |v: &[String]| {
+                        let mut t = v.iter().take(3).map(|h| form::value_part(h, form::Sty::Txt, 24).0).collect::<Vec<_>>().join(", ");
+                        if v.len() > 3 { t += ", …"; }
+                        t
+                    };
+                    if !r.only_here_cols.is_empty() { s += &format!(" · {} only here ({})", r.only_here_cols.len(), names(&r.only_here_cols)); }
+                    if !r.only_there_cols.is_empty() { s += &format!(" · {} only in {oname} ({})", r.only_there_cols.len(), names(&r.only_there_cols)); }
                     if r.no_key > 0 { s += &format!(" · {}", warn(format!("{} without a key", plural(r.no_key, "row")))); }
                     if r.dup_there > 0 { s += &format!(" · {}", warn(format!("{} in {oname}", plural(r.dup_there, "repeated key")))); }
                     if r.pairs.is_empty() && r.only_here.is_empty() && r.only_there.is_empty() { s += &format!("\n{}", warn("No column in common besides the key.")); }
-                    form::stat(ui, &p, &s);
+                    let resp = form::stat_at(ui, &p, &s, 10.0);
+                    let mut tip = Vec::new();
+                    if r.only_here_cols.len() > 3 || r.only_here_cols.iter().any(|h| h.chars().count() > 24) { tip.push(format!("Only here: {}", r.only_here_cols.join(", "))); }
+                    if r.only_there_cols.len() > 3 || r.only_there_cols.iter().any(|h| h.chars().count() > 24) { tip.push(format!("Only in {oname}: {}", r.only_there_cols.join(", "))); }
+                    if r.dup_there > 0 { tip.push(format!("A key repeated in {oname}: its first row is used.")); }
+                    if !tip.is_empty() { resp.on_hover_text(tip.join("\n")); }
                     let mut rows = Vec::new();
                     for c in r.changed.iter().take(60) {
                         let mut d = PvCell::default();

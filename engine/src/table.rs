@@ -344,6 +344,18 @@ impl State {
         self.all_id(pos + self.header as usize)
     }
 
+    /// The data rows of `rows` in the table's order: sorted, without an order of its own (the
+    /// file's); else one parallel pass over it.
+    pub fn in_order(&self, rows: &std::collections::HashSet<RowId>) -> Vec<RowId> {
+        let head = self.header as RowId;
+        if self.order.is_none() {
+            let mut v: Vec<RowId> = rows.iter().copied().filter(|&id| id >= head && (id as usize) < self.base.n).collect();
+            v.sort_unstable();
+            return v;
+        }
+        (0..self.len()).into_par_iter().with_min_len(1 << 14).map(|p| self.data_id(p)).filter(|id| rows.contains(id)).collect()
+    }
+
     #[inline]
     fn field_of(&self, col: usize) -> Option<usize> {
         match &self.cmap {
@@ -866,20 +878,37 @@ impl Table {
         if id == target { return None; }
         let head = self.st.header as usize;
         let all = self.st.all_len();
-        let pos_of = |st: &State, x: RowId| match &st.order {
+        let old = self.st.order.clone();
+        let pos_of = |x: RowId| match old.as_deref() {
             None => ((x as usize) < all).then_some(x as usize),
-            Some(o) => o.iter().position(|&y| y == x),
+            Some(o) => o.par_iter().with_min_len(1 << 16).position_any(|&y| y == x),
         };
-        let from = pos_of(&self.st, id).filter(|&p| p >= head)?;
-        let to_t = pos_of(&self.st, target).filter(|&p| p >= head)?;
+        let from = pos_of(id).filter(|&p| p >= head)?;
+        let to_t = pos_of(target).filter(|&p| p >= head)?;
         // Its place once taken out of the order.
         let t = if to_t > from { to_t - 1 } else { to_t };
         let at = (t + after as usize).max(head);
         if at == from { return None; }
         let c = self.snapshot_change();
-        let order = self.order_mut();
-        order.remove(from);
-        order.insert(at, id);
+        // The new order in one copy of the old one (which the undo step keeps), the row put in
+        // its place on the way: not a copy, then everything after it moved twice.
+        let mut v: Vec<RowId> = Vec::with_capacity(all);
+        let put = |r: std::ops::Range<usize>, v: &mut Vec<RowId>| match old.as_deref() {
+            Some(o) => v.extend_from_slice(&o[r]),
+            None => v.extend(r.map(|p| p as RowId)),
+        };
+        if at < from {
+            put(0..at, &mut v);
+            v.push(id);
+            put(at..from, &mut v);
+            put(from + 1..all, &mut v);
+        } else {
+            put(0..from, &mut v);
+            put(from + 1..at + 1, &mut v);
+            v.push(id);
+            put(at + 1..all, &mut v);
+        }
+        self.st.order = Some(Arc::new(v));
         self.push(c);
         Some((from - head, at - head))
     }
@@ -1226,6 +1255,12 @@ mod tests {
         let two = id(&t, 1);
         assert_eq!(t.move_row(two, id(&t, 2), false), None);
         assert_eq!(t.move_row(two, two, true), None);
+        // Marked rows in the table's order, with and without an order of its own.
+        let set: std::collections::HashSet<RowId> = [id(&t, 3), id(&t, 0), 999].into_iter().collect();
+        assert_eq!(t.st.in_order(&set), vec![id(&t, 0), id(&t, 3)]);
+        let f = table("a\n1\n2\n3\n");
+        let set: std::collections::HashSet<RowId> = [id(&f, 2), id(&f, 0), 0, 999].into_iter().collect();
+        assert_eq!(f.st.in_order(&set), vec![id(&f, 0), id(&f, 2)]);
         let saved = crate::save::write_to(&t.st, &Default::default(), Vec::new()).unwrap();
         assert_eq!(saved, b"a\n4\n2\n3\n1\n");
         t.undo();

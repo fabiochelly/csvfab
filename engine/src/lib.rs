@@ -23,6 +23,7 @@ pub mod mapguard;
 pub mod noise;
 pub mod pivot;
 pub mod radix;
+pub mod re;
 pub mod review;
 pub mod save;
 pub mod scan;

@@ -65,7 +65,7 @@ fn mark(tab: &mut Tab, st: &State, res: &Changes, ctx: &eframe::egui::Context) {
         }
     }
     // In the table's order.
-    let ids: Vec<RowId> = (0..st.len()).map(|p| st.data_id(p)).filter(|id| m.rows.contains(id)).collect();
+    let ids: Vec<RowId> = st.in_order(&m.rows);
     tab.marks = Arc::new(m);
     tab.restrict_to("changed rows", ids, ctx);
 }

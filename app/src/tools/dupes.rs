@@ -648,7 +648,7 @@ impl Dialog {
             let (count, ccolor) = match it.count {
                 None => ("counting…".to_string(), p.txt_dim),
                 Some((_, 0, _)) => ("no duplicate".to_string(), p.txt_dim),
-                Some((rows, groups, sure)) => (format!("{} rows · {} groups{}", kit::n(rows), kit::n(groups), if it.review || sure == groups || sure == 0 { String::new() } else { format!(" · {} sure", kit::n(sure)) }), p.txt_mut),
+                Some((rows, groups, sure)) => (format!("{} · {}{}", super::form::plural(rows, "row"), super::form::plural(groups, "group"), if it.review || sure == groups || sure == 0 { String::new() } else { format!(" · {} sure", kit::n(sure)) }), p.txt_mut),
             };
             let cg = pt.layout_no_wrap(count, kit::ui(12.0), ccolor);
             let tw = (w - 20.0 - cg.size().x - 16.0).max(40.0);
@@ -871,7 +871,7 @@ impl Tool for Dialog {
                     let per = if f.rules.len() > 1 {
                         format!(" — {}", d.hits.iter().enumerate().map(|(i, h)| format!("key {}: {} rows", i + 1, kit::n(*h))).collect::<Vec<_>>().join(" · "))
                     } else { String::new() };
-                    format!("**{}** rows in **{}** groups{per}. Delete keeps one row per group: **{}** deleted (all {total} rows are checked, filtered or not).", kit::n(d.rows()), kit::n(groups), kit::n(dup))
+                    format!("**{}** rows in **{}** group{}{per}. Delete keeps one row per group: **{}** deleted (all {total} rows are checked, filtered or not).", kit::n(d.rows()), kit::n(groups), if groups == 1 { "" } else { "s" }, kit::n(dup))
                 } else {
                     format!("No duplicate among the {total} rows{}.", if f.rules.is_empty() { " (compared on the whole row)" } else { "" })
                 };
@@ -976,7 +976,7 @@ fn mark(cx: &mut Cx, f: Found, order: Order) {
     cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: f.keys, rules: f.rules, names: f.names, dupes: d, order, diff: Default::default(), shown: Default::default() })));
     cx.tab.restrict_to(VIEW_LABEL, ids, cx.ctx);
     let first = match order { Order::LeastSure if review > 0 => format!(", the {} to review first", kit::n(review)), Order::LeastSure => ", least sure first".into(), Order::SurestFirst => ", surest first".into(), Order::File => String::new() };
-    cx.toast(format!("{} rows in {} duplicate groups, side by side{first} — hover a row to see how sure, delete it or merge it with the next; differing values in red.", kit::n(rows), kit::n(groups)));
+    cx.toast(format!("{} rows in {}, side by side{first} — hover a row to see how sure, delete it or merge it with the next; differing values in red.", kit::n(rows), super::form::plural(groups, "duplicate group")));
 }
 
 /// Whether the duplicates view is on.

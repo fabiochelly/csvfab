@@ -63,6 +63,9 @@ pub struct State {
     /// A drag across a curve's bars: (column, first bar, bar under the pointer).
     brush: Option<(usize, usize, usize)>,
     pub picks: HashMap<usize, Picked>,
+    /// A pick a sample could not judge (none or all of the rows read hold it): every row
+    /// tested, (some hold it, all do).
+    check: Option<(usize, Pick, Arc<Spark>, Job<Option<(bool, bool)>>)>,
 }
 
 impl State {
@@ -75,6 +78,16 @@ impl State {
 /// Picks up finished jobs and starts the ones the table or the view need. Once a frame,
 /// while the band is shown.
 pub fn poll(tab: &mut Tab, ctx: &egui::Context) {
+    // A pick tested on every row: decided, if its picture is still the one shown.
+    if let Some((col, pick, spark, j)) = &mut tab.spark.check {
+        if let Some(r) = j.poll() {
+            let (col, pick, spark) = (*col, *pick, spark.clone());
+            tab.spark.check = None;
+            if let Some((some, all)) = r.filter(|_| tab.spark.base.as_ref().is_some_and(|b| Arc::ptr_eq(b, &spark))) {
+                decide(tab, col, pick, spark, some, all, ctx);
+            }
+        }
+    }
     let Some(t) = &tab.table else { return };
     let st = t.st.clone();
     let key = BaseKey { base: Arc::as_ptr(&st.base) as usize, version: t.version(), ncols: st.ncols, header: st.header };
@@ -403,11 +416,26 @@ fn pick(tab: &mut Tab, col: usize, pick: Pick, ctx: &egui::Context) {
         }
     }
     let (n, _) = spark.count(col, pick, None);
-    if n == 0 {
+    tab.spark.check = None;
+    if spark.sampled && (n == 0 || n >= spark.s) {
+        let Some(st) = tab.table.as_ref().map(|t| t.st.clone()) else { return };
+        let pic = spark.clone();
+        let job = Job::spawn(ctx, move |c, _| sp::holds(&st, col, &pic.keep(col, pick), c));
+        tab.spark.check = Some((col, pick, spark, job));
+        return;
+    }
+    let all = n >= spark.n;
+    decide(tab, col, pick, spark, n > 0, all, ctx);
+}
+
+/// A pick once it is known whether some rows, or all, hold it.
+fn decide(tab: &mut Tab, col: usize, pick: Pick, spark: Arc<Spark>, some: bool, all: bool, ctx: &egui::Context) {
+    let title = tab.st().and_then(|st| st.headers().get(col).cloned()).unwrap_or_default();
+    if !some {
         tab.grid.notice = Some("No row holds those values.".into());
         return;
     }
-    if !spark.sampled && n >= spark.n && !tab.has_values(col) {
+    if all && !tab.has_values(col) {
         tab.grid.notice = Some(format!("{title}: every row already holds those values."));
         return;
     }

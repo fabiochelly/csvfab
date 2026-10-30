@@ -541,7 +541,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         }
         let brd = if bad { p.danger } else { mix(p.prim, mix(p.brd_2, p.brd, sh), ff) };
         ui.painter().rect(sr, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, p.bg_deep, Stroke::new(1.0, brd), StrokeKind::Inside);
-        if let Some(t) = crate::shot::take("search") {
+        if let Some(t) = crate::shot::take("search").or_else(|| crate::shot::take("searchre").inspect(|_| tab.filter.regex = true)) {
             tab.filter.global = t;
             refresh = true;
             ctx.memory_mut(|mem| mem.request_focus(Id::unique("global-search")));
@@ -1545,7 +1545,7 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                             tab.restrict = None;
                             tab.refresh(&ctx);
                         } else if let Some(st) = tab.st().cloned() {
-                            let ids: Vec<RowId> = (0..st.len()).map(|p| st.data_id(p)).filter(|id| tab.marks.rows.contains(id)).collect();
+                            let ids: Vec<RowId> = st.in_order(&tab.marks.rows);
                             let l = if tab.marks_label.is_empty() { "Marked rows".to_string() } else { tab.marks_label.clone() };
                             tab.restrict_to(l, ids, &ctx);
                         }
@@ -2156,7 +2156,7 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
                             "marked" => {
                                 // In the table's order.
                                 if let Some(st) = t.st().cloned() {
-                                    let ids: Vec<csvfab_engine::RowId> = (0..st.len()).map(|p| st.data_id(p)).filter(|id| t.marks.rows.contains(id)).collect();
+                                    let ids: Vec<csvfab_engine::RowId> = st.in_order(&t.marks.rows);
                                     let label = if t.marks_label.is_empty() { "marked rows".to_string() } else { t.marks_label.clone() };
                                     t.restrict_to(label, ids, ctx);
                                 }

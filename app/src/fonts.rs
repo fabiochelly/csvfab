@@ -133,6 +133,20 @@ pub fn install(ctx: &egui::Context, mono_pick: Option<&str>) -> FontsInfo {
     for (f, list) in fams {
         defs.families.insert(f, list);
     }
+    // The font dialog's samples: each family in its own face (mapped, as above), the mono and
+    // ui fonts behind it for what it lacks.
+    let samples = SAMPLES.lock().map(|v| v.clone()).unwrap_or_default();
+    let behind: Vec<String> = ["csvfab-mono", "csvfab-ui"].iter().filter(|k| defs.font_data.contains_key(**k)).map(|k| k.to_string()).chain(mono_base.iter().cloned()).collect();
+    for p in samples {
+        let Some(blob) = blobs.entry(p.path.clone()).or_insert_with(|| map(&p.path)).clone() else { continue };
+        let mut data = FontData::from_blob(blob, p.index);
+        if let Some(w) = p.wght {
+            data = data.tweak(FontTweak { coords: VariationCoords::new([(b"wght", w)]), ..Default::default() });
+        }
+        let key = format!("{SAMPLE}{}", p.family);
+        defs.font_data.insert(key.clone(), Arc::new(data));
+        defs.families.insert(FontFamily::Name(key.clone().into()), std::iter::once(key).chain(behind.iter().cloned()).collect());
+    }
     ctx.set_fonts(defs);
     info.ms = t0.elapsed().as_secs_f32() * 1000.0;
     info
@@ -151,12 +165,43 @@ fn map(path: &Path) -> Option<Blob> {
     }
 }
 
+/// The prefix of a sample's family (`sample_family`).
+const SAMPLE: &str = "sample:";
+
+/// The faces the font dialog shows its families in, while it is open (`set_samples`).
+static SAMPLES: std::sync::Mutex<Vec<Pick>> = std::sync::Mutex::new(Vec::new());
+
+/// The font dialog's families in their own faces (none once it closes): the fonts installed
+/// again with them, `mono_pick` the font in use.
+pub fn set_samples(ctx: &egui::Context, faces: Vec<Pick>, mono_pick: Option<&str>) {
+    if let Ok(mut v) = SAMPLES.lock() {
+        if v.is_empty() && faces.is_empty() { return; }
+        *v = faces;
+    }
+    install(ctx, mono_pick);
+}
+
+/// The family a sample of `family` is drawn in, once installed (fonts change at the next frame).
+pub fn sample_family(ctx: &egui::Context, family: &str) -> Option<FontFamily> {
+    let f = FontFamily::Name(format!("{SAMPLE}{family}").into());
+    ctx.fonts(|x| x.definitions().families.contains_key(&f)).then_some(f)
+}
+
+/// `list_monospace`, with the regular face of each family (for its sample).
+pub fn list_monospace_faces() -> Vec<(String, Option<Pick>)> {
+    let cat = catalogue();
+    mono_names(&cat).into_iter().map(|n| { let p = best(&cat, &n, 400); (n, p) }).collect()
+}
+
 /// The installed monospace families, for the font dialog: fixed-width for Latin
 /// letters (as `fontUsable()` of 32-font.js: emoji and icon fonts that call
 /// themselves monospace are left out), a family named after a style folded into
 /// its base ("Aptos Mono Bold" → "Aptos Mono"), sorted without case.
 pub fn list_monospace() -> Vec<String> {
-    let cat = catalogue();
+    mono_names(&catalogue())
+}
+
+fn mono_names(cat: &[Face]) -> Vec<String> {
     let mut seen: HashMap<String, bool> = HashMap::new();
     for f in cat.iter().filter(|f| f.mono && !f.italic) {
         let name = f.families[0].clone();

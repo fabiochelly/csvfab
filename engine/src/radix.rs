@@ -173,6 +173,82 @@ impl Keys {
 /// order) and each one's dense rank in it (equal keys share a rank; empty:
 /// the number of distinct non-empty keys).
 pub fn text_order<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync) -> (Vec<u32>, Vec<u32>, u32) {
+    let (perm, rank, distinct, _) = order_ranks(n, &key, false);
+    (perm, rank, distinct)
+}
+
+/// As `text_order`, equal keys then ordered (and ranked apart) by the bytes `tie(i, out)` writes:
+/// asked only of the items whose keys are equal (`text::tie_key_into`: the cells as written), and
+/// not of a run whose items are all `plain` (their ties known equal).
+pub fn text_order_ties<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync, plain: impl Fn(usize) -> bool + Sync, tie: impl Fn(usize, &mut Vec<u8>) + Sync) -> (Vec<u32>, Vec<u32>, u32) {
+    let (mut perm, mut rank, distinct, runs) = order_ranks(n, &key, true);
+    if runs.is_empty() {
+        return (perm, rank, distinct);
+    }
+    // Each run of equal keys sorted on its ties (stably); its items' places among them.
+    let mut slices = Vec::with_capacity(runs.len());
+    let mut rest = &mut perm[..];
+    let mut at = 0;
+    for &(s, len) in &runs {
+        let (_, b) = rest.split_at_mut(s as usize - at);
+        let (run, b) = b.split_at_mut(len as usize);
+        slices.push(run);
+        rest = b;
+        at = (s + len) as usize;
+    }
+    let subs: Vec<(u32, Vec<(u32, u32)>)> = slices
+        .into_par_iter()
+        .with_min_len(64)
+        .map_init(|| (Vec::new(), Vec::new(), Vec::new()), |(arena, offs, idx), run| {
+            if run.iter().all(|&p| plain(p as usize)) { return (0, Vec::new()); }
+            arena.clear();
+            offs.clear();
+            offs.push(0usize);
+            for &p in run.iter() {
+                tie(p as usize, arena);
+                offs.push(arena.len());
+            }
+            let k = |j: usize| &arena[offs[j]..offs[j + 1]];
+            idx.clear();
+            idx.extend(0..run.len() as u32);
+            idx.sort_by(|&a, &b| k(a as usize).cmp(k(b as usize)));
+            let mut sub = 0u32;
+            let mut moved = Vec::new();
+            for w in 1..idx.len() {
+                if k(idx[w] as usize) != k(idx[w - 1] as usize) { sub += 1; }
+                if sub > 0 { moved.push((run[idx[w] as usize], sub)); }
+            }
+            if sub > 0 {
+                let items: Vec<u32> = idx.iter().map(|&j| run[j as usize]).collect();
+                run.copy_from_slice(&items);
+            }
+            (sub, moved)
+        })
+        .collect();
+    let total: u32 = subs.iter().map(|s| s.0).sum();
+    if total == 0 {
+        return (perm, rank, distinct);
+    }
+    // Ranks after a run move up by the places its ties took.
+    let mut shift = vec![0u32; distinct as usize + 1];
+    let mut cum = 0;
+    let mut next = 0;
+    for (&(s, _), &(extra, _)) in runs.iter().zip(&subs) {
+        let r = rank[perm[s as usize] as usize] as usize;
+        shift[next..=r].fill(cum);
+        cum += extra;
+        next = r + 1;
+    }
+    shift[next..].fill(cum);
+    rank.par_iter_mut().with_min_len(1 << 14).for_each(|x| *x += shift[*x as usize]);
+    for (_, moved) in &subs {
+        for &(p, sub) in moved { rank[p as usize] += sub; }
+    }
+    (perm, rank, distinct + total)
+}
+
+/// `text_order`, and the runs of equal non-empty keys in the order (start, length) if `runs`.
+fn order_ranks<'a>(n: usize, key: &(impl Fn(usize) -> &'a [u8] + Sync), runs: bool) -> (Vec<u32>, Vec<u32>, u32, Vec<(u32, u32)>) {
     let words: Vec<u64> = (0..n).into_par_iter().with_min_len(1 << 14).map(|i| {
         let k = key(i);
         // Text is UTF-8: no byte is 0xFF, so no prefix of a key reaches u64::MAX.
@@ -183,26 +259,33 @@ pub fn text_order<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync) -> (Vec<
     perm.par_chunk_by_mut(|&a, &b| words[a as usize] == words[b as usize])
         .for_each(|run| {
             if run.len() > 1 && words[run[0] as usize] != u64::MAX {
-                refine(run, 8, &key);
+                refine(run, 8, key);
             }
         });
     // Ranks: a new one where the key changes.
     let mut rank = vec![0u32; n];
     let mut r = 0u32;
     let mut prev: Option<&[u8]> = None;
-    for &p in &perm {
+    let mut found = Vec::new();
+    let mut start = 0;
+    for (i, &p) in perm.iter().enumerate() {
         let k = key(p as usize);
         if k.is_empty() { break; }
-        if prev.is_some_and(|q| q != k) { r += 1; }
+        if prev.is_some_and(|q| q != k) {
+            r += 1;
+            if runs && i - start > 1 { found.push((start as u32, (i - start) as u32)); }
+            start = i;
+        }
         prev = Some(k);
         rank[p as usize] = r;
     }
     let distinct = if prev.is_some() { r + 1 } else { 0 };
-    for &p in perm.iter().rev() {
-        if !key(p as usize).is_empty() { break; }
+    let filled = perm.iter().rev().position(|&p| !key(p as usize).is_empty()).map_or(0, |e| n - e);
+    if runs && filled - start > 1 { found.push((start as u32, (filled - start) as u32)); }
+    for &p in &perm[filled..] {
         rank[p as usize] = distinct;
     }
-    (perm, rank, distinct)
+    (perm, rank, distinct, found)
 }
 
 /// Orders a run of keys equal on their first `d` bytes (in stable order) on
@@ -271,6 +354,34 @@ mod tests {
                 assert_eq!(v, want);
             }
         }
+    }
+
+    #[test]
+    fn ties_ranked_apart() {
+        // Keys: the letter; ties: the case. Runs of every length, empties, singletons.
+        let mut x = 11u64;
+        let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let cells: Vec<String> = (0..50_000).map(|_| match next() % 9 {
+            0 => String::new(),
+            k => { let c = (b'a' + (next() % (1 + k * 40) % 26) as u8) as char; if next() % 3 == 0 { c.to_ascii_uppercase().to_string() } else { c.to_string() } }
+        }).collect();
+        let low: Vec<String> = cells.iter().map(|c| c.to_lowercase()).collect();
+        let (perm, rank, d) = text_order_ties(cells.len(), |i| low[i].as_bytes(), |i| cells[i] == low[i] && i % 2 == 0, |i, out| out.extend_from_slice(cells[i].as_bytes()));
+        let mut want: Vec<u32> = (0..cells.len() as u32).collect();
+        want.sort_by(|&a, &b| {
+            let (x, y) = (a as usize, b as usize);
+            (low[x].is_empty(), &low[x], &cells[x]).cmp(&(low[y].is_empty(), &low[y], &cells[y]))
+        });
+        assert_eq!(perm, want);
+        let distinct: std::collections::BTreeSet<&String> = cells.iter().filter(|c| !c.is_empty()).collect();
+        assert_eq!(d as usize, distinct.len());
+        for w in perm.windows(2) {
+            let (a, b) = (w[0] as usize, w[1] as usize);
+            assert_eq!(rank[a] == rank[b], cells[a] == cells[b] || cells[b].is_empty() && cells[a].is_empty());
+            assert!(rank[a] <= rank[b]);
+        }
+        let (p2, _, _) = text_order_ties(3, |i| ["b", "a", "c"][i].as_bytes(), |_| false, |_, _| unreachable!());
+        assert_eq!(p2, [1, 0, 2]);
     }
 
     #[test]
