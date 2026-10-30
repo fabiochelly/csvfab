@@ -2,6 +2,13 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.4 · 30 October 2026
+
+- **Columns are read 64 bytes at a time**, on Intel and AMD as on Apple silicon, which until now fell back to reading byte by byte: totals, group by, pivot, formulas, duplicates and the file profile are 10 to 30 % faster.
+- **On a 2 GB file (5.3 million rows):** the first numeric filter on a column takes 0.10 s instead of 0.36 s; the global search 66 ms instead of 98; the totals row 0.25 s instead of 0.36.
+- **Typing a cell re-reads only its column in the file profile**: 58 ms instead of 0.5 s.
+- **Hovering a duplicated row** no longer goes through the whole view at each frame: 0.9 ms instead of 46.
+
 ## 2.0.3 · 30 October 2026
 
 - **Saving and exporting use every core.** On a 2 GB file (5.3 million rows): an Excel export takes 0.6 s instead of 13 s, and a smaller file; saving after a computed column or a column move 1 s instead of 2.9 s; re-encoding to UTF-16 2.1 s instead of 6 s. After a save, the view, its caches and its analyses are kept instead of being worked out again.
