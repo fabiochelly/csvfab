@@ -15,6 +15,7 @@ pub mod fontshop;
 pub mod fonts;
 pub mod grid;
 pub mod icons;
+pub mod inspector;
 pub mod instance;
 pub mod job;
 pub mod profile;
@@ -30,6 +31,8 @@ pub mod totals_ui;
 pub mod widgets;
 #[cfg(test)]
 mod ui_tests;
+#[cfg(test)]
+mod refresh_ui_tests;
 #[cfg(test)]
 mod torture_ui_tests;
 

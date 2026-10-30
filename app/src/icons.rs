@@ -267,6 +267,14 @@ pub fn cross(p: &Painter, r: Rect, _w: f32, c: Color32) {
     paint(p, Icon::Cross, r, c);
 }
 
+/// The column inspector's switch: a window with a pane docked at its right.
+pub fn inspector(p: &Painter, r: Rect, c: Color32) {
+    let b = r.shrink(1.5);
+    let stroke = egui::Stroke::new(1.6, c);
+    p.rect_stroke(b, 2.5, stroke, egui::StrokeKind::Middle);
+    p.vline(b.max.x - b.width() * 0.36, b.y_range(), stroke);
+}
+
 pub fn hamburger(p: &Painter, r: Rect, c: Color32) {
     paint(p, Icon::Hamburger, r, c);
 }

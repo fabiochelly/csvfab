@@ -1,9 +1,9 @@
 //! The grid: drawn by hand, row by row, only what is on screen. Scrolling is
-//! kept as f64 pixels (`GridState::scroll`): 20 million rows of 35 px is 700
+//! kept as f64 pixels (`GridState::scroll`): 20 million rows of 32 px is 640
 //! million pixels, past what an f32 holds exactly (egui's ScrollArea would
 //! drift); the first row and its offset are derived from it each frame, the
 //! offset on a physical pixel. The look follows docs/look.md (the web app's,
-//! measured): stripes by record, pills, rich values (yes / no, colours, links,
+//! measured): stripes by record, category dots, rich values (yes / no, colours, links,
 //! JSON), colour scales and data bars, marks, search and find highlights,
 //! fill-by-example ghosts, groups of a sorted view, frozen columns.
 //!
@@ -26,7 +26,7 @@ use csvfab_engine::view::{Kind, SortKey};
 use csvfab_engine::{RowId, State};
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat, TextWrapping};
-use egui::{pos2, vec2, Align2, Color32, CornerRadius, CursorIcon, FontFamily, FontId, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{pos2, vec2, Align2, Color32, CursorIcon, FontFamily, FontId, Id, Key, Modifiers, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -105,6 +105,11 @@ pub struct GridState {
     pub notice: Option<String>,
     pub cursor: Option<Cell>,
     pub anchor: Option<Cell>,
+    /// The column in hand: the last title clicked or the cursor's. Faintly tinted; the
+    /// inspector follows it.
+    pub focus_col: Option<usize>,
+    /// The cursor's column last frame: a move of it brings `focus_col` along.
+    cursor_col: Option<usize>,
     pub editing: Option<Editing>,
     selecting: bool,
     /// The drag selecting started on a row number: whole rows.
@@ -211,6 +216,7 @@ pub enum Action {
     ToggleFilters,
     ToggleCharts,
     ToggleTotals,
+    ToggleInspector,
     FitWidth(usize),
     /// The column panel's Split / Merge / Convert buttons and the title's menu: open
     /// that tool on this column (the edit-tools agent's dialogs).
@@ -297,6 +303,7 @@ impl GridState {
         if self.peek.is_some_and(|(c, _)| c.col >= n) { self.peek = None; }
         if self.col_drag.is_some_and(|c| c >= n) { self.col_drag = None; }
         if self.focus_filter.is_some_and(|c| c >= n) { self.focus_filter = None; }
+        if self.focus_col.is_some_and(|c| c >= n) { self.focus_col = None; }
         self.frozen = self.frozen.min(n);
         self.hidden.retain(|&c| c < n);
         self.heat.retain(|&c, _| c < n);
@@ -317,7 +324,7 @@ impl GridState {
     }
 
     fn rh(&self) -> f32 {
-        if self.row_h > 0.0 { self.row_h } else { 35.0 }
+        if self.row_h > 0.0 { self.row_h } else { Metrics::default().row_h }
     }
 
     /// Column `c`'s width as laid out: 0 when hidden.
@@ -635,6 +642,7 @@ fn tip_box(ctx: &egui::Context, p: &Palette, m: &Metrics, anchor: Rect, text: &s
 /// Moves a column (the panel's ‹ ›, a title dragged), as one undo step; the view's settings
 /// tied to column positions follow it.
 pub fn move_column(tab: &mut Tab, from: usize, to: usize, ctx: &egui::Context) {
+    if tab.grid.focus_col == Some(from) { tab.grid.focus_col = Some(to); }
     let Some(t) = &mut tab.table else { return };
     let n = t.st.ncols;
     if from >= n || to >= n || from == to { return; }
@@ -713,7 +721,7 @@ pub fn fit_width(ctx: &egui::Context, st: &State, tab: &Tab, c: usize, m: &Metri
     let mut w = ctx.fonts_mut(|f| f.layout_no_wrap(title, semibold(m.font_header), Color32::WHITE).size().x) + 20.0 + BADGE_W + num_w(c) + 22.0;
     let cw = char_w(ctx, m);
     let n = tab.shown();
-    let extra = if tab.pills.get(c).is_some_and(|x| x.is_some()) { 4.0 } else if matches!(tab.rich.get(c), Some(Some(Rich::Color))) { 20.0 } else { 0.0 };
+    let extra = if tab.pills.get(c).is_some_and(|x| x.is_some()) { m.dot_d + 6.0 } else if matches!(tab.rich.get(c), Some(Some(Rich::Color))) { 20.0 } else { 0.0 };
     // Every row shown, as the web's (past 200 000, an even sample of them), counted on every
     // core: a long value far down the view counts too.
     use rayon::prelude::*;
@@ -769,6 +777,10 @@ struct Look<'a> {
     range: Option<(std::ops::RangeInclusive<usize>, std::ops::RangeInclusive<usize>)>,
     multi: bool,
     fill_target: Option<series::Rect>,
+    /// The column in hand and its faint tint.
+    tint: Option<(usize, Color32)>,
+    /// Number cells: the unit (€, $, %) dimmed.
+    units: bool,
     font: FontId,
     font_bold: FontId,
     pill_font: FontId,
@@ -1013,6 +1025,7 @@ impl Look<'_> {
                 if marked { q.add(inner, clip, p.mark_fill); }
                 if selected { q.add(inner, clip, p.sel_fill); }
             }
+            if let Some((_, t)) = self.tint.filter(|t| t.0 == c) { q.add(inner, clip, t); }
             // A value that differs within its duplicate group.
             if differs { q.add(inner, clip, p.danger_subtle); }
             if self.fill_target.is_some_and(|t| (t.r0..=t.r1).contains(&pos) && (t.c0..=t.c1).contains(&c)) {
@@ -1061,23 +1074,22 @@ impl Look<'_> {
             let pill = if syn.is_some() { None } else { self.pills.get(c).and_then(|x| x.as_ref()).and_then(|pl| pl.slot(s)) };
             let swatch = matches!(rich, Some(Rich::Color)) && rich.unwrap().holds(s);
             let link = matches!(rich, Some(Rich::Url | Rich::Email)) && rich.unwrap().holds(s);
-            let lead = if swatch { 30.0 } else { m.cell_pad_x };
-            let avail = (w - 1.0 - lead - m.cell_pad_x).max(1.0);
-            let max_w = if pill.is_some() { avail - 4.0 } else { avail };
+            let lead = if swatch { 30.0 } else if pill.is_some() { m.cell_pad_x + m.dot_d + 6.0 } else { m.cell_pad_x };
+            let max_w = (w - 1.0 - lead - m.cell_pad_x).max(1.0);
             // A text line: its tabs as spaces (as an editor shows them), long lines kept.
             let full = match syn {
                 Some(_) => { let (t, long) = crate::syntax::shown(s); cut |= long; t }
                 None => { let t = display(s); if t.len() != s.len() || s.contains('\n') { cut = true; } t }
             };
             // Only what can show is laid out: a grid glyph is `cw` wide (a fallback glyph at
-            // least half that), a pill's at least 2.5 — a long value costs a short one's.
+            // least half that), a category's at least 2.5 — a long value costs a short one's.
             let keep = (max_w / if pill.is_some() { 2.5 } else { self.cw * 0.5 }) as usize + 2;
             let text: &str = match full.char_indices().nth(keep) {
                 Some((b, _)) => { cut = true; &full[..b] }
                 None => &full,
             };
             let (mut color, mut font) = match (kind, pill) {
-                (_, Some(slot)) => (p.pill_colors(slot).0, 2u8),
+                (_, Some(_)) => (p.txt, 2u8),
                 (Kind::Number, _) if crate::theme::type_colors() => (p.num_txt, 0),
                 (Kind::Date, _) if crate::theme::type_colors() => (p.date_txt, 0),
                 (Kind::Text, _) if link => (p.accent_2, 0),
@@ -1137,22 +1149,33 @@ impl Look<'_> {
             if !reuse {
                 let plain = TextFormat::simple(f.clone(), color);
                 let mut job = LayoutJob::default();
+                // A number's unit dimmed, marks or not.
+                let unit = if self.units && kind == Kind::Number && pill.is_none() { unit_of(text) } else { None };
+                let dim = TextFormat { color: p.txt_dim, ..plain.clone() };
+                let put = |job: &mut LayoutJob, a: usize, b: usize| match unit {
+                    Some((ua, ub)) if a < ub && b > ua => {
+                        if a < ua { job.append(&text[a..ua], 0.0, plain.clone()); }
+                        job.append(&text[a.max(ua)..b.min(ub)], 0.0, dim.clone());
+                        if b > ub { job.append(&text[ub..b], 0.0, plain.clone()); }
+                    }
+                    _ => job.append(&text[a..b], 0.0, plain.clone()),
+                };
                 if let Some(g) = colored {
                     let mut marks: Vec<(usize, usize, bool)> = hits.iter().map(|&(a, b)| (a, b & !(1 << 63), b >> 63 == 1)).collect();
                     crate::syntax::append(&mut job, text, g, &mut marks, &plain, &self.font_bold, p);
                 } else if marks_key == 0 {
-                    job.append(text, 0.0, plain);
+                    put(&mut job, 0, text.len());
                 } else {
                     let mut marks: Vec<(usize, usize, bool)> = hits.iter().map(|&(a, b)| (a, b & !(1 << 63), b >> 63 == 1)).collect();
                     marks.sort_unstable();
                     let mut at = 0;
                     for &(a, b, fd) in &marks {
                         if a < at || b > text.len() { continue; }
-                        if a > at { job.append(&text[at..a], 0.0, plain.clone()); }
+                        if a > at { put(&mut job, at, a); }
                         job.append(&text[a..b], 0.0, TextFormat { background: if fd { p.find_bg } else { p.match_bg }, color: p.mark_txt, ..plain.clone() });
                         at = b;
                     }
-                    if at < text.len() { job.append(&text[at..], 0.0, plain); }
+                    if at < text.len() { put(&mut job, at, text.len()); }
                 }
                 job.wrap = TextWrapping { max_width: max_w, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
                 let g = pt.layout_job(job);
@@ -1166,10 +1189,10 @@ impl Look<'_> {
             let ty = self.snap(cy - g.size().y / 2.0);
             let tx = self.snap(if kind == Kind::Number && pill.is_none() { x + w - 1.0 - m.cell_pad_x - gw } else { x + lead });
             if let Some(slot) = pill {
-                let pr = Rect::from_min_size(pos2(self.snap(x + 3.0), self.snap(cy - m.pill_h / 2.0)), vec2(gw + 14.0, m.pill_h));
-                let c2 = p.pill_colors(slot).0;
-                pt.with_clip_rect(inner.intersect(clip)).rect_filled(pr, CornerRadius::same((m.pill_h / 2.0) as u8), alpha(c2, if lit { 0.32 } else { 0.17 }));
-                pt.galley(pos2(self.snap(x + 10.0), ty), g, color);
+                // A category: its colour in a dot, the text calm; lit by a chart, the dot grows.
+                let ctr = pos2(x + m.cell_pad_x + m.dot_d / 2.0, self.snap(cy) + 0.5 / self.ppp);
+                pt.with_clip_rect(inner.intersect(clip)).circle_filled(ctr, m.dot_d / 2.0 + if lit { 1.0 } else { 0.0 }, p.pill_colors(slot).0);
+                pt.galley(pos2(tx, ty), g, color);
             } else {
                 if swatch {
                     let ctr = pos2(x + 17.0, self.snap(cy) + 0.5 / self.ppp);
@@ -1205,6 +1228,19 @@ impl Look<'_> {
         }
         cut
     }
+}
+
+/// Where a number as written holds its unit (`12 €`, `$3`, `-€3`, `45 %`): its bytes, spaces aside.
+fn unit_of(s: &str) -> Option<(usize, usize)> {
+    const UNITS: &[char] = &['€', '$', '%', '£', '¥'];
+    let (first, last) = (s.find(|c: char| c.is_ascii_digit())?, s.rfind(|c: char| c.is_ascii_digit())?);
+    let tail = s[last + 1..].trim_start();
+    if tail.len() == tail.chars().next().map_or(0, char::len_utf8) && tail.starts_with(UNITS) {
+        return Some((s.len() - tail.len(), s.len()));
+    }
+    let head = s[..first].trim_end();
+    let a = head.find(UNITS)?;
+    (head[a..].chars().count() == 1).then_some((a, head.len()))
 }
 
 /// The text's baseline below its top, near enough (the font's ascent).
@@ -1538,6 +1574,11 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     tab.grid.xoff = tab.grid.xoff.clamp(0.0, (total_w - view_w).max(0.0));
     let page = ((body.height() / m.row_h).floor() as usize).max(1);
     tab.grid.page = page;
+    // Another density: the same row stays on top; what moved was drawn at the old height.
+    if tab.grid.row_h > 0.0 && tab.grid.row_h != m.row_h {
+        tab.grid.scroll *= (m.row_h / tab.grid.row_h) as f64;
+        tab.grid.motion = None;
+    }
     tab.grid.row_h = m.row_h;
     tab.grid.body_h = (full.max.y - sw - foot - y).max(1.0);
     let ppp = ctx.pixels_per_point();
@@ -1571,6 +1612,13 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     fling(ui, &mut tab.grid, ui.rect_contains_pointer(full), max_x, rows);
     shot_hooks(tab, &ctx, &resp, ncols);
     tab.grid.sync(rows, ppp);
+    // The column in hand follows the cursor (not a whole row's, which stands on the last column).
+    let cursor_col = tab.grid.cursor.map(|c| c.col);
+    if cursor_col != tab.grid.cursor_col {
+        tab.grid.cursor_col = cursor_col;
+        let rows_only = tab.grid.range().is_some_and(|(_, cs)| *cs.start() == 0 && cs.end() + 1 >= ncols && ncols > 1);
+        if !rows_only { tab.grid.focus_col = cursor_col.or(tab.grid.focus_col); }
+    }
     // The fill handle: the selection's bottom-right corner.
     let handle_rect = |g: &GridState| -> Option<Rect> {
         let (r, cs) = g.range()?;
@@ -1875,6 +1923,8 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             range,
             multi,
             fill_target: fill_target.map(|x| x.1),
+            tint: tabr.grid.focus_col.map(|c| (c, alpha(p.accent, 0.07))),
+            units: !raw,
             font: mono(m),
             font_bold: mono_bold(m.font_grid),
             pill_font: FontId::proportional(12.0),
@@ -1883,7 +1933,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             ctrl,
             syn: (st.base.dialect.lines && !raw).then(|| crate::syntax::lang_of(&tabr.name).g),
         };
-        let font = mono(m);
+        let num_font = FontId::monospace(12.0);
         let mut cx = CellCx { cells: &mut cells, flashed: &mut flashed, flashes: &flash_a, tmp: Vec::new(), hits: Vec::new(), hits2: Vec::new(), row: RowFields::default() };
         // The fields the columns on screen read, in record order.
         let mut want: Vec<(usize, usize)> = vis_scroll.iter().chain(vis_frz.iter()).filter_map(|v| match &st.cmap { None => Some((v.0, v.0)), Some(m) => m.get(v.0).filter(|&&f| f >= 0).map(|&f| (v.0, f as usize)) }).collect();
@@ -1962,15 +2012,16 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
                 }
                 None => {
                     // The number's galley is kept as the cells' (key: the column past the last).
-                    let look = TextLook { color: p.txt, font: 9, max_w: rec as u32, marks: base_row as u64 };
+                    let num_c = if selrow { p.accent_2 } else { p.txt_dim };
+                    let look = TextLook { color: num_c, font: 9, max_w: rec as u32, marks: base_row as u64 };
                     let e = cx.cells.map.entry((id, u32::MAX)).or_insert(CellG { src: 0, look, galley: None, cut: false, seen: 0, hl: 0 });
                     e.seen = cx.cells.frame;
                     if e.look != look || e.galley.is_none() {
                         e.look = look;
-                        e.galley = Some(pb.layout_no_wrap(if base_row { fmt_int(rec) } else { "+".into() }, font.clone(), p.txt));
+                        e.galley = Some(pb.layout_no_wrap(if base_row { fmt_int(rec) } else { "+".into() }, num_font.clone(), num_c));
                     }
                     let ng = e.galley.clone().unwrap();
-                    pb.galley(pos2(lk.snap(gr.center().x - ng.size().x / 2.0), lk.snap(ry + (m.row_h - 1.0 - ng.size().y) / 2.0)), ng, p.txt);
+                    pb.galley(pos2(lk.snap(gr.center().x - ng.size().x / 2.0), lk.snap(ry + (m.row_h - 1.0 - ng.size().y) / 2.0)), ng, num_c);
                 }
             }
             hover_cut
@@ -2667,11 +2718,12 @@ fn editor(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, body:
     }
 }
 
-/// The bands' fills over `clip`: titles `surf`, charts a gradient, filters `filter_bg`.
+/// The bands' fills over `clip`: titles `surf`, then the charts' gradient (one block with the
+/// titles), filters `filter_bg`.
 fn band_fills(pt: &egui::Painter, band: &Band, p: &Palette) {
     pt.rect_filled(band.head, 0.0, p.surf);
     if let Some(r) = band.charts {
-        // Vertical gradient surf → spk_bottom, a faint line at its top.
+        // Vertical gradient surf → spk_bottom.
         let mut mesh = egui::Mesh::default();
         mesh.colored_vertex(r.left_top(), p.surf);
         mesh.colored_vertex(r.right_top(), p.surf);
@@ -2680,7 +2732,6 @@ fn band_fills(pt: &egui::Painter, band: &Band, p: &Palette) {
         mesh.add_triangle(0, 1, 2);
         mesh.add_triangle(0, 2, 3);
         pt.add(egui::Shape::mesh(mesh));
-        pt.hline(r.x_range(), r.min.y + 0.5, Stroke::new(1.0, alpha(p.hi, 0.03)));
     }
     if let Some(r) = band.filt { pt.rect_filled(r, 0.0, p.filter_bg); }
 }
@@ -2785,7 +2836,8 @@ fn header(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, band:
         if b.hovered() { tip(&ctx, p, m, ir, "Hide the filter row (its filters are cleared)"); }
         if b.clicked() { actions.push(Action::ToggleFilters); }
     }
-    for yy in [Some(band.head.max.y), band.charts.map(|r| r.max.y), band.filt.map(|r| r.max.y)].into_iter().flatten() {
+    // Titles and charts are one block: no rule between them.
+    for yy in [Some(band.head.max.y).filter(|_| band.charts.is_none()), band.charts.map(|r| r.max.y), band.filt.map(|r| r.max.y)].into_iter().flatten() {
         painter.hline(full.min.x..=all.max.x, yy - 0.5, Stroke::new(1.0, p.brd));
     }
 }
@@ -2823,6 +2875,10 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
     let hr = Rect::from_min_size(pos2(x, band.head.min.y), vec2(w, m.header_h));
     let hclip = ph.with_clip_rect(hr.intersect(clip));
     let hresp = ui.interact(hr.intersect(clip), ui.scope_id().with(("head", c)), Sense::click_and_drag());
+    if tab.grid.focus_col == Some(c) {
+        let top = band.charts.unwrap_or(band.head).max.y;
+        ph.rect_filled(Rect::from_min_max(hr.min, pos2(hr.max.x - 1.0, top - 1.0)), 0.0, alpha(p.accent, 0.07));
+    }
     let cy = hr.center().y - 0.5;
     let sort_pos = tab.sort.iter().position(|k| k.col == c);
     let title = heads.get(c).cloned().unwrap_or_default();
@@ -2945,6 +3001,7 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
         // In the title itself (as the web's); a file without titles asks first (one is added).
         if st.header { tab.grid.renaming = Some((c, title.clone(), false)); } else { actions.push(Action::RenameColumn(c)); }
     } else if hresp.clicked() && !on_menu(hresp.interact_pointer_pos()) {
+        tab.grid.focus_col = Some(c);
         tab.grid.pre_click_sort = Some((c, tab.sort.clone()));
         let shift = ui.input(|i| i.modifiers.shift);
         let mut s = tab.sort.clone();
@@ -3375,11 +3432,13 @@ fn magnifier(ctx: &egui::Context, tab: &Tab, corner: Rect, heads: &[String], wid
 fn strip_marks(tab: &mut Tab, st: &State, painter: &egui::Painter, ctx: &egui::Context, vtrack: Rect, track: Rect, g: &look::StripGeom, rows: usize, p: &Palette) {
     let view_key = tab.view.as_ref().map_or(0, |v| Arc::as_ptr(v) as usize);
     let h = track.height().round() as u32;
+    // The pictures' size in their keys, with the row height: few rows stand where they are drawn.
+    let size = h | (g.row_h as u32) << 20;
     let view = tab.view.clone();
     // Irregular rows, duplicate groups and marked rows (as the web's strip: warn, violet, orange).
     let marked = !tab.marks.rows.is_empty() || tab.marks.dups.is_some();
     if !st.base.odd.is_empty() || marked {
-        let key = (view_key, rows, tab.generation, Arc::as_ptr(&tab.marks) as usize, h);
+        let key = (view_key, rows, tab.generation, Arc::as_ptr(&tab.marks) as usize, size);
         if let Some((j, k)) = &mut tab.grid.marks_job {
             if let Some(r) = j.poll() {
                 let k = *k;
@@ -3409,7 +3468,7 @@ fn strip_marks(tab: &mut Tab, st: &State, painter: &egui::Painter, ctx: &egui::C
     }
     // The find's matches: ticks on the right edge.
     if tab.find.open && !tab.find.matches.is_empty() {
-        let key = (Arc::as_ptr(&tab.find.matches) as usize, rows, h);
+        let key = (Arc::as_ptr(&tab.find.matches) as usize, rows, size);
         if tab.grid.find_pic.as_ref().is_none_or(|x| x.key != key) {
             let mut v = vec![0u32; h as usize + 2];
             for &(pos, _) in tab.find.matches.iter() {
@@ -3427,7 +3486,7 @@ fn strip_marks(tab: &mut Tab, st: &State, painter: &egui::Painter, ctx: &egui::C
     // The rows the chart part under the pointer holds.
     match (tab.spark.lit, tab.spark.base.clone()) {
         (Some((col, pick)), Some(spark)) if col < spark.cols.len() => {
-            let key = (col, format!("{pick:?}"), view_key ^ rows, h);
+            let key = (col, format!("{pick:?}"), view_key ^ rows, size);
             if let Some((j, k)) = &mut tab.grid.glow_job {
                 if let Some(r) = j.poll() {
                     let k = k.clone();
@@ -3621,6 +3680,20 @@ fn cell_menu(ui: &mut Ui, tab: &mut Tab, st: &State, c: Cell, heads: &[String], 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_numbers_unit_is_found() {
+        let at = |s: &'static str| super::unit_of(s).map(|(a, b)| &s[a..b]);
+        assert_eq!(at("12 €"), Some("€"));
+        assert_eq!(at("1 234,50 €"), Some("€"));
+        assert_eq!(at("3$"), Some("$"));
+        assert_eq!(at("$3"), Some("$"));
+        assert_eq!(at("-€ 3"), Some("€"));
+        assert_eq!(at("45 %"), Some("%"));
+        assert_eq!(at("12"), None);
+        assert_eq!(at("1.5e3"), None);
+        assert_eq!(at("12 km"), None);
+    }
+
     use super::*;
 
     #[test]

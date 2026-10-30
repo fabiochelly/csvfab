@@ -74,6 +74,7 @@ Nothing else is needed: csvfab is one program (Linux x86-64 with glibc 2.35 or n
 csvfab                  # open the window
 csvfab data.csv more.tsv
 csvfab export.xlsx      # converted to export.csv beside it, which is what opens
+csvfab data.parquet     # the same for Parquet
 csvfab server.log app.py  # not a table: opened as raw text, one line per row, coloured
 csvfab data.sqlite        # a table of a SQLite database, as a CSV beside it
 ```

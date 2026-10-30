@@ -47,7 +47,7 @@ pub struct Insights {
 impl Insights {
     pub fn new(tab: &crate::tab::Tab) -> Insights {
         let version = tab.table.as_ref().map_or(0, |t| t.version());
-        let cached = cache().lock().ok().and_then(|c| c.as_ref().filter(|c| c.0 == tab.uid && c.1 == version).map(|c| c.2.clone()));
+        let cached = kept(tab.uid, version);
         let start = if cached.is_none() { tab.st().cloned() } else { None };
         Insights { start, job: None, report: cached, show: None, version, shown_at: -1.0 }
     }
@@ -80,7 +80,7 @@ impl Tool for Insights {
             match r {
                 Some(r) => {
                     let r = Arc::new(r);
-                    if let Ok(mut c) = cache().lock() { *c = Some((cx.tab.uid, self.version, r.clone())); }
+                    keep(cx.tab.uid, self.version, r.clone());
                     self.report = Some(r);
                 }
                 None => return false,
@@ -183,14 +183,30 @@ impl Tool for Insights {
 
 /// The marked rows shown alone; each cell at fault says what was expected there.
 fn show_marks(cx: &mut Cx, m: eng::Marks) {
+    let said = mark_rows(cx.tab, m, cx.ctx);
+    cx.toast(said);
+}
+
+/// The rows of a card (`marks`) marked and shown alone; what to tell of it. Also the inspector's.
+pub(crate) fn mark_rows(tab: &mut crate::tab::Tab, m: eng::Marks, ctx: &egui::Context) -> String {
     let n = m.rows.len();
     let marks = to_marks(&m);
-    cx.tab.marks = Arc::new(Marks { dups: cx.tab.marks.dups.clone(), ..marks });
+    tab.marks = Arc::new(Marks { dups: tab.marks.dups.clone(), ..marks });
     let label = format!("{} {}", kit::plural(n, "row", "rows"), m.label);
-    cx.tab.restrict_to(label.clone(), m.rows, cx.ctx);
+    tab.restrict_to(label.clone(), m.rows, ctx);
     // The ◆ chip counts the rows itself: its label is what they are, as written.
-    cx.tab.marks_label = m.label.clone();
-    cx.toast(format!("{label} — shown alone; the chip shows every row again."));
+    tab.marks_label = m.label.clone();
+    format!("{label} — shown alone; the chip shows every row again.")
+}
+
+/// The report kept for this tab and table version, if there is one.
+pub(crate) fn kept(uid: u64, version: u64) -> Option<Arc<Report>> {
+    cache().lock().ok().and_then(|c| c.as_ref().filter(|c| c.0 == uid && c.1 == version).map(|c| c.2.clone()))
+}
+
+/// Keeps a report made elsewhere (the inspector's): the dialog opens on it at once.
+pub(crate) fn keep(uid: u64, version: u64, r: Arc<Report>) {
+    if let Ok(mut c) = cache().lock() { *c = Some((uid, version, r)); }
 }
 
 /// The engine's marks as the grid's: rows, and (row, column) → the tooltip "Expected: 75011".

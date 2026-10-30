@@ -1,4 +1,4 @@
-//! The column charts band under the titles (docs/look.md, "Column charts band"):
+//! The column charts under the titles, one block with them (docs/look.md, "Column charts"):
 //! a density curve and fill gauge for numbers and dates, a ribbon of the most
 //! frequent values for text; the rows shown drawn over the whole file's.
 //!
@@ -179,7 +179,7 @@ pub fn gutter_tip(tab: &Tab) -> String {
 }
 
 /// `26 %`, `0,4 %`: one decimal under 10 %.
-fn pct(x: f64) -> String {
+pub(crate) fn pct(x: f64) -> String {
     let v = x * 100.0;
     if x < 0.1 {
         let r = (v * 10.0).round() / 10.0;
@@ -315,22 +315,22 @@ fn draw_counts(pt: &Painter, cnt: &[u32], r: Rect, kc: Color32, op: f32, rise: f
     }
 }
 
-/// Part `x0..x1` of a 6 px bar with rounded ends (rounded only at the bar's own ends).
+/// Part `x0..x1` of a 4 px bar with rounded ends (rounded only at the bar's own ends).
 fn bar_part(pt: &Painter, bar: Rect, x0: f32, x1: f32, c: Color32) {
     if x1 - x0 <= 0.0 {
         return;
     }
     let (first, last) = (x0 <= bar.min.x + 0.01, x1 >= bar.max.x - 0.01);
-    let r = |on: bool| if on { 3 } else { 0 };
+    let r = |on: bool| if on { 2 } else { 0 };
     pt.rect_filled(Rect::from_x_y_ranges(x0..=x1, bar.y_range()), CornerRadius { nw: r(first), sw: r(first), ne: r(last), se: r(last) }, c);
 }
 
 /// What the pointer is on in a column's box: the pick and its span in px from the box's left.
-fn part_at(spark: &Spark, f: Option<&SparkF>, col: usize, bx: Rect, pos: Pos2) -> Option<(Pick, f32, f32)> {
+fn part_at(spark: &Spark, f: Option<&SparkF>, col: usize, bx: Rect, gauge_h: f32, pos: Pos2) -> Option<(Pick, f32, f32)> {
     let w = bx.width();
     let x = (pos.x - bx.min.x).min(w - 0.01).max(0.0);
     let c = spark.cols.get(col)?;
-    let gauge = !matches!(c, Col::Ribbon(_)) && pos.y > bx.max.y - 10.0;
+    let gauge = !matches!(c, Col::Ribbon(_)) && pos.y > bx.max.y - gauge_h - 3.0;
     if gauge || matches!(c, Col::Empty { .. }) {
         let fill = spark.fill(col, f);
         let split = sp::gauge_split(fill, w as f64) as f32;
@@ -455,6 +455,27 @@ fn decide(tab: &mut Tab, col: usize, pick: Pick, spark: Arc<Spark>, some: bool, 
     tab.grid.notice = Some(format!("{title}: only {what} — click it again to show all."));
 }
 
+/// A click on values listed outside the charts (the inspector's): the value filter a part's
+/// click sets, on `values` as written, and said the same way; on the values already kept, the
+/// column shown whole again.
+pub fn pick_values(tab: &mut Tab, col: usize, values: Arc<std::collections::HashSet<String>>, what: &str, ctx: &egui::Context) {
+    let title = tab.st().and_then(|st| st.headers().get(col).cloned()).unwrap_or_default();
+    tab.spark.picks.remove(&col);
+    tab.spark.check = None;
+    if values_kept(tab, col, &values) {
+        tab.keep_values(col, None, ctx);
+        tab.grid.notice = Some(format!("{title}: every value shown again."));
+        return;
+    }
+    tab.keep_values(col, Some(Keeps::Values(values)), ctx);
+    tab.grid.notice = Some(format!("{title}: only {what} — click it again to show all."));
+}
+
+/// Whether the value filter of `col` keeps exactly `values`.
+pub fn values_kept(tab: &Tab, col: usize, values: &std::collections::HashSet<String>) -> bool {
+    tab.filter.picks.iter().any(|v| v.col == col && matches!(&v.keep, Keeps::Values(s) if s.len() == values.len() && s.iter().all(|x| values.contains(x))))
+}
+
 /// Draws the band's columns `(col, x, width)` inside `clip` (the part right of the gutter,
 /// or of the frozen columns). A click or drag on a chart filters.
 #[allow(clippy::too_many_arguments)]
@@ -473,7 +494,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
     let reduced = ctx.global_style().animation_time <= 0.0;
     for (vi, &(c, x, w)) in vis_cols.iter().enumerate() {
         let Some(col) = spark.cols.get(c) else { continue };
-        let bx = Rect::from_min_size(pos2(x + m.cell_pad_x, band.min.y + 9.0), vec2((w - 2.0 * m.cell_pad_x - 1.0).max(0.0), m.spk_box_h));
+        let bx = Rect::from_min_size(pos2(x + m.cell_pad_x, band.min.y + 1.0), vec2((w - 2.0 * m.cell_pad_x - 1.0).max(0.0), m.spk_box_h));
         if bx.width() < 4.0 || bx.max.x < clip.min.x {
             continue;
         }
@@ -491,7 +512,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
         let fc = f.as_deref().and_then(|f| f.cols.get(c));
         let resp = ui.interact(bx.intersect(clip), ui.scope_id().with(("spk", c)), Sense::click_and_drag());
         // Not through a menu or a dialog over the band: egui's own hit test, layers and all.
-        let hov = pointer.filter(|q| resp.contains_pointer() && resp.rect.contains(*q)).and_then(|q| part_at(&spark, f.as_deref(), c, bx, q));
+        let hov = pointer.filter(|q| resp.contains_pointer() && resp.rect.contains(*q)).and_then(|q| part_at(&spark, f.as_deref(), c, bx, m.spk_gauge_h, q));
         // A drag across the bars: the range so far.
         let brush = tab.spark.brush.filter(|b| b.0 == c);
         let shown_part = match (brush, col) {
@@ -505,12 +526,12 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
         let lit = shown_part.filter(|x| x.2 > x.1);
         if let Some(l) = lit { tab.spark.lit_next = Some((c, l.0)); }
         let gauge_hov = matches!(lit, Some((Pick::Filled | Pick::Empty, ..))) && !matches!(col, Col::Ribbon(_));
-        let cr = Rect::from_min_max(pos2(bx.min.x, bx.min.y + 1.0), pos2(bx.max.x, bx.max.y - 13.0));
+        let cr = Rect::from_min_max(bx.min, pos2(bx.max.x, bx.max.y - m.spk_gauge_h - 3.0));
         // The bars picked by a click, while their filter is the one in force.
         if let (Some(pk), Col::Curve(cv)) = (tab.spark.picks.get(&c), col) {
             if let (Pick::Bars(a, z), true) = (pk.pick, in_force(tab, c, pk)) {
                 let sw = bx.width() / cv.bins.n as f32;
-                pt.rect_filled(Rect::from_x_y_ranges(bx.min.x + a as f32 * sw..=bx.min.x + (z + 1) as f32 * sw, bx.min.y..=bx.max.y - 14.0), 0.0, alpha(p.prim, 0.2));
+                pt.rect_filled(Rect::from_x_y_ranges(bx.min.x + a as f32 * sw..=bx.min.x + (z + 1) as f32 * sw, cr.y_range()), 0.0, alpha(p.prim, 0.2));
             }
         }
         match col {
@@ -550,7 +571,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
                     let end = (bx.min.x + ends[k] as f32).min(full);
                     if end > start {
                         let (first, last) = (k == 0, k + 1 == parts.len());
-                        let r = |on: bool| if on { 3 } else { 0 };
+                        let r = |on: bool| if on { 2 } else { 0 };
                         let cr = CornerRadius { nw: r(first), sw: r(first), ne: r(last), se: r(last) };
                         pt.rect_filled(Rect::from_x_y_ranges(start..=end, rb.y_range()), cr, color(*part).gamma_multiply(op));
                     }
@@ -561,7 +582,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
                     let a = bx.min.x + x0 + if x0 > 0.01 { 2.0 } else { 0.0 };
                     bar_part(&pt, rb, a, bx.min.x + x1, c2);
                 }
-                ribbon_label(&pt, &spark, f.as_deref(), c, bx, p, &label_font, rise);
+                ribbon_label(&pt, &spark, f.as_deref(), c, bx, m.spk_gauge_h, p, &label_font, rise);
             }
             Col::Empty { .. } => {}
         }
@@ -571,9 +592,9 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
             let fill = spark.fill(c, f.as_deref());
             let split = g.min.x + sp::gauge_split(fill, g.width() as f64) as f32;
             let gw = g.min.x + g.width() * rise;
-            pt.with_clip_rect(Rect::from_x_y_ranges(g.min.x..=gw, g.y_range()).intersect(clip)).rect_filled(g, 3.0, p.gauge_empty);
+            pt.with_clip_rect(Rect::from_x_y_ranges(g.min.x..=gw, g.y_range()).intersect(clip)).rect_filled(g, 2.0, p.gauge_empty);
             if split > g.min.x {
-                pt.with_clip_rect(Rect::from_x_y_ranges(g.min.x..=split.min(gw), g.y_range()).intersect(clip)).rect_filled(g, 3.0, p.gauge_fill);
+                pt.with_clip_rect(Rect::from_x_y_ranges(g.min.x..=split.min(gw), g.y_range()).intersect(clip)).rect_filled(g, 2.0, p.gauge_fill);
             }
             if let (Some((pk, x0, x1)), true) = (lit, gauge_hov) {
                 bar_part(&pt, g, g.min.x + x0, g.min.x + x1, if pk == Pick::Filled { p.ok } else { alpha(p.gray_hi, 0.55) });
@@ -610,15 +631,15 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
     }
 }
 
-/// A text column's label above its ribbon: its most frequent value and share, or how many
-/// values and how full.
+/// A text column's label above its ribbon, one line: its most frequent value and share, or
+/// how many values and how full (less of it as the column narrows).
 #[allow(clippy::too_many_arguments)]
-fn ribbon_label(pt: &Painter, spark: &Spark, f: Option<&SparkF>, col: usize, bx: Rect, p: &Palette, font: &FontId, rise: f32) {
+fn ribbon_label(pt: &Painter, spark: &Spark, f: Option<&SparkF>, col: usize, bx: Rect, gauge_h: f32, p: &Palette, font: &FontId, rise: f32) {
     let Col::Ribbon(r) = &spark.cols[col] else { return };
     let fill = f.and_then(|f| f.cols.get(col)).map_or(r.fill, |x| x.fill());
     let op = ((rise - 0.2) / 0.8).clamp(0.0, 1.0);
-    let base_y = bx.max.y - 12.0;
     let w = bx.width();
+    let cy = (bx.min.y + bx.max.y - gauge_h - 2.0) / 2.0;
     let s_rows = f.map_or(spark.s, |f| f.s).max(1) as f64;
     let ppp = pt.ctx().pixels_per_point();
     let snap = |v: f32| (v * ppp).round() / ppp;
@@ -629,7 +650,7 @@ fn ribbon_label(pt: &Painter, spark: &Spark, f: Option<&SparkF>, col: usize, bx:
     };
     if fill == 0 {
         let g = line("empty".into(), font.clone(), p.txt_faint, w);
-        pt.galley(pos2(bx.min.x, snap(base_y - 7.5 - g.size().y / 2.0)), g, p.txt_faint);
+        pt.galley(pos2(bx.min.x, snap(cy - g.size().y / 2.0)), g, p.txt_faint);
         return;
     }
     if let Some(top) = spark.top(col, f) {
@@ -637,7 +658,6 @@ fn ribbon_label(pt: &Painter, spark: &Spark, f: Option<&SparkF>, col: usize, bx:
             Some(ColF::Ribbon { seg, .. }) => seg[top] as usize,
             _ => r.segs[top].1 as usize,
         };
-        let cy = base_y - 7.5;
         pt.circle_filled(pos2(bx.min.x + 3.0, cy + 0.5), 3.0, p.pill.get(top).copied().unwrap_or(p.pill_other).gamma_multiply(op));
         let g = line(grid::display(r.segs[top].0.trim()).into_owned(), grid::semibold(11.5), p.txt_hi, w * 0.7 - 11.0);
         let gx = bx.min.x + 11.0;
@@ -647,13 +667,20 @@ fn ribbon_label(pt: &Painter, spark: &Spark, f: Option<&SparkF>, col: usize, bx:
         pt.galley(pos2(gx + gw + 5.0, snap(cy - g2.size().y / 2.0)), g2, p.txt_faint);
         return;
     }
-    // No value stands out: how many values, how full, on two lines.
-    let small = FontId::new(10.0, egui::FontFamily::Name(crate::fonts::UI_MEDIUM.into()));
+    // No value stands out: how many values · how full; "filled", then the share, give way.
+    let small = FontId::new(10.5, egui::FontFamily::Name(crate::fonts::UI_MEDIUM.into()));
     let distinct = if r.distinct == r.fill && !spark.sampled { "all distinct".to_string() } else { format!("{}{} values", grid::fmt_int(r.distinct), if r.many || spark.sampled { "+" } else { "" }) };
-    let g1 = line(distinct, small.clone(), p.txt_sub, w);
-    let g2 = line(format!("{} filled", pct(fill as f64 / s_rows)), small, alpha(p.ok_rgb, 0.85), w);
-    pt.galley(pos2(bx.min.x, snap(base_y - 12.0 - 2.0 - 6.0 - g1.size().y / 2.0)), g1, p.txt_sub);
-    pt.galley(pos2(bx.min.x, snap(base_y - 6.0 - g2.size().y / 2.0)), g2, p.txt_sub);
+    let share = pct(fill as f64 / s_rows);
+    let (c1, c2) = (p.txt_sub, alpha(p.ok_rgb, 0.85));
+    let g1 = line(distinct, small.clone(), c1, w);
+    let x2 = bx.min.x + g1.size().x + 12.0;
+    let y1 = snap(cy - g1.size().y / 2.0);
+    let g2 = [format!("{share} filled"), share].into_iter().map(|t| line(t, small.clone(), c2, w)).find(|g| x2 + g.size().x <= bx.max.x);
+    if let Some(g2) = g2 {
+        pt.circle_filled(pos2(x2 - 6.0, cy + 0.5), 1.0, c1.gamma_multiply(op));
+        pt.galley(pos2(x2, y1), g2, c2);
+    }
+    pt.galley(pos2(bx.min.x, y1), g1, c1);
 }
 
 #[cfg(test)]

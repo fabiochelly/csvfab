@@ -693,7 +693,7 @@ impl Bench {
                 self.command("Save as Excel workbook")?;
                 self.until("save dialog", |h| has_text(h, |t| t.starts_with("Writes the workbook")))?;
                 self.quiesce();
-                // The dialog's button: the lowest "Save" on screen (the title and the toolbar's are above).
+                // The dialog's button: the lowest "Save" on screen (the title and the band's are above).
                 let r = texts(&self.h).into_iter().filter(|(t, _)| t == "Save").max_by(|a, b| a.1.min.y.total_cmp(&b.1.min.y)).map(|x| x.1).ok_or("no Save button")?;
                 let p = r.center();
                 self.press(p);
@@ -919,6 +919,46 @@ impl Bench {
                 self.frame();
                 let ms = |x: f64| format!("{x:.2}");
                 Ok((Duration::from_secs_f64(view_max.max(sort_max) / 1e3), obj(&[("view_med", ms(view_med)), ("view_max", ms(view_max)), ("sorted_med", ms(sort_med)), ("sorted_max", ms(sort_max))])))
+            }
+            "scroll_frames" => {
+                // The grid's paint path alone: 9000 px a frame, every row new, at each density.
+                let mut all = Vec::new();
+                for d in 0..csvfab::theme::DENSITIES.len() {
+                    self.app().m.set_density(d);
+                    let mut v: Vec<f64> = (0..240).map(|_| {
+                        self.tab().grid.scroll += 9000.0;
+                        let t = Instant::now();
+                        self.frame();
+                        t.elapsed().as_secs_f64() * 1e3
+                    }).skip(20).collect();
+                    v.sort_by(f64::total_cmp);
+                    all.push((csvfab::theme::DENSITIES[d].0.to_lowercase(), format!("\"{:.2} / {:.2}\"", v[v.len() / 2], v[v.len() - 1])));
+                }
+                self.app().m.set_density(csvfab::theme::DEFAULT_DENSITY);
+                let med = all.iter().map(|x| (x.0.as_str(), x.1.clone())).collect::<Vec<_>>();
+                Ok((Duration::ZERO, obj(&med)))
+            }
+            "inspector" => {
+                // Opened on a text column, then column after column (each rested on long enough
+                // to count): the longest frame says whether a count ever holds one up.
+                let n = self.tab().st().map_or(0, |s| s.ncols);
+                let t0 = self.mark(op);
+                self.timed(|b| b.app().toggle_inspector());
+                self.frame();
+                for c in 0..n.min(8) {
+                    self.tab().grid.focus_col = Some(c);
+                    self.frame();
+                    let start = Instant::now();
+                    while start.elapsed() < Duration::from_millis(400) { self.frame(); std::thread::sleep(Duration::from_millis(8)); }
+                }
+                self.until(op, |h| h.state().tabs[0].inspector.as_ref().is_some_and(|i| i.settled()))?;
+                // Rested on the first column to the end of its count (an id: as many values as rows).
+                self.tab().grid.focus_col = Some(0);
+                self.frame();
+                self.until(op, |h| h.state().tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()))?;
+                let d = t0.elapsed();
+                self.timed(|b| b.app().toggle_inspector());
+                Ok((d, obj(&[("columns", n.min(8).to_string())])))
             }
             _ => Err(format!("unknown op {op}")),
         }

@@ -22,6 +22,12 @@ pub fn open_by(cx: &mut Cx, col: usize) {
     if let Some(t) = SplitFiles::new(cx, Some(col)) { cx.out.push(Cmd::Tool(Box::new(t))) }
 }
 
+/// How many columns the files would hold.
+#[cfg(test)]
+pub fn columns_written(cx: &mut Cx) -> Option<usize> {
+    SplitFiles::new(cx, Some(0)).map(|s| s.out.ncols)
+}
+
 enum Stage {
     Form,
     Picking(Job<Option<PathBuf>>),
@@ -36,6 +42,8 @@ static LAST: std::sync::Mutex<Option<std::collections::HashMap<u64, (usize, usiz
 struct SplitFiles {
     uid: u64,
     st: State,
+    /// `st` without the hidden columns.
+    out: State,
     rows: Arc<Vec<RowId>>,
     filtered: bool,
     col: usize,
@@ -49,12 +57,14 @@ impl SplitFiles {
     fn new(cx: &mut Cx, col: Option<usize>) -> Option<SplitFiles> {
         let st = cx.tab.st()?.clone();
         if st.ncols == 0 { return None; }
+        // What the files hold: the columns shown. The split itself may be on a hidden one.
+        let out = cx.tab.export_st()?;
         let rows = cx.tab.shown_ids();
         // A column of categories: the first with 2 to 50 values (unless one is asked for).
         let last = LAST.lock().ok().and_then(|m| m.as_ref()?.get(&cx.tab.uid).copied()).filter(|l| l.0 == st.ncols && l.1 < st.ncols);
         let col = col.filter(|&c| c < st.ncols).or(last.map(|l| l.1)).unwrap_or_else(|| split::guess_column(&st, &rows));
         let how = last.map_or(Match::Exact, |l| l.2);
-        let mut s = SplitFiles { uid: cx.tab.uid, st, rows, filtered: cx.tab.filtered(), col, how, counting: None, groups: None, stage: Stage::Form };
+        let mut s = SplitFiles { uid: cx.tab.uid, st, out, rows, filtered: cx.tab.filtered(), col, how, counting: None, groups: None, stage: Stage::Form };
         s.count(cx);
         Some(s)
     }
@@ -71,7 +81,7 @@ impl SplitFiles {
 
     fn write(&mut self, parent: PathBuf, cx: &mut Cx) {
         let Some(groups) = self.groups.clone() else { return };
-        let (st, folder) = (self.st.clone(), self.folder(cx));
+        let (st, folder) = (self.out.clone(), self.folder(cx));
         let total = self.rows.len();
         let job = Job::spawn(cx.ctx, move |cancel, progress| split::write(&st, &groups, &parent, &folder, cancel, Some(progress)));
         self.stage = Stage::Writing(job, self.st.headers()[self.col].clone(), total);

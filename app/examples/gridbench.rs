@@ -56,7 +56,7 @@ fn main() {
             tick(&mut h);
             worst = worst.max(a.elapsed().as_secs_f64() * 1e3);
         }
-        println!("flick of 12 notches: {:.0} px ({:.0} rows) in {:.0} ms, worst frame {worst:.2} ms", scroll(&h) - s1, (scroll(&h) - s1) / 35.0, t.elapsed().as_secs_f64() * 1e3);
+        println!("flick of 12 notches: {:.0} px ({:.0} rows) in {:.0} ms, worst frame {worst:.2} ms", scroll(&h) - s1, (scroll(&h) - s1) / h.state().m.row_h as f64, t.elapsed().as_secs_f64() * 1e3);
         return;
     }
     let (mut run, mut tess, mut shapes, mut verts) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());

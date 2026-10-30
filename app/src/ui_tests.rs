@@ -70,7 +70,7 @@ fn column_settings_follow_inserts_and_undo() {
 #[test]
 fn rows_selected_by_dragging_their_numbers() {
     let (mut h, dir) = app_on("n,v\n1,a\n2,b\n3,c\n4,d\n5,e\n", "dragsel");
-    let (gx, rh, y1) = (30.0, 35.0, 230.0);
+    let (gx, rh, y1) = (30.0, 32.0, 159.0);
     h.hover_at(egui::pos2(gx, y1));
     h.run_steps(2);
     h.event(Event::PointerButton { pos: egui::pos2(gx, y1), button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
@@ -93,9 +93,9 @@ fn rows_selected_by_dragging_their_numbers() {
 #[test]
 fn row_dragged_by_its_number() {
     let (mut h, dir) = app_on("n,v\n1,a\n2,b\n3,c\n4,d\n5,e\n", "drag");
-    let (gx, rh) = (30.0, 35.0);
+    let (gx, rh) = (30.0, 32.0);
     // The first row's middle, as the renders show it at this size.
-    let y1 = 230.0;
+    let y1 = 159.0;
     h.hover_at(egui::pos2(gx, y1));
     h.run_steps(2);
     // Selected first (a click on its number): a drag then moves it, as in Excel.
@@ -139,26 +139,26 @@ fn band_not_hovered_through_a_menu() {
     for _ in 0..200 {
         h.run_steps(1);
         if h.state().tabs[0].spark.lit.is_some() { break; }
-        h.hover_at(egui::pos2(150.0, 145.0));
+        h.hover_at(egui::pos2(150.0, 95.0));
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(h.state().tabs[0].spark.lit.is_some(), "the band is lit when nothing covers it");
-    h.hover_at(egui::pos2(380.0, 145.0));
+    h.hover_at(egui::pos2(380.0, 95.0));
     h.run_steps(3);
     assert!(h.state().tabs[0].spark.lit.is_some_and(|l| l.0 == 2), "the third column's band is lit");
     // The columns manager's button, top of the gutter: a click opens its menu.
-    let at = egui::pos2(45.0, 105.0);
+    let at = egui::pos2(45.0, 62.0);
     h.hover_at(at);
     h.run_steps(1);
     h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
     h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
     h.run_steps(3);
     assert!(egui::Popup::is_any_open(&h.ctx), "the columns menu opened");
-    h.hover_at(egui::pos2(150.0, 146.0));
+    h.hover_at(egui::pos2(150.0, 96.0));
     h.run_steps(6);
     assert!(h.state().tabs[0].spark.lit.is_none(), "lit through the columns menu");
     // Beside the menu, on the band still in view: nothing either while it is open.
-    h.hover_at(egui::pos2(380.0, 146.0));
+    h.hover_at(egui::pos2(380.0, 96.0));
     h.run_steps(4);
     assert!(h.state().tabs[0].spark.lit.is_none(), "lit beside the columns menu");
     let _ = std::fs::remove_dir_all(&dir);
@@ -471,7 +471,7 @@ fn text_field_menu() {
     let (mut h, dir) = app_on("n,v\n1,a\n2,b\n", "fieldmenu");
     h.state_mut().tabs[0].filter.global = "abc".into();
     h.run_steps(2);
-    let at = egui::pos2(230.0, 63.0);
+    let at = egui::pos2(800.0, 23.0);
     h.hover_at(at);
     h.run_steps(1);
     h.event(Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed: true, modifiers: Default::default() });
@@ -889,5 +889,108 @@ fn parquet_saved_and_opened() {
     h.run_steps(30);
     assert_eq!(h.state().tabs.len(), 2);
     assert!(!dir.join("bad.csv").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A tab hiding `secret`, its rows filtered and sorted: `a` hidden by value, 3 before 1.
+fn tab_with_hidden(tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf, egui::Context) {
+    let (mut h, dir) = app_on("id;name;secret\n1;a;x\n2;b;y\n3;c;z\n", tag);
+    let ctx = h.ctx.clone();
+    {
+        let t = &mut h.state_mut().tabs[0];
+        t.grid.hidden.insert(2);
+        t.filter.hidden = vec![(1, std::sync::Arc::new(["b".to_string()].into_iter().collect()))];
+        t.sort = vec![csvfab_engine::view::SortKey { col: 0, desc: true }];
+        t.refresh(&ctx);
+    }
+    until(&mut h, &|a| !a.tabs[0].busy());
+    assert_eq!(values(&h), "3,1");
+    (h, dir, ctx)
+}
+
+fn until(h: &mut egui_kittest::Harness<'static, App>, done: &dyn Fn(&App) -> bool) {
+    for _ in 0..600 {
+        h.run_steps(1);
+        if done(h.state()) { return; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("never done: {:?}", h.state().toasts.iter().map(|t| &t.text).collect::<Vec<_>>());
+}
+
+/// A file made by an export, as CSV.
+fn as_csv(f: csvfab_engine::convert::Format, p: &std::path::Path) -> String {
+    let dest = p.with_extension("back.csv");
+    csvfab_engine::convert::import(f, p, None, b';', &dest, false, None, &Default::default()).unwrap();
+    std::fs::read_to_string(dest).unwrap()
+}
+
+/// Excel, SQLite, Parquet: no hidden column, and by default only the rows shown, in the view's order.
+#[test]
+fn exports_leave_out_what_is_hidden() {
+    use csvfab_engine::convert::Format;
+    for (name, file, format) in [("Save as Excel workbook", "t.xlsx", Format::Xlsx), ("Save as SQLite database", "t.sqlite", Format::Sqlite), ("Save as Parquet file", "t.parquet", Format::Parquet)] {
+        let (mut h, dir, ctx) = tab_with_hidden(&format!("hide-{file}"));
+        let c = crate::tools::commands().into_iter().find(|c| c.name == name).unwrap();
+        h.state_mut().run_command(c.run, &ctx);
+        h.run_steps(4);
+        key(&mut h, egui::Key::Enter, Default::default());
+        until(&mut h, &|a| a.toasts.iter().any(|t| t.text.contains("written:")));
+        assert_eq!(as_csv(format, &dir.join(file)), "id;name\n3;c\n1;a\n", "{name}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The CSV of the rows shown and Extract are exports too.
+#[test]
+fn csv_exports_leave_out_what_is_hidden() {
+    let (mut h, dir, ctx) = tab_with_hidden("hide-csv");
+    h.state_mut().run_command(|cx| { let t = crate::tools::export::shown_csv(cx.tab, "shown.csv"); cx.out.push(crate::tools::Cmd::Tool(t)) }, &ctx);
+    h.run_steps(4);
+    key(&mut h, egui::Key::Enter, Default::default());
+    until(&mut h, &|a| a.tabs.len() == 2 && a.tabs[1].table.is_some() && !a.tabs[1].busy());
+    assert_eq!(std::fs::read_to_string(dir.join("shown.csv")).unwrap(), "id;name\n3;c\n1;a\n");
+    h.state_mut().active = 0;
+    let c = crate::tools::commands().into_iter().find(|c| c.name == "Extract the rows shown to a new file").unwrap();
+    h.state_mut().run_command(c.run, &ctx);
+    until(&mut h, &|a| a.tabs.len() == 3 && a.tabs[2].table.is_some() && !a.tabs[2].busy());
+    assert_eq!(std::fs::read_to_string(dir.join("t-2.csv")).unwrap(), "id;name\n3;c\n1;a\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Split into files writes the table without the hidden column (what it writes: engine test
+/// `a_table_without_columns_is_written_by_every_export`; its buttons have no label to click).
+#[test]
+fn split_leaves_out_what_is_hidden() {
+    let (mut h, dir, ctx) = tab_with_hidden("hide-split");
+    h.state_mut().run_command(|cx| assert_eq!(crate::tools::split::columns_written(cx), Some(2)), &ctx);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Save and Save as keep the hidden column and the filtered rows, in the file's order: the
+/// tab goes on from that file.
+#[test]
+fn saves_keep_what_is_hidden() {
+    let (mut h, dir, ctx) = tab_with_hidden("hide-save");
+    {
+        let t = &mut h.state_mut().tabs[0];
+        let id = t.shown_id(0);
+        t.table.as_mut().unwrap().set_cells(&[(id, 1, "C".into())]);
+        t.after_edit(false, &ctx);
+    }
+    until(&mut h, &|a| !a.tabs[0].busy());
+    h.state_mut().save(None, false, &ctx);
+    until(&mut h, &|a| !a.saving());
+    assert_eq!(std::fs::read_to_string(dir.join("t.csv")).unwrap(), "id;name;secret\n1;a;x\n2;b;y\n3;C;z\n");
+    // Ctrl+S with nothing to write, then Save as under a new name, the box left as it starts.
+    h.state_mut().save_as(&ctx);
+    h.run_steps(4);
+    h.event(Event::Text("copy".into()));
+    h.run_steps(2);
+    key(&mut h, egui::Key::Enter, Default::default());
+    until(&mut h, &|a| a.toasts.iter().any(|t| t.text.contains("Saved as a new file")));
+    assert_eq!(std::fs::read_to_string(dir.join("copy.csv")).unwrap(), "id;name;secret\n1;a;x\n2;b;y\n3;C;z\n");
+    // The tab moved onto it and still hides the column.
+    assert_eq!(h.state().tabs[0].name, "copy.csv");
+    assert!(h.state().tabs[0].grid.hidden.contains(&2));
     let _ = std::fs::remove_dir_all(&dir);
 }

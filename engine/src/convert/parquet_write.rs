@@ -1,8 +1,8 @@
 //! A table as a Parquet file, typed. Each column's type comes from what the app detects
 //! (`view::detect_kinds`, on a sample) and must then hold for **every** value written, the
 //! whole column being read first: one value it cannot hold and the column is a string. A
-//! type holds a value only if reopening the file gives the very cell back, the decimal mark
-//! aside (the import writes the one of the CSV's delimiter):
+//! type holds a value only if reopening the file gives the very cell back, but for the
+//! decimal mark (the import writes the one of the CSV's delimiter) and a negative zero:
 //!
 //! - integer: `-?[1-9]\d*` or `0`, within 64 bits: not `007`, not `+5`, not `1 234`;
 //! - float: the cell is the double's own shortest text (`1.5`, `3`, not `1.50`, not 17+ digits
@@ -16,8 +16,10 @@
 //!   a final `Z` on every cell makes it an instant (UTC), none a timestamp without a zone; any
 //!   other offset stays a string (the instant would hold, the offset not).
 //!
-//! `-0` and `-0.00` fit no number: they would come back without their sign, so one such cell
-//! makes its column a string. A number with a comma is a decimal comma, but a column whose marked cells all read as
+//! A negative zero (`-0`, `-0.00`) fits every number type, whatever its decimals: the user's
+//! choice, so that a rounded `-0.00` does not make a column of amounts a string. It is
+//! written as a plain zero and reopens as one (`0`, `0.00`), the one cell that comes back
+//! changed. A number with a comma is a decimal comma, but a column whose marked cells all read as
 //! thousands (`1,234`, or `1.234` in a `;` file, where dots group thousands) stays a string:
 //! neither reading can be told. Empty cells are nulls; a string column has them too.
 //!
@@ -262,11 +264,9 @@ impl Seen {
             return;
         };
         let zero = int.iter().chain(frac).all(|&c| c == b'0');
-        // "-0" would come back "0".
+        // A negative zero fits, as a plain zero: its decimals and mark settle nothing.
         if neg && zero {
-            self.int = false;
-            self.float = false;
-            self.dec = false;
+            self.int = self.int && mark.is_none();
             return;
         }
         match mark {
@@ -416,7 +416,8 @@ impl Col {
         if v.is_empty() { self.null(); return true; }
         match self {
             Col::Int(b) => v.parse().map(|x| b.append_value(x)).is_ok(),
-            Col::Float(b) => to_f64(v).map(|x| b.append_value(x)).is_some(),
+            // + 0.0: a plain zero for a negative one.
+            Col::Float(b) => to_f64(v).map(|x| b.append_value(x + 0.0)).is_some(),
             Col::Dec(b) => unscaled(v).map(|x| b.append_value(x)).is_some(),
             Col::Bool(b) => { b.append_value(v.as_bytes()[0] | 32 == b't'); true }
             Col::Date(b) => date_days(v.as_bytes()).map(|x| b.append_value(x as i32)).is_some(),
@@ -657,7 +658,7 @@ id;f;amount;big;ok;OK;Ok;day;at;t;msz;us;ns;zone;name
     fn one_value_that_does_not_fit_makes_a_string() {
         for (col, why) in [
             ("1\n2\n007\n", "leading zero"), ("1\n+2\n", "plus sign"), ("1\n 2\n", "space"), ("1\n2 \n", "trailing space"), ("1\n1 234\n", "group"),
-            ("1\n-0\n", "minus zero"), ("9223372036854775807\n9223372036854775808\nabc\n", "past 64 bits"), ("1\nabc\n", "text"),
+            ("9223372036854775807\n9223372036854775808\nabc\n", "past 64 bits"), ("1\nabc\n", "text"),
             ("1.5\n1.50\n2.125\n", "a trailing zero, decimals differing"), ("1.5\n0.30000000000000000001\n", "digits a double rounds"),
             ("1\nnan\n", "not a number"), ("1.5\n2,5\n", "two marks"), ("1,234\n5,678\n12\n", "thousands"), ("1e5\n2e5\n", "not the double's own text"), (".5\n.25\n", "no integer digit"),
             ("1.\n2.\n", "mark without decimals"), ("0.123456789012345678901234567890123456789\n0.5\n", "too long"),
@@ -674,6 +675,65 @@ id;f;amount;big;ok;OK;Ok;day;at;t;msz;us;ns;zone;name
             assert_eq!(types_of(&info), ["STRING"], "{why}");
             assert_eq!(back(&dest, b';').0, csv, "{why}");
         }
+    }
+
+    #[test]
+    fn a_negative_zero_is_a_plain_zero() {
+        let dir = tmpdir("pqw-zero");
+        let dest = dir.join("t.parquet");
+        // Any decimals, either mark: the column keeps its type, the cell comes back a plain zero.
+        let csv = "int;dec;dbl;other\n1;12,50;1,5;-0\n-0;-0,00;-0,0;x\n3;-0;-0;\n4;3,10;2,25;\n";
+        let info = out(&table(csv, b';', true), &dest);
+        assert_eq!(types_of(&info), ["INT64", "DECIMAL", "DOUBLE", "STRING"]);
+        // Only in a number: a string keeps its cell.
+        assert_eq!(back(&dest, b';').0, "int;dec;dbl;other\n1;12,50;1,5;-0\n0;0,00;0;x\n3;0,00;0;\n4;3,10;2,25;\n");
+        // Stored as a plain zero: no reader sees a sign.
+        let b = batches(&dest);
+        let f = b[0].column(2).as_primitive::<arrow_array::types::Float64Type>();
+        assert!(f.value(1).is_sign_positive() && f.value(2).is_sign_positive() && f.value(1) == 0.0);
+        // A column of nothing else stays a number; with decimals, not an integer.
+        let info = out(&table("a;b\n-0;-0,00\n-0;-0,00\n", b';', true), &dest);
+        assert_eq!(types_of(&info), ["INT64", "DOUBLE"]);
+        assert_eq!(back(&dest, b';').0, "a;b\n0;0\n0;0\n");
+    }
+
+    #[test]
+    fn a_table_without_columns_is_written_by_every_export() {
+        // Edited, moved, and a column gone: each writer gets the cells of the columns left.
+        let mut t = table("id;secret;name\n1;x;a\n2;y;b\n3;z;c\n", b';', true);
+        t.set_cells(&[(t.st.data_id(1), 2, "B".into())]);
+        t.move_column(2, 0);
+        let st = t.st.without_columns(|c| c == 2);
+        assert_eq!((st.ncols, st.headers()), (2, vec!["name".to_string(), "id".to_string()]));
+        let rows = [t.st.data_id(2), t.st.data_id(1)];
+        let dir = tmpdir("pqw-project");
+        for (f, file) in [(Format::Xlsx, "t.xlsx"), (Format::Sqlite, "t.sqlite"), (Format::Parquet, "t.parquet")] {
+            let dest = dir.join(file);
+            export(f, &st, Some(&rows), &dest, "t", None, &AtomicBool::new(false)).unwrap();
+            let csv = dir.join("back.csv");
+            import(f, &dest, None, b';', &csv, false, None, &AtomicBool::new(false)).unwrap();
+            assert_eq!(std::fs::read_to_string(&csv).unwrap(), "name;id\nc;3\nB;2\n", "{f:?}");
+        }
+        let o = crate::save::SaveOptions { rows: Some(rows.to_vec()), backup: false, ..Default::default() };
+        let csv = dir.join("rows.csv");
+        crate::save::save(&st, &csv, &o, None, &mut true).unwrap();
+        assert_eq!(std::fs::read_to_string(&csv).unwrap(), "name;id\nc;3\nB;2\n");
+        // Split: by a column of the table, the column gone or not; the files hold the others.
+        let no = AtomicBool::new(false);
+        let groups = crate::split::groups(&t.st, &rows, 2, crate::split::Match::Exact, "t.csv", &no, None).unwrap();
+        let split = crate::split::write(&st, &groups, &dir, "parts", &no, None);
+        assert_eq!((split.written, split.error.is_none()), (2, true));
+        let mut files: Vec<String> = std::fs::read_dir(dir.join("parts")).unwrap().flatten().map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
+        files.sort();
+        assert_eq!(files, ["name;id\nB;2\n", "name;id\nc;3\n"]);
+        // Combine.
+        let src = crate::combine::Source { name: "t".into(), st: st.clone(), rows: Some(Arc::new(rows.to_vec())) };
+        let (sources, both) = (vec![src], dir.join("both.csv"));
+        let cols = crate::combine::columns(&sources, true, false);
+        crate::combine::write(&sources, &cols, false, &crate::combine::format(&sources), &both, &no, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&both).unwrap(), "name;id\nc;3\nB;2\n");
+        // The table itself still holds them all.
+        assert_eq!(t.st.ncols, 3);
     }
 
     #[test]

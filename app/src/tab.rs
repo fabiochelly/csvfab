@@ -347,6 +347,8 @@ pub struct Tab {
     /// from them (charts, totals) know they are stale.
     pub generation: u64,
     pub spark: crate::spark_ui::State,
+    /// The column inspector's figures, while it is on.
+    pub inspector: Option<Box<crate::inspector::Inspector>>,
     pub totals: crate::totals_ui::State,
     pub find: Find,
     pub ghost: Option<Arc<Ghost>>,
@@ -487,6 +489,7 @@ impl Tab {
             bands_set: false,
             generation: 0,
             spark: Default::default(),
+            inspector: None,
             totals: Default::default(),
             find: Find::default(),
             ghost: None,
@@ -804,6 +807,15 @@ impl Tab {
     }
 
     /// Whether filters, a sort or a tool's rows narrow or reorder the view.
+    /// The table as exports write it: without the hidden columns. None: every column is hidden.
+    /// Never for a Save or a Save as: the file keeps its hidden columns.
+    pub fn export_st(&self) -> Option<csvfab_engine::State> {
+        let st = self.st()?;
+        let hidden = &self.grid.hidden;
+        if hidden.is_empty() { return Some(st.clone()); }
+        Some(st.without_columns(|c| hidden.contains(&c))).filter(|s| s.ncols > 0)
+    }
+
     pub fn filtered(&self) -> bool {
         !self.filter.is_empty() || self.col_filters.iter().any(|s| !s.is_empty()) || !self.sort.is_empty() || self.restrict.is_some()
     }

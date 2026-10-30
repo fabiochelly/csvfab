@@ -2,6 +2,17 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.1.0 · 30 October 2026
+
+- **Parquet files open and export.** Columns are typed wherever every value allows it, compressed with zstd. On a 2 GB CSV (5.3 million rows, 38 columns): exported in 2 s to a file a third of the size, reopened in 1.1 s. Read back by pyarrow and DuckDB; files they write open too, with every compression but LZO.
+- **A quieter window.** Tabs, search and Save share one slim band, 46 px instead of 89. Filter chips have their own thin bar, only when a filter is on.
+- **A compact header.** Each column title sits on its chart in one block of 68 px instead of 95; the type badge, the sort and the ▾ menu stay as they were.
+- **Three row densities**: Compact, Normal or Airy, in the status bar and the menu. Normal is 32 px (35 before), so more rows fit.
+- **Calmer values**: categories are a coloured dot and their text, units are dimmed, and the column in hand has a faint tint.
+- **Column inspector**, off by default: a panel on the right follows the column in hand with its key figures, spread, top values and what is worth a look. Turn it on from the status bar or the menu.
+- **Exports match the view.** Hidden columns are left out of every export (Excel, SQLite, Parquet, Extract, Split, Combine). Filtered rows are too, in view order, unless you untick "Only the rows shown". Save keeps everything, as does Save as to CSV unless that box is ticked.
+- **Date histograms** are spread by time, without the gaps they had.
+
 ## 2.0.5 · 30 October 2026
 
 - **Full regular expressions everywhere**: look-arounds and back-references (`(?<=@)gmail`, `(\w)\1`) now work in the filter box, the column filters and Find & replace, not only in formulas, with a limit that stops a runaway pattern. Ordinary patterns run as fast as before.

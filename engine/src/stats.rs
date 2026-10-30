@@ -468,6 +468,9 @@ pub struct PanelProfile {
     pub sum: f64,
     pub count: u64,
     pub median: Option<f64>,
+    /// Dates: the middle one as written, and the mean date.
+    pub date_median: Option<String>,
+    pub date_mean: Option<String>,
     /// Numbers or dates spread over PANEL_BINS bars, when they are not all one value.
     pub hist: Vec<HistBin>,
 }
@@ -523,27 +526,42 @@ pub fn panel_profile(vc: &ValueCounts) -> PanelProfile {
     }
     p.min = Some((lo.key, vc.value(lo.pos as usize).trim().to_string()));
     p.max = Some((hi.key, vc.value(hi.pos as usize).trim().to_string()));
-    if kind == Kind::Number {
+    if kind != Kind::Text {
         // The middle of the values in order (the mean of the two middle ones for an even count).
-        let mut ks: Vec<(f64, u32)> = keyed.iter().map(|&(k, n, _)| (k, n)).collect();
+        let mut ks: Vec<(f64, u32, u32)> = keyed.clone();
         ks.par_sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let at = |pos: u64| {
             let mut s = 0u64;
-            for &(k, n) in &ks {
+            for &(k, n, i) in &ks {
                 s += n as u64;
-                if s > pos { return k; }
+                if s > pos { return (k, i); }
             }
-            f64::NAN
+            (f64::NAN, 0)
         };
         let c = p.count;
-        p.median = Some(if c % 2 == 1 { at((c - 1) / 2) } else { (at(c / 2 - 1) + at(c / 2)) / 2.0 });
+        if kind == Kind::Number {
+            p.median = Some(if c % 2 == 1 { at((c - 1) / 2).0 } else { (at(c / 2 - 1).0 + at(c / 2).0) / 2.0 });
+        } else {
+            // Keys are YYYYMMDDhhmmss: the mean is taken in seconds, a median is a date of the column.
+            p.date_median = Some(vc.value(at((c - 1) / 2).1 as usize).trim().to_string());
+            let (mut secs, mut n) = (0.0, 0u64);
+            for &(_, k, i) in &keyed {
+                if let Some(t) = crate::sparkline::time_key(vc.value(i as usize)) { secs += t * k as f64; n += k as u64; }
+            }
+            if n > 0 {
+                let t = crate::sparkline::time_text(secs / n as f64);
+                p.date_mean = t.split(' ').next().map(str::to_string);
+            }
+        }
     }
-    if kind != Kind::Text && hi.key > lo.key {
-        let span = hi.key - lo.key;
+    // Where a value stands on the bars: dates by their time, keys jump from month to month.
+    let place = |k: f64, i: u32| if kind == Kind::Date { crate::sparkline::time_key(vc.value(i as usize)).unwrap_or(k) } else { k };
+    let (first, span) = (place(lo.key, lo.pos), place(hi.key, hi.pos) - place(lo.key, lo.pos));
+    if kind != Kind::Text && hi.key > lo.key && span > 0.0 {
         let mut bins = vec![HistBin::default(); PANEL_BINS];
         let mut ends = vec![(Best::NONE, Best::NONE); PANEL_BINS];
         for &(k, n, i) in &keyed {
-            let b = (((k - lo.key) / span * PANEL_BINS as f64).floor() as usize).min(PANEL_BINS - 1);
+            let b = (((place(k, i) - first) / span * PANEL_BINS as f64).floor().max(0.0) as usize).min(PANEL_BINS - 1);
             bins[b].count += n as u64;
             ends[b].0.lower(k, i);
             ends[b].1.higher(k, i);
@@ -1444,6 +1462,14 @@ mod tests {
         assert_eq!(p.hist[0], HistBin { count: 1, first: "1".into(), last: "1".into() });
         assert_eq!(p.hist[3].count, 2);   // floor((2 - 1) / 9 × 28)
         assert_eq!(p.hist[27].first, "10");
+        // Dates: the middle one as written, the mean in days (not in YYYYMMDD keys).
+        let t = table("d;x\n2024-01-30;a\n2024-02-02;a\n2024-02-03;a\n");
+        let p = panel_profile(&value_counts(&t.st, &all(&t), 0, false, &no).unwrap());
+        assert_eq!(p.kind, Some(Kind::Date));
+        assert_eq!((p.median, p.date_median.as_deref(), p.date_mean.as_deref()), (None, Some("2024-02-02"), Some("2024-02-01")));
+        // The bars by time: the last days of January beside the first of February.
+        assert_eq!(p.hist.iter().rposition(|b| b.count > 0), Some(27));
+        assert_eq!(p.hist[21].count, 1);   // the 2nd, 3 days of 4: floor(3 / 4 × 28)
     }
 
     #[test]

@@ -304,7 +304,8 @@ impl App {
     pub fn build(ctx: &egui::Context, config: Config, files: Vec<PathBuf>) -> App {
         let theme = theme::by_id(config.theme.as_deref().unwrap_or(theme::DEFAULT_THEME));
         theme::set_look(config.look.unwrap_or(theme::ALL));
-        let m = Metrics::default();
+        let mut m = Metrics::default();
+        m.set_density(config.density.map_or(theme::DEFAULT_DENSITY, usize::from));
         let c = ctx.clone();
         // Tests (off screen) never take over the socket of the user's running window.
         let incoming = if cfg!(test) || std::env::var_os("CSVFAB_SHOT").is_some() { None } else { crate::instance::listen(move || c.request_repaint()) };
@@ -379,6 +380,23 @@ impl App {
         theme::apply(ctx, self.theme, &self.m);
         self.config.theme = Some(self.theme.id.to_string());
         self.config.save();
+    }
+
+    /// The rows at density `d` (an index of `theme::DENSITIES`), remembered.
+    pub fn set_density(&mut self, d: usize) {
+        self.m.set_density(d);
+        self.config.density = Some(d as u8);
+        self.config.save();
+    }
+
+    /// The column inspector on or off, remembered; off, what it held goes (nothing left to poll).
+    pub fn toggle_inspector(&mut self) {
+        let on = self.config.inspector != Some(true);
+        self.config.inspector = Some(on);
+        self.config.save();
+        if !on {
+            for t in &mut self.tabs { drop_later(t.inspector.take()); }
+        }
     }
 
     pub fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
@@ -911,6 +929,7 @@ impl App {
                 Action::ToggleFilters => tab.show_filters = !tab.show_filters,
                 Action::ToggleCharts => tab.show_charts = !tab.show_charts,
                 Action::ToggleTotals => tab.show_totals = !tab.show_totals,
+                Action::ToggleInspector => self.deferred.push(Box::new(|cx| cx.out.push(Cmd::ToggleInspector))),
                 // Grid agent stubs, for the lead to route: column tools (split, merge, convert), the row
                 // diagnosis (tools::diagnose::open), duplicates (tools::dupes::apply), a tool to open.
                 Action::Diagnose(id) => self.pending.push(Cmd::Tool(tools::diagnose::open(tab, id))),
@@ -1080,6 +1099,7 @@ impl App {
         for cmd in std::mem::take(&mut self.pending) {
             match cmd {
                 Cmd::Open(p) => self.open(p, ctx),
+                Cmd::ToggleInspector => self.toggle_inspector(),
                 Cmd::OpenBehind(p) => {
                     let keep = self.active;
                     self.open(p, ctx);
@@ -1228,10 +1248,10 @@ impl App {
         }
 
         lap("shortcuts");
-        crate::chrome::tab_bar(self, ui);
-        lap("tab bar");
-        crate::chrome::toolbar(self, ui);
-        lap("toolbar");
+        crate::chrome::top_band(self, ui);
+        lap("top band");
+        crate::chrome::filter_bar(self, ui);
+        lap("filter bar");
         crate::tools::find::bar(self, ui);
         lap("find bar");
         crate::chrome::status_bar(self, ui);
@@ -1261,6 +1281,12 @@ impl App {
             actions = crate::rowcard::panel(&mut self.card, ui, tab, p, &self.m, &mut self.pending);
         } else {
             crate::rowcard::closed(&ctx);
+        }
+        // The column inspector, beside the card: one flag when off.
+        if self.config.inspector == Some(true) {
+            if let Some(tab) = self.tabs.get_mut(self.active).filter(|t| t.table.is_some()) {
+                actions.extend(crate::inspector::panel(ui, tab, p, &self.m));
+            }
         }
         // One central panel: a second one in the same frame would get no room.
         if self.tabs.is_empty() {

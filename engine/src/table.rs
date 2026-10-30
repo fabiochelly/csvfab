@@ -333,6 +333,16 @@ impl State {
         self.len() == 0
     }
 
+    /// This table without the columns `gone` tells: what an export writes when columns are
+    /// hidden. Cells, edits and rows stay as they are, only the column lists are made. A
+    /// snapshot for writing another file, never for saving this one: its columns would be lost.
+    pub fn without_columns(&self, gone: impl Fn(usize) -> bool) -> State {
+        let keep: Vec<usize> = (0..self.ncols).filter(|&c| !gone(c)).collect();
+        let cmap: Vec<i32> = keep.iter().map(|&c| self.cmap.as_ref().map_or(c as i32, |m| m[c])).collect();
+        let cols: Vec<Layers> = keep.iter().map(|&c| self.cols.get(c).cloned().unwrap_or_default()).collect();
+        State { ncols: keep.len(), cmap: Some(Arc::new(cmap)), cols: Arc::new(cols), ..self.clone() }
+    }
+
     #[inline]
     pub fn all_id(&self, pos: usize) -> RowId {
         self.order.as_ref().map_or(pos as RowId, |o| o[pos])

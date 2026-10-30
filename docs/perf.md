@@ -281,8 +281,8 @@ the machine in use.
 
 | op | 4 threads | 16 threads |
 |---|---|---|
-| export: 1,910 MiB of CSV → 615 MiB (32 %) | 2.97 s, 450 MB private | 1.98 s, 1.8 GB private |
-| open: back to the same CSV, byte for byte (`cmp`) | 1.55 s, 359 MB private | 1.13 s, 1.5 GB private |
+| export: 1,910 MiB of CSV → 609 MiB (32 %), 15 of 38 columns typed | 2.97 s, 450 MB private | 1.98 s, 1.8 GB private |
+| open: back to the same CSV (`cmp`), but for its 11 `-0.00…` cells, now plain zeros | 1.55 s, 359 MB private | 1.13 s, 1.5 GB private |
 | open, the text thrown away | | 1.00 s: the writer is not what bounds it |
 | half the file: export / open | | 0.72 s, 1.3 GB / 0.53 s, 1.4 GB private |
 
@@ -291,6 +291,10 @@ The open's private memory follows the threads, not the table: half the rows, the
 text went from 1 GB to 512 MB with no loss of time; counted by capacity, not length (a String
 doubling hid half of it: 2.1 GB private before). This CPU's cores are of two kinds, so
 16 threads are not 4 × 4.
+
+With another build running on this machine, the same day: export 2.63 s, open 1.60 s; the table's
+times are from a quiet moment, before the four decimal columns (`-0.00` below), and the 4-thread
+column from before the bound on queued text came down.
 
 Compared at 4 threads, one run each, export then open of what it wrote:
 
@@ -312,18 +316,19 @@ save 3 % and hold more in memory: 122,880 rows kept.
 - **Export**: a sample settles most columns (a text column dies at its first value), the others are
   read whole; row groups are filled and encoded in waves of as many groups as threads, each
   group's columns in parallel, one thread writing the wave before.
-- A `-0.00` fits no number (it would come back `0.00`). On this file 1 to 5 such cells among
-  5.3M rows leave `montant`, `solde`, `prix_unitaire` and `longitude` as strings: nothing is lost,
-  the columns are just not typed. Typed here: 11 of 38 columns.
+- A negative zero fits a number column, as a plain zero (the user's choice): this file's 1 to 5
+  `-0.00` cells in `montant`, `solde`, `prix_unitaire` and `longitude` no longer make them strings.
+- UTF-8 checks: parquet takes simdutf8 without `std`, and without it no x86_64 build picks AVX2 at
+  run time; `engine/Cargo.toml` names the crate for that feature. A/B on one file, machine busy:
+  with the text thrown away 1.40 / 1.51 s → 1.38 / 1.33 s; to a file no change (1.60 / 1.66 → 1.61 /
+  1.62 s). Small, and it costs nothing.
 - Not done: a file of one huge row group decodes on one thread (a group is the unit of work):
   parallel by column would need readers kept in step. A group whose text passes the bound
   makes the threads ahead of it wait: slower, never more memory.
-- Binary (stripped, fat LTO): 26.66 → 34.16 MB, +7.50 MB. By symbols: parquet 2.5, the arrow crates
-  2.7 (arrow-select 1.2, arrow-cmp 0.6, arrow-array 0.5), zstd's C 0.6, the rest generics
-  inlined into the callers. brotli was 1.2 MB more and was left out (`engine/Cargo.toml`).
-  `opt-level = "s"` on parquet and the arrow crates gives 32.80 MB (−1.36 MB), speed not measured;
-  not applied, the release profile being left as it is. No crate of these can go:
-  parquet's `arrow` feature requires them, arrow-ipc and flatbuffers included.
+- Binary (stripped, fat LTO): 26.66 → 35.37 MB, +8.7 MB, brotli (1.2 MB) included. By symbols:
+  parquet 2.5, the arrow crates 2.7 (arrow-select 1.2, arrow-cmp 0.6, arrow-array 0.5), brotli 1.1,
+  zstd's C 0.6, the rest generics inlined into the callers. The user's call: speed first, size
+  does not matter. `opt-level` stays as it is.
 
 ## How to measure
 

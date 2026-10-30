@@ -609,8 +609,9 @@ fn shapes_of(m: &ArrowReaderMetadata, ncols: usize) -> Result<Vec<Shape>, String
     let meta = m.metadata();
     for rg in meta.row_groups() {
         for c in rg.columns() {
-            let codec = match c.compression() { Compression::LZO => "LZO", Compression::BROTLI(_) => "brotli", _ => continue };
-            return Err(format!("column \"{}\" is compressed with {codec}, which csvfab does not read: snappy, gzip, zstd and lz4 are read", c.column_path().string()));
+            if matches!(c.compression(), Compression::LZO) {
+                return Err(format!("column \"{}\" is compressed with LZO, which csvfab does not read: snappy, gzip, zstd, lz4 and brotli are read", c.column_path().string()));
+            }
         }
     }
     let file = meta.file_metadata();
@@ -726,7 +727,7 @@ pub(crate) mod tests {
     use arrow_array::{ArrayRef, Int32Array, RecordBatch, StringArray, StructArray};
     use arrow_schema::{Field, Schema};
     use parquet::arrow::ArrowWriter;
-    use parquet::basic::{Encoding, GzipLevel, ZstdLevel};
+    use parquet::basic::{BrotliLevel, Encoding, GzipLevel, ZstdLevel};
     use parquet::data_type::{BoolType, ByteArray, ByteArrayType, DoubleType, FixedLenByteArray, FixedLenByteArrayType, FloatType, Int32Type as PqI32, Int64Type as PqI64, Int96, Int96Type};
     use parquet::file::properties::{WriterProperties, WriterVersion};
     use parquet::file::writer::{SerializedFileWriter, SerializedRowGroupWriter};
@@ -1005,7 +1006,7 @@ pub(crate) mod tests {
     fn codecs_pages_and_dictionaries() {
         let dir = tmpdir("pq-codecs");
         let codecs = [Compression::UNCOMPRESSED, Compression::SNAPPY, Compression::GZIP(GzipLevel::default()), Compression::ZSTD(ZstdLevel::default()),
-                      Compression::LZ4, Compression::LZ4_RAW];
+                      Compression::LZ4, Compression::LZ4_RAW, Compression::BROTLI(BrotliLevel::default())];
         for (k, c) in codecs.into_iter().enumerate() {
             for v in [WriterVersion::PARQUET_1_0, WriterVersion::PARQUET_2_0] {
                 for dict in [true, false] {
@@ -1136,7 +1137,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn other_codecs_are_refused_by_name() {
+    fn lzo_is_refused_by_name() {
         // The footer's codec of a column changed, as a Hadoop job's file would have it.
         let dir = tmpdir("pq-lzo");
         let p = dir.join("l.parquet");
@@ -1146,13 +1147,11 @@ pub(crate) mod tests {
         let at = good.len() - 8 - foot;
         // ColumnMetaData: type (1), encodings (2), path (3), codec (4): the zigzag zero after the path "a".
         let k = (at..good.len() - 8).find(|&i| good[i] == b'a' && good[i + 1] == 0x15 && good[i + 2] == 0).unwrap();
-        for (code, name) in [(3, "LZO"), (4, "brotli")] {
-            let mut b = good.clone();
-            b[k + 2] = code * 2; // zigzag
-            std::fs::write(&p, &b).unwrap();
-            let e = csv_of(&p, b',').unwrap_err();
-            assert!(e.contains("\"a\"") && e.contains(name), "{e}");
-        }
+        let mut b = good.clone();
+        b[k + 2] = 3 * 2; // zigzag
+        std::fs::write(&p, &b).unwrap();
+        let e = csv_of(&p, b',').unwrap_err();
+        assert!(e.contains("\"a\"") && e.contains("LZO"), "{e}");
     }
 
     #[test]

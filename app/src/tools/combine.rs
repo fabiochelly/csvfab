@@ -62,15 +62,15 @@ fn delim_name(d: u8) -> String {
 
 impl Combine {
     fn new(cx: &mut Cx) -> Option<Combine> {
-        let st = cx.tab.st()?.clone();
-        // A filtered tab gives its rows shown.
+        let st = cx.tab.export_st()?;
+        // A filtered tab gives its rows shown, a tab hiding columns the others.
         let rows = cx.tab.filtered().then(|| cx.tab.shown_ids());
         let first = Entry { name: cx.tab.name.clone(), on: true, read: Read::Ok(Source { name: cx.tab.name.clone(), st, rows }) };
         // The other open tabs, ticked (as 42-split-combine.js: "open tabs into one new file").
         let uid = cx.tab.uid;
         let mut entries = vec![first];
         // Each with its rows shown when it is filtered, as this one.
-        entries.extend(super::lookup::open_tabs().into_iter().filter(|t| t.0 != uid && combine::combinable(&t.2)).map(|(id, name, st)| Entry { name: name.clone(), on: true, read: Read::Ok(Source { name, st, rows: super::lookup::shown_rows(id) }) }));
+        entries.extend(super::lookup::open_tabs().into_iter().filter(|t| t.0 != uid && combine::combinable(&t.2)).map(|(id, name, st)| Entry { name: name.clone(), on: true, read: Read::Ok(Source { name, st: super::lookup::without_hidden(id, st), rows: super::lookup::shown_rows(id) }) }));
         // The options chosen last (as the web's kept them).
         let (loose, common, source_col) = LAST.lock().ok().and_then(|l| *l).unwrap_or((true, false, false));
         Some(Combine { entries, adding: None, loose, common, source_col, stage: Stage::Form })

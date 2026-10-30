@@ -1,4 +1,4 @@
-//! The find & replace bar (Ctrl+F), under the toolbar: finds in the rows shown
+//! The find & replace bar (Ctrl+F), under the top band: finds in the rows shown
 //! without filtering them (the grid highlights `tab.find.text`), steps through
 //! the matches (‹ ›, Enter / Shift+Enter, F3 / Shift+F3), replaces in the rows
 //! shown. The matches are listed by a background job, in view order, whenever

@@ -313,7 +313,7 @@ impl A {
             }
             "menu" => {
                 let y = self.find_text(|t| t == "Filter...").map(|r| r.center().y).unwrap_or(60.0);
-                let x = self.app().m.toolbar_pad_x + 19.0;
+                let x = self.app().m.band_pad_x + 16.0;
                 self.click(Pos2::new(x, y), egui::PointerButton::Primary);
                 self.frames.clear();
         self.cpu.clear();
@@ -327,7 +327,7 @@ impl A {
             "savemenu" => {
                 let r = self.find_text(|t| t == "Save").unwrap_or(Rect::NOTHING);
                 // the ▾ is 30 px right of the Save segment's end; approximate from the window's right edge
-                let p = Pos2::new(1920.0 - self.app().m.toolbar_pad_x - 15.0, r.center().y);
+                let p = Pos2::new(1920.0 - self.app().m.band_pad_x - 15.0, r.center().y);
                 self.click(p, egui::PointerButton::Primary);
                 self.frames.clear();
         self.cpu.clear();

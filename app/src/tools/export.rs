@@ -7,6 +7,13 @@
 //! A new CSV name is a save-as: the tab moves onto the new file and the
 //! source keeps its last saved content. A workbook, a database or a Parquet
 //! file is a second artefact and never takes the tab over.
+//!
+//! What is an export and what is a save decides what is written. An export
+//! (a workbook, a database, a Parquet file, a CSV of the rows shown, Extract)
+//! leaves out the hidden columns, and writes the rows shown, in the view's
+//! order, unless "Only the rows shown" is unticked. A save or a save-as writes
+//! the table whole: the tab goes on from that file, so anything left out
+//! would be lost.
 
 use super::form::{self, Alert, Answer, Ask, Btn};
 use super::{has_table, Cmd, Command, Cx, Tool};
@@ -195,7 +202,8 @@ struct SaveAs {
     fmt: Fmt,
     enc: Enc,
     bom: bool,
-    only_shown: bool,
+    /// "Only the rows shown" as ticked by hand. None: on for an export, off for a save-as.
+    only_shown: Option<bool>,
     stage: Stage,
     focus: bool,
     /// The "Writing…" message was hidden.
@@ -216,7 +224,16 @@ impl SaveAs {
             _ => tab.name.clone(),
         };
         let name = if name.is_empty() { "table.csv".into() } else { name };
-        SaveAs { uid: tab.uid, name, fmt, enc, bom, only_shown: false, stage: Stage::Form, focus: true, quiet: false }
+        SaveAs { uid: tab.uid, name, fmt, enc, bom, only_shown: None, stage: Stage::Form, focus: true, quiet: false }
+    }
+
+    /// A second artefact, not the table saved.
+    fn exports(fmt: Fmt) -> bool {
+        matches!(fmt, Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet)
+    }
+
+    fn only(&self) -> bool {
+        self.only_shown.unwrap_or(Self::exports(self.fmt))
     }
 
     fn cur_fmt(st: &State) -> Fmt {
@@ -227,13 +244,16 @@ impl SaveAs {
     fn note(&self, tab: &Tab, st: &State) -> String {
         let name = self.name.trim();
         let where_ = if tab.path.is_some() { "beside the source" } else { "where you choose" };
-        if let Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet = self.fmt {
+        let hides = !tab.grid.hidden.is_empty();
+        if Self::exports(self.fmt) {
             let what = match self.fmt { Fmt::Xlsx => "workbook", Fmt::Sqlite => "database", _ => "Parquet file" };
-            return format!("Writes the {what} {where_}. {} is left as it is{}.", tab.name, if tab.dirty() { " and keeps its pending edits" } else { "" });
+            let rows = if self.subset(tab) { format!("the {} rows shown as a {what}", form::n(tab.shown())) } else { format!("the {what}") };
+            return format!("Writes {rows} {where_}. {} is left as it is{}.{}", tab.name, if tab.dirty() { " and keeps its pending edits" } else { "" }, if hides { " Hidden columns are left out." } else { "" });
         }
         if self.subset(tab) {
-            return format!("Writes the {} rows shown to a new file {where_} and opens it. {} is left as it is.", form::n(tab.shown()), tab.name);
+            return format!("Writes the {} rows shown to a new file {where_} and opens it. {} is left as it is.{}", form::n(tab.shown()), tab.name, if hides { " Hidden columns are left out." } else { "" });
         }
+        let kept = if hides { " Hidden columns are kept." } else { "" };
         let cur = Self::cur_fmt(st);
         let mut changes = Vec::new();
         if self.fmt != cur {
@@ -244,15 +264,15 @@ impl SaveAs {
             if tab.path.is_none() {
                 "This tab is a read-only copy: change the name to write a new file.".into()
             } else {
-                format!("Overwrites {}{} — a timestamped .bak copy is kept.", tab.name, if changes.is_empty() { String::new() } else { format!(", {}", changes.join(", ")) })
+                format!("Overwrites {}{} — a timestamped .bak copy is kept.{}", tab.name, if changes.is_empty() { String::new() } else { format!(", {}", changes.join(", ")) }, kept)
             }
         } else {
-            format!("Writes a new file {where_} and switches this tab to it. {} stays as it was last saved.", tab.name)
+            format!("Writes a new file {where_} and switches this tab to it. {} stays as it was last saved.{kept}", tab.name)
         }
     }
 
     fn subset(&self, tab: &Tab) -> bool {
-        self.only_shown && tab.filtered()
+        self.only() && tab.filtered()
     }
 
     /// Save clicked: the plan, or a message.
@@ -321,8 +341,17 @@ impl SaveAs {
     fn write(&mut self, plan: Plan, force: bool, cx: &mut Cx) {
         let tab = &mut *cx.tab;
         let Some(table) = &tab.table else { return };
-        let st = table.st.clone();
         let version = table.version();
+        // Only an export leaves columns out: a save-as is what the tab goes on from.
+        let st = if Self::exports(plan.fmt) || plan.rows.is_some() {
+            let Some(st) = tab.export_st() else {
+                self.stage = Stage::Failed(Alert::new("Every column is hidden: nothing to write."));
+                return;
+            };
+            st
+        } else {
+            table.st.clone()
+        };
         let total = plan.rows.as_ref().map_or(st.len(), |r| r.len());
         let (fmt, dest, rows) = (plan.fmt, plan.dest.clone(), plan.rows.clone());
         let job = match fmt {
@@ -473,7 +502,8 @@ impl SaveAs {
             }
             if filtered {
                 ui.add_space(6.0);
-                form::check(ui, &p, &mut self.only_shown, &format!("Only the rows shown ({} of {})", form::n(shown), form::n(st.len())));
+                let mut only = self.only();
+                if form::check(ui, &p, &mut only, &format!("Only the rows shown ({} of {})", form::n(shown), form::n(st.len()))) { self.only_shown = Some(only); }
                 ui.add_space(6.0);
             }
             ui.add_space(4.0);
@@ -495,7 +525,7 @@ impl SaveAs {
 
     /// The rows shown never overwrite the file itself.
     fn subset_same_name(&self, tab_name: &str) -> bool {
-        self.only_shown && self.name.trim() == tab_name && matches!(self.fmt, Fmt::Csv(_) | Fmt::Text)
+        self.only() && self.name.trim() == tab_name && matches!(self.fmt, Fmt::Csv(_) | Fmt::Text)
     }
 }
 
@@ -605,6 +635,12 @@ impl Tool for SaveAs {
     }
 }
 
+/// The save dialog on a CSV of the rows shown, under `name` (a test cannot tick the box).
+#[cfg(test)]
+pub fn shown_csv(tab: &Tab, name: &str) -> Box<dyn Tool> {
+    Box::new(SaveAs { name: name.to_string(), only_shown: Some(true), ..SaveAs::new(tab, None) })
+}
+
 // --- Extract --------------------------------------------------------------------
 
 enum XStage {
@@ -620,7 +656,10 @@ struct Extract {
 
 impl Extract {
     fn write(&mut self, dest: PathBuf, rows: Arc<Vec<RowId>>, cx: &mut Cx) {
-        let Some(st) = cx.tab.st().cloned() else { return };
+        let Some(st) = cx.tab.export_st() else {
+            self.stage = XStage::Failed(Alert::new("Every column is hidden: nothing to write."));
+            return;
+        };
         let n = rows.len();
         let d = dest.clone();
         let job = Job::spawn(cx.ctx, move |_, _| {

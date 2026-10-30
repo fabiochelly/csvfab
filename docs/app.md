@@ -108,6 +108,22 @@ cancel on close. Never block the UI thread on anything that grows with the file.
   the CSV goes to the documents folder (`convert::fallback_dir`: XDG's, else ~/Documents,
   else home) and the toast names both folders.
 
+## Exports and saves (keep this line clear)
+
+An **export** writes another file and leaves the tab where it is: Excel, SQLite, Parquet, a CSV of
+"Only the rows shown", Extract, Split into files, Combine. It leaves out the hidden columns
+(`Tab::export_st`, `State::without_columns`) and writes the rows shown, in the view's order. In the
+save dialog "Only the rows shown" starts ticked for Excel, SQLite and Parquet.
+
+A **save** rewrites the file, or moves the tab onto a new one: Save, Ctrl+S, and Save as to a CSV
+(any delimiter or encoding), with "Only the rows shown" left as it starts, unticked. It writes
+the table whole, hidden columns and filtered rows included: the tab goes on from that file, so
+anything left out would be lost. Never give a save `export_st`'s table. A tab with hidden
+columns says which of the two it is in the dialog's note.
+
+There is no JSON export. Group by and pivot results open as new tabs: they hold the columns chosen
+in their dialogs, over the rows shown.
+
 ## Parquet (`engine/src/convert/parquet_read.rs`, `parquet_write.rs`)
 
 - **Open**: as the other imports (`.parquet`, `.parq`, `.pqt`): a CSV beside the file or in the
@@ -117,18 +133,20 @@ cancel on close. Never block the UI thread on anything that grows with the file.
 - **Cells**: null is empty; floats in their shortest digits, an exponent only beyond 10^±21;
   decimals with all their digits; binary as `0x…` (as the SQLite import); dates ISO; lists, maps
   and structs as JSON text. A decimal comma in a `;` CSV, as every import.
+- **Codecs**: snappy, gzip, zstd, lz4, brotli.
 - **Timestamps**: without a zone, as stored (`2024-03-01 10:30:15.123`); an instant
   (`isAdjustedToUTC`) always in UTC with a `Z` (`2024-03-01T10:30:15Z`), never in the machine's
   zone. Arrow's metadata in the file is not read: a zone name there is a display hint.
-- **Export**: the same rows as the other exports. A column is typed only if **every** value comes
-  back as the same cell, the decimal mark aside; one value that does not fit and the column is a
-  string (the rules: top of `parquet_write.rs`). The detected kind (`view::detect_kinds`) picks
+- **Export**: a column is typed only if **every** value comes back as the same cell, the decimal
+  mark aside; one value that does not fit and the column is a string (the rules: top of
+  `parquet_write.rs`). The one exception, the user's: a negative zero (`-0`, `-0.00`) fits any
+  number column and becomes a plain zero, so it reopens as `0` or `0.00`, without its sign. The detected kind (`view::detect_kinds`) picks
   the candidates, the whole column is then read. `31/12/2024`, `35,61 €`, `12 %`, `10:15` are
   strings. How booleans and timestamps were written (capitals, `T`, digits of a second) is kept
   in the file's metadata (`csvfab.cells`), so `.000` or `TRUE` reopen as they were; other readers
   see plain types.
-- **Refused, with a message**: LZO and brotli (the crate's codec weighs 1.1 MB), encrypted files,
-  INTERVAL columns (Arrow's reading would drop their months). A panic in the decoder on a damaged file is caught and told as a damaged file.
+- **Refused, with a message**: LZO, encrypted files, INTERVAL columns (Arrow's reading would drop
+  their months). A panic in the decoder on a damaged file is caught and told as a damaged file.
 
 ## Filters (choices that differ from a plain reading)
 

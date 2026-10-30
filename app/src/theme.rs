@@ -98,9 +98,7 @@ pub struct Palette {
     pub gray_hi: Color32,
     /// The overlay colour (white on dark themes, near black on light ones).
     pub hi: Color32,
-    pub menu_bg: Color32,
     pub menu_bg_hover: Color32,
-    pub menu_fg: Color32,
     /// The status bar: a vertical gradient from `status_a` to `status_b`.
     pub status_a: Color32,
     pub status_b: Color32,
@@ -334,8 +332,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0x3fb950), ok_txt: h(0x7ee2a8), ok_subtle: h(0x051b11), ok_border_subtle: h(0x0f5132),
             ok_emph: h(0x75b798), danger_subtle: h(0x2c0b0e), danger_border_subtle: h(0x842029), danger_emph: h(0xea868f),
             diff_txt: h(0xea868f), orange: h(0xf0883e), orange_txt: h(0xffa657), violet_txt: h(0xd2a8ff),
-            cyan_txt: h(0x56d4dd), pink_txt: h(0xff9bce), menu_bg: h(0x238636), menu_bg_hover: h(0x2ea043),
-            menu_fg: h(0xffffff), status_a: h(0x0b0f15), status_b: h(0x06090d), status_brd: h(0x30363d),
+            cyan_txt: h(0x56d4dd), pink_txt: h(0xff9bce), menu_bg_hover: h(0x2ea043),
+            status_a: h(0x0b0f15), status_b: h(0x06090d), status_brd: h(0x30363d),
             status_sep: h(0x30363d), status_fg: h(0x8b949e), stat_filt: h(0xf0883e), stat_total: h(0x3fb950),
             idx_hover: h(0x2d333b), row_alt: h(0x121820), row_hover: h(0x1f242c), sy_kw: h(0xff7b72),
             sy_ctl: h(0xff7b72), sy_str: h(0xa5d6ff), sy_num: h(0x79c0ff), sy_com: h(0x8b949e),
@@ -361,8 +359,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0x1a7f37), ok_txt: h(0x1a7f37), ok_subtle: h(0xd1e7dd), ok_border_subtle: h(0xa3cfbb),
             ok_emph: h(0x0a3622), danger_subtle: h(0xf8d7da), danger_border_subtle: h(0xf1aeb5), danger_emph: h(0x58151c),
             diff_txt: h(0xb02a37), orange: h(0xbc4c00), orange_txt: h(0xbc4c00), violet_txt: h(0x8250df),
-            cyan_txt: h(0x1b7c83), pink_txt: h(0xbf3989), menu_bg: h(0x1f883d), menu_bg_hover: h(0x1a7f37),
-            menu_fg: h(0xffffff), status_a: h(0xf6f8fa), status_b: h(0xf6f8fa), status_brd: h(0xd0d7de),
+            cyan_txt: h(0x1b7c83), pink_txt: h(0xbf3989), menu_bg_hover: h(0x1a7f37),
+            status_a: h(0xf6f8fa), status_b: h(0xf6f8fa), status_brd: h(0xd0d7de),
             status_sep: h(0xd0d7de), status_fg: h(0x59636e), stat_filt: h(0xbc4c00), stat_total: h(0x1a7f37),
             idx_hover: h(0xdde3ea), row_alt: h(0xf6f8fa), row_hover: h(0xeaf1fb), sy_kw: h(0xcf222e),
             sy_ctl: h(0xcf222e), sy_str: h(0x0a3069), sy_num: h(0x0550ae), sy_com: h(0x6e7781),
@@ -388,8 +386,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0x9ece6a), ok_txt: h(0x9ece6a), ok_subtle: h(0x051b11), ok_border_subtle: h(0x0f5132),
             ok_emph: h(0x75b798), danger_subtle: h(0x2c0b0e), danger_border_subtle: h(0x842029), danger_emph: h(0xea868f),
             diff_txt: h(0xea868f), orange: h(0xff9e64), orange_txt: h(0xff9e64), violet_txt: h(0xbb9af7),
-            cyan_txt: h(0x7dcfff), pink_txt: h(0xff75b5), menu_bg: h(0x7aa2f7), menu_bg_hover: h(0x8db0fa),
-            menu_fg: h(0x101014), status_a: h(0x121218), status_b: h(0x0e0e13), status_brd: h(0x232433),
+            cyan_txt: h(0x7dcfff), pink_txt: h(0xff75b5), menu_bg_hover: h(0x8db0fa),
+            status_a: h(0x121218), status_b: h(0x0e0e13), status_brd: h(0x232433),
             status_sep: h(0x2f334d), status_fg: h(0x737aa2), stat_filt: h(0xff9e64), stat_total: h(0x9ece6a),
             idx_hover: h(0x292e42), row_alt: h(0x181a25), row_hover: h(0x232639), sy_kw: h(0x9d7cd8),
             sy_ctl: h(0xbb9af7), sy_str: h(0x9ece6a), sy_num: h(0xff9e64), sy_com: h(0x565f89),
@@ -415,8 +413,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0xa6e3a1), ok_txt: h(0xa6e3a1), ok_subtle: h(0x051b11), ok_border_subtle: h(0x0f5132),
             ok_emph: h(0x75b798), danger_subtle: h(0x2c0b0e), danger_border_subtle: h(0x842029), danger_emph: h(0xea868f),
             diff_txt: h(0xea868f), orange: h(0xfab387), orange_txt: h(0xfab387), violet_txt: h(0xcba6f7),
-            cyan_txt: h(0x94e2d5), pink_txt: h(0xf5c2e7), menu_bg: h(0xcba6f7), menu_bg_hover: h(0xd6bbf9),
-            menu_fg: h(0x11111b), status_a: h(0x0e0e17), status_b: h(0x0b0b12), status_brd: h(0x232334),
+            cyan_txt: h(0x94e2d5), pink_txt: h(0xf5c2e7), menu_bg_hover: h(0xd6bbf9),
+            status_a: h(0x0e0e17), status_b: h(0x0b0b12), status_brd: h(0x232334),
             status_sep: h(0x313244), status_fg: h(0x9399b2), stat_filt: h(0xfab387), stat_total: h(0xa6e3a1),
             idx_hover: h(0x2a2b3c), row_alt: h(0x141421), row_hover: h(0x1f1f30), sy_kw: h(0xcba6f7),
             sy_ctl: h(0xcba6f7), sy_str: h(0xa6e3a1), sy_num: h(0xfab387), sy_com: h(0x9399b2),
@@ -442,8 +440,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0x9ece6a), ok_txt: h(0x9ece6a), ok_subtle: h(0x051b11), ok_border_subtle: h(0x0f5132),
             ok_emph: h(0x75b798), danger_subtle: h(0x2c0b0e), danger_border_subtle: h(0x842029), danger_emph: h(0xea868f),
             diff_txt: h(0xea868f), orange: h(0xff9e64), orange_txt: h(0xff9e64), violet_txt: h(0xbb9af7),
-            cyan_txt: h(0x2ac3de), pink_txt: h(0xff75b5), menu_bg: h(0x007acc), menu_bg_hover: h(0x1a8ad4),
-            menu_fg: h(0xffffff), status_a: h(0x16161e), status_b: h(0x16161e), status_brd: h(0x101014),
+            cyan_txt: h(0x2ac3de), pink_txt: h(0xff75b5), menu_bg_hover: h(0x1a8ad4),
+            status_a: h(0x16161e), status_b: h(0x16161e), status_brd: h(0x101014),
             status_sep: h(0x292e42), status_fg: h(0x787c99), stat_filt: h(0xff9e64), stat_total: h(0x9ece6a),
             idx_hover: h(0x1e202e), row_alt: h(0x1c1d29), row_hover: h(0x1e202e), sy_kw: h(0x9d7cd8),
             sy_ctl: h(0xbb9af7), sy_str: h(0x9ece6a), sy_num: h(0xff9e64), sy_com: h(0x565f89),
@@ -469,8 +467,8 @@ fn palettes() -> [Palette; 6] {
             ok: h(0x40a02b), ok_txt: h(0x2f7d1f), ok_subtle: h(0xd1e7dd), ok_border_subtle: h(0xa3cfbb),
             ok_emph: h(0x0a3622), danger_subtle: h(0xf8d7da), danger_border_subtle: h(0xf1aeb5), danger_emph: h(0x58151c),
             diff_txt: h(0xb02a37), orange: h(0xfe640b), orange_txt: h(0xc9500a), violet_txt: h(0x8839ef),
-            cyan_txt: h(0x137a80), pink_txt: h(0xb8489a), menu_bg: h(0x8839ef), menu_bg_hover: h(0x7a2fd6),
-            menu_fg: h(0xffffff), status_a: h(0xe6e9ef), status_b: h(0xdce0e8), status_brd: h(0xccd0da),
+            cyan_txt: h(0x137a80), pink_txt: h(0xb8489a), menu_bg_hover: h(0x7a2fd6),
+            status_a: h(0xe6e9ef), status_b: h(0xdce0e8), status_brd: h(0xccd0da),
             status_sep: h(0xbcc0cc), status_fg: h(0x6c6f85), stat_filt: h(0xc9500a), stat_total: h(0x2f7d1f),
             idx_hover: h(0xccd0da), row_alt: h(0xe9ecf1), row_hover: h(0xdce0e8), sy_kw: h(0x8839ef),
             sy_ctl: h(0x8839ef), sy_str: h(0x40a02b), sy_num: h(0xfe640b), sy_com: h(0x7c7f93),
@@ -491,15 +489,15 @@ fn palettes() -> [Palette; 6] {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Metrics {
     // ---- Grid ----
-    /// A data row: 34 px of cell and its 1 px bottom rule (ROW_H).
+    /// A data row, its 1 px bottom rule included: the density's (`DENSITIES`), 32 by default.
     pub row_h: f32,
-    /// The titles' row: 32 + 1.
+    /// The titles' line: 32 + 1 (its rule only when no chart follows).
     pub header_h: f32,
-    /// The column charts' band: 61 + 1 (hidden: 0).
+    /// The column charts under the titles, one block with them (68 tall together): 34 + 1 (hidden: 0).
     pub spk_h: f32,
     /// The filter row: 28 + 1 (hidden: 0).
     pub filter_h: f32,
-    /// The totals row: a 1 px top rule (`brd_2`) and 34 px.
+    /// The totals row: a 1 px top rule (`brd_2`) and the rest, as tall as a data row.
     pub totals_h: f32,
     /// The row-number gutter: 70 + 2 × 10 padding + its 2 px `prim` rule on the right.
     pub gutter_w: f32,
@@ -521,23 +519,25 @@ pub struct Metrics {
     /// Filter box of the filter row: 22 px tall, 5 px from the cell's sides, text 24 px in (magnifier at 7).
     pub filter_box_h: f32,
     pub filter_cell_pad_x: f32,
-    /// Column chart box inside the band: 45 px tall, padding 9 top / 7 bottom / 10 sides.
+    /// Column chart box: 27 px tall, padding 1 top / 7 bottom / 10 sides.
     pub spk_box_h: f32,
-    /// Gauge / ribbon at the box's bottom: 6 px, radius 3; the curve stops 13 px above the bottom.
+    /// Gauge / ribbon at the box's bottom: 4 px, radius 2; the curve stops 3 px above it.
     pub spk_gauge_h: f32,
-    /// Category pill: 20 px tall, its body starting 3 px into the cell.
-    pub pill_h: f32,
+    /// Category dot: 7 px across, 6 px before its text.
+    pub dot_d: f32,
     /// The scroll strips over the scrollbars (vertical width, horizontal height).
     pub strip_w: f32,
     // ---- Chrome ----
-    /// Tab bar: 5 px top padding, 30 px tabs, 1 px bottom rule.
-    pub tab_bar_h: f32,
+    /// The top band (menu, tabs, search, Save): 46 px including its bottom rule, padding 0 12, gap 8.
+    pub band_h: f32,
+    pub band_pad_x: f32,
+    pub band_gap: f32,
     pub tab_h: f32,
     pub tab_max_w: f32,
-    /// Toolbar: 52 px including its bottom rule, padding 8 × 16, gap 12.
-    pub toolbar_h: f32,
-    pub toolbar_pad_x: f32,
-    pub toolbar_gap: f32,
+    /// The filter chips' bar, shown while a filter is in force: 34 px including its bottom rule.
+    pub chips_h: f32,
+    /// The column inspector, docked at the right.
+    pub inspector_w: f32,
     /// Status bar: 36 px including its top rule, padding 0 12 0 18, gap 14.
     pub status_h: f32,
     /// Buttons (`.btn`): padding 6 × 14 → 30 px tall; fields (`.bs-input`, 14 px text): padding 6 × 12 → 31 px.
@@ -579,14 +579,18 @@ pub struct Metrics {
     pub font_title: f32,
 }
 
+/// The rows' densities: (name, row height), the setting's order.
+pub const DENSITIES: [(&str, f32); 3] = [("Compact", 28.0), ("Normal", 32.0), ("Airy", 38.0)];
+pub const DEFAULT_DENSITY: usize = 1;
+
 impl Default for Metrics {
     fn default() -> Self {
         Self {
-            row_h: 35.0,
+            row_h: DENSITIES[DEFAULT_DENSITY].1,
             header_h: 33.0,
-            spk_h: 62.0,
+            spk_h: 35.0,
             filter_h: 29.0,
-            totals_h: 35.0,
+            totals_h: DENSITIES[DEFAULT_DENSITY].1,
             gutter_w: 92.0,
             gutter_rule_w: 2.0,
             cell_pad_x: 10.0,
@@ -599,16 +603,17 @@ impl Default for Metrics {
             type_icon: 16.0,
             filter_box_h: 22.0,
             filter_cell_pad_x: 5.0,
-            spk_box_h: 45.0,
-            spk_gauge_h: 6.0,
-            pill_h: 20.0,
+            spk_box_h: 27.0,
+            spk_gauge_h: 4.0,
+            dot_d: 7.0,
             strip_w: 24.0,
-            tab_bar_h: 37.0,
-            tab_h: 30.0,
+            band_h: 46.0,
+            band_pad_x: 12.0,
+            band_gap: 8.0,
+            tab_h: 32.0,
             tab_max_w: 250.0,
-            toolbar_h: 52.0,
-            toolbar_pad_x: 16.0,
-            toolbar_gap: 12.0,
+            chips_h: 34.0,
+            inspector_w: 320.0,
             status_h: 36.0,
             btn_h: 30.0,
             btn_pad_x: 14.0,
@@ -624,7 +629,7 @@ impl Default for Metrics {
             r_menu: 8,
             r_dialog: 10,
             r_tip: 5,
-            r_tab: 6,
+            r_tab: 7,
             r_menu_item: 5,
             font_grid: 13.0,
             font_ui: 13.0,
@@ -642,6 +647,17 @@ impl Metrics {
     /// The header's height with the optional bands shown or not.
     pub fn head_h(&self, charts: bool, filters: bool) -> f32 {
         self.header_h + if charts { self.spk_h } else { 0.0 } + if filters { self.filter_h } else { 0.0 }
+    }
+
+    /// The rows at density `d` (an index of `DENSITIES`; past them, the default).
+    pub fn set_density(&mut self, d: usize) {
+        let h = DENSITIES.get(d).map_or(DENSITIES[DEFAULT_DENSITY].1, |x| x.1);
+        (self.row_h, self.totals_h) = (h, h);
+    }
+
+    /// The density in force.
+    pub fn density(&self) -> usize {
+        DENSITIES.iter().position(|d| d.1 == self.row_h).unwrap_or(DEFAULT_DENSITY)
     }
 }
 

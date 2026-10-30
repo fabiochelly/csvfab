@@ -195,7 +195,7 @@ pub fn search_assist(ui: &mut Ui, tab: &mut Tab, field: &egui::Response, p: &Pal
     let caret = char_to_byte(&text, fx_picker::selection(&ctx, id, &text).1);
     ac.update(&text, caret, &headers);
     if ac.is_open() {
-        // The box: the field's text area plus its 12 px padding, the toolbar's field height.
+        // The box: the field's text area plus its 12 px padding, the band's field height.
         let r = Rect::from_center_size(field.rect.center(), vec2(field.rect.width() + 24.0, m.input_h));
         if let Some(i) = ac.popup(&ctx, Id::unique(("expr-ac-list", tab.uid)), pos2(r.min.x - 1.5, r.max.y + 4.0), 0.0, p) {
             if let Some(c) = ac.accept(&mut tab.filter.global, i) {

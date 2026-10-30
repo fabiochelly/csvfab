@@ -1,5 +1,5 @@
-//! Everything around the grid (docs/look.md): the tab bar, the toolbar with
-//! the search, its toggles and the filter chips, the status bar with its
+//! Everything around the grid (docs/look.md): the top band with the tabs, the
+//! search and its toggles, the filter chips' bar, the status bar with its
 //! format pills and switches, the main menu, the command palette, toasts and
 //! the welcome screen.
 //!
@@ -102,7 +102,8 @@ fn key_caps(pt: &egui::Painter, p: &Colors, right: f32, cy: f32, keys: &str) -> 
 }
 
 /// The screenshot hooks of the shell: `theme:<id>` (without saving it), `welcome` (no tab),
-/// `palette[:query]`, `palette-recent:a;b`, `toast:<text>`, `dirty:<n>` (n edits).
+/// `palette[:query]`, `palette-recent:a;b`, `toast:<text>`, `dirty:<n>` (n edits),
+/// `density:<i>`, `inspector` (neither saved).
 fn shots(app: &mut App, ctx: &egui::Context) {
     if std::env::var_os("CSVFAB_SHOT").is_none() {
         return;
@@ -133,6 +134,12 @@ fn shots(app: &mut App, ctx: &egui::Context) {
             }
         }
     }
+    if let Some(d) = crate::shot::take("density") {
+        app.m.set_density(d.parse().unwrap_or(crate::theme::DEFAULT_DENSITY));
+    }
+    if crate::shot::take("inspector").is_some() {
+        app.config.inspector = Some(true);
+    }
     if let Some(t) = crate::shot::take("toast") {
         // Held for a minute: the renderer's clock runs faster than the wall's.
         let now = ctx.input(|i| i.time);
@@ -145,192 +152,158 @@ fn shots(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-// ---------------------------------------------------------------- tab bar
+// ---------------------------------------------------------------- top band
 
-pub fn tab_bar(app: &mut App, ui: &mut Ui) {
-    shots(app, &ui.ctx().clone());
-    let (p, m) = (&app.theme.p, &app.m);
-    let mut close = None;
-    let mut open = false;
-    let mut pick = None;
-    let frame = egui::Frame::new().fill(p.bg_deep).inner_margin(egui::Margin { left: 10, right: 10, top: 5, bottom: 0 });
-    egui::Panel::top("tabs").exact_size(m.tab_bar_h).frame(frame).show_separator_line(false).show(ui, |ui| {
-        let ctx = ui.ctx().clone();
-        let bar = ui.max_rect();
-        let bottom = bar.max.y;
-        let rule_y = ui.painter().round_to_pixel_center(bottom - 0.5);
-        ui.painter().hline(bar.x_range().expand(10.0), rule_y, Stroke::new(1.0, p.brd));
-        let t_now = ui.input(|i| i.time);
-        let mut loading = false;
-        // Many tabs: the names shrink (down to 60 px), then the tabs scroll sideways (the wheel
-        // over them, the active one kept in view) and ▾ lists them all, as the web's bar scrolled.
-        let width = |t: &crate::tab::Tab, cap: f32| -> f32 {
-            let name = ui.painter().layout_no_wrap(t.name.clone(), ui_font(12.5), p.txt_hi).size().x;
-            let meta = ui.painter().layout_no_wrap(t.st().map(|s| fmt_int(s.len())).unwrap_or_default(), ui_font(11.0), p.txt_dim).size().x;
-            (10.0_f32 + 7.0 + 8.0 + name.min(cap) + 8.0 + meta + if t.dirty() { 14.0 } else { 0.0 } + 8.0 + 16.0 + 8.0).min(m.tab_max_w).round()
-        };
-        let total = |cap: f32| app.tabs.iter().map(|t| width(t, cap) + 4.0).sum::<f32>();
-        let room = bar.width() - 24.0 - 4.0;
-        let mut cap = 150.0;
-        while cap > 60.0 && total(cap) > room { cap -= 10.0; }
-        let over = total(cap) > room;
-        let room = if over { room - 28.0 } else { room };
-        let ws: Vec<f32> = app.tabs.iter().map(|t| width(t, cap)).collect();
-        let sid = Id::unique("tab-scroll");
-        let mut off: f32 = ctx.data(|d| d.get_temp(sid)).unwrap_or(0.0);
-        if over {
-            if ui.rect_contains_pointer(bar) {
-                let d = ui.input(|i| i.smooth_scroll_delta);
-                off -= if d.x != 0.0 { d.x } else { d.y };
-            }
-            // The active tab in view.
-            let left: f32 = ws[..app.active.min(ws.len())].iter().map(|w| w + 4.0).sum();
-            let right = left + ws.get(app.active).copied().unwrap_or(0.0);
-            // Brought into view when it changes (a click, Alt+→, a new tab), not against the wheel.
-            let seen = (app.active, app.tabs.len());
-            if ctx.data(|d| d.get_temp::<(usize, usize)>(sid.with("seen"))) != Some(seen) {
-                off = off.min(left).max(right - room);
-                ctx.data_mut(|d| d.insert_temp(sid.with("seen"), seen));
-            }
-            off = off.clamp(0.0, (total(cap) - room).max(0.0));
-        } else {
-            off = 0.0;
-        }
-        ctx.data_mut(|d| d.insert_temp(sid, off));
-        let clip = Rect::from_min_max(pos2(bar.min.x - 10.0, bar.min.y - 5.0), pos2(bar.min.x + room, bar.max.y + 2.0));
-        let pt = ui.painter().with_clip_rect(clip);
-        let mut x = bar.min.x - off;
-        for (i, t) in app.tabs.iter().enumerate() {
-            let active = i == app.active;
-            let meta = t.st().map(|s| fmt_int(s.len())).unwrap_or_default();
-            let meta_g = pt.layout_no_wrap(meta, ui_font(11.0), if active { p.accent_2 } else { p.txt_dim });
-            let dirty = t.dirty();
-            let w = ws[i];
-            let r = Rect::from_min_max(pos2(x, bottom - m.tab_h - 1.0), pos2(x + w, bottom + if active { 1.0 } else { 0.0 }));
-            let resp = ui.interact(r.intersect(clip), Id::unique(("tab", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-            let h = ease(&ctx, resp.id, resp.hovered() && !active);
-            let fill = if active { p.surf } else { mix(p.surf_2, p.surf, h) };
-            let cr = CornerRadius { nw: m.r_tab, ne: m.r_tab, sw: 0, se: 0 };
-            pt.rect_filled(r, cr, fill);
-            if active {
-                // A breath of the accent at the top of the open tab, fading down.
-                let g = Rect::from_min_max(r.min + vec2(1.0, 1.0), pos2(r.max.x - 1.0, r.min.y + r.height() * 0.7));
-                let mut mesh = egui::Mesh::default();
-                let top = alpha(p.prim, 0.10);
-                mesh.colored_vertex(g.left_top(), top);
-                mesh.colored_vertex(g.right_top(), top);
-                mesh.colored_vertex(g.right_bottom(), Color32::TRANSPARENT);
-                mesh.colored_vertex(g.left_bottom(), Color32::TRANSPARENT);
-                mesh.add_triangle(0, 1, 2);
-                mesh.add_triangle(0, 2, 3);
-                pt.with_clip_rect(r.shrink2(vec2(m.r_tab as f32 * 0.5, 0.0))).add(mesh);
-            }
-            let border = if active { p.prim } else { mix(p.brd_2, p.brd, h) };
-            // Top, left and right borders only, with true rounded corners: the outline of the
-            // whole rounded rectangle, its bottom edge cut off so the active tab opens into the toolbar.
-            let outline = Rect::from_min_max(r.min, pos2(r.max.x, r.max.y + 4.0));
-            pt.with_clip_rect(Rect::from_min_max(r.min - vec2(1.0, 1.0), pos2(r.max.x + 1.0, r.max.y)))
-                .rect_stroke(outline, cr, Stroke::new(1.0, border), StrokeKind::Inside);
-            let cy = r.center().y;
-            let mut cx = r.min.x + 10.0;
-            // State dot: loaded, or breathing while reading (1 s, as the web's pulse).
-            let reading = t.table.is_none() && t.error.is_none();
-            loading |= reading;
-            let dot_c = pos2(cx + 3.5, cy);
-            if reading {
-                let k = 0.5 + 0.5 * (t_now * std::f64::consts::TAU).sin() as f32;
-                pt.circle_filled(dot_c, 3.5 + 3.0 * (1.0 - k), alpha(p.prim, 0.18 * k));
-                pt.circle_filled(dot_c, 3.5, alpha(p.prim, 0.25 + 0.75 * k));
-            } else {
-                pt.circle_filled(dot_c, 3.5, if t.error.is_some() { p.danger } else { p.ok });
-            }
-            cx += 7.0 + 8.0;
-            let mut job = egui::text::LayoutJob::simple_singleline(t.name.clone(), ui_font(12.5), if active { p.txt_hi } else { p.txt_mut });
-            job.wrap = egui::text::TextWrapping { max_width: cap, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-            let g = pt.layout_job(job);
-            let gw = g.size().x;
-            let name_c = if active { p.txt_hi } else { mix(p.txt_hi, p.txt_mut, h) };
-            pt.galley_with_override_text_color(pos2(cx, snap(&ctx, cy - g.size().y / 2.0)), g, name_c);
-            cx += gw + 8.0;
-            let mw = meta_g.size().x;
-            pt.galley(pos2(cx, snap(&ctx, cy - meta_g.size().y / 2.0)), meta_g, p.txt_dim);
-            cx += mw;
-            if dirty {
-                pt.circle_filled(pos2(cx + 7.0, cy), 3.0, p.warn);
-            }
-            let xr = Rect::from_center_size(pos2(r.max.x - 8.0 - 8.0, cy), vec2(16.0, 16.0));
-            let xresp = ui.interact(xr.intersect(clip), Id::unique(("tab-x", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-            let xh = ease(&ctx, xresp.id, xresp.hovered());
-            if xh > 0.0 {
-                pt.rect_filled(xr, 4.0, p.danger.gamma_multiply(xh));
-            }
-            icons::cross(&pt, xr.shrink(4.0), 2.0, mix(p.on_danger, if active || h > 0.5 { p.txt_mut } else { p.txt_dim }, xh));
-            if xresp.clicked() {
-                close = Some(i);
-            } else if resp.clicked() {
-                pick = Some(i);
-            }
-            if resp.middle_clicked() {
-                close = Some(i);
-            }
-            // The path, the size, and the edits not saved yet (as the web's).
-            let mut tip = t.path.as_ref().map_or_else(|| format!("{} — not on disk yet", t.name), |p| p.display().to_string());
-            if let Some(st) = t.st() {
-                let size = st.base.size as f64;
-                let sz = if size >= 1e9 { format!("{:.1} GB", size / 1e9) } else if size >= 1e6 { format!("{:.0} MB", size / 1e6) } else if size >= 1e3 { format!("{:.0} KB", size / 1e3) } else { format!("{size} B") };
-                tip += &format!("\n{sz} · {} rows", fmt_int(st.len()));
-            }
-            if let Some(x) = t.table.as_ref().filter(|x| x.dirty()) {
-                let n = x.pending_edits();
-                tip += &format!("\n● {} pending edit{} — Ctrl+S saves", fmt_int(n), if n == 1 { "" } else { "s" });
-            }
-            resp.on_hover_text(tip);
-            x = r.max.x + 4.0;
-        }
-        if loading {
-            // The breathing dot: 30 frames a second is smooth enough (not every frame the screen can).
-            ctx.request_repaint_after(std::time::Duration::from_millis(33));
-        }
-        let x = x.min(bar.min.x + room);
-        if over {
-            // ▾: every tab, by name.
-            let lr = Rect::from_min_size(pos2(bar.max.x - 24.0, bottom - 24.0 - 4.0), vec2(24.0, 24.0));
-            let lresp = ui.interact(lr, Id::unique("tab-list"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-            let h = ease(&ctx, lresp.id, lresp.hovered());
-            if h > 0.0 { ui.painter().rect(lr, 5.0, p.surf_2.gamma_multiply(h), Stroke::new(1.0, p.brd.gamma_multiply(h)), StrokeKind::Inside); }
-            icons::paint(ui.painter(), Icon::ChevronDown, lr.shrink(5.0), mix(p.txt_strong, p.txt_mut, h));
-            let lresp = lresp.on_hover_text(format!("All {} tabs", app.tabs.len()));
-            egui::Popup::menu(&lresp).frame(crate::theme::menu_frame(p, m)).show(|ui| {
-                crate::widgets::width(ui, 260.0);
-                for (i, t) in app.tabs.iter().enumerate() {
-                    let label = if t.dirty() { format!("● {}", t.name) } else { t.name.clone() };
-                    if crate::widgets::Item::new(&label).checked(i == app.active).show(ui, p).clicked() { pick = Some(i); ui.close(); }
-                }
-            });
-        }
-        let plus = Rect::from_min_size(pos2(x, bottom - 24.0 - 4.0), vec2(24.0, 24.0));
-        let r = ui.interact(plus, Id::unique("tab-add"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let h = ease(&ctx, r.id, r.hovered());
-        if h > 0.0 {
-            ui.painter().rect(plus, 5.0, p.surf_2.gamma_multiply(h), Stroke::new(1.0, p.brd.gamma_multiply(h)), StrokeKind::Inside);
-        }
-        icons::plus(ui.painter(), plus.shrink(5.0), 2.0, mix(p.txt_strong, p.txt_mut, h));
-        if r.on_hover_text("Open a file (Ctrl+O)").clicked() {
-            open = true;
-        }
-    });
-    if let Some(i) = pick {
-        app.active = i;
-    }
-    if let Some(i) = close {
-        app.close_tab(i, false);
-    }
-    if open {
-        app.pick_files(ui.ctx());
-    }
+/// A tab's width with its name cut at `cap`: 10 + dot 7 + 8 + name + 8 + row count + dirty mark + 8 + × 16 + 8.
+fn tab_w(pt: &egui::Painter, p: &Colors, m: &crate::theme::Metrics, t: &crate::tab::Tab, cap: f32) -> f32 {
+    let name = pt.layout_no_wrap(t.name.clone(), ui_font(12.5), p.txt_hi).size().x;
+    let meta = pt.layout_no_wrap(t.st().map(|s| fmt_int(s.len())).unwrap_or_default(), ui_font(11.0), p.txt_dim).size().x;
+    (10.0_f32 + 7.0 + 8.0 + name.min(cap) + 8.0 + meta + if t.dirty() { 14.0 } else { 0.0 } + 8.0 + 16.0 + 8.0).min(m.tab_max_w).round()
 }
 
-// ---------------------------------------------------------------- toolbar
+/// The tabs in `bar`: the names shrink (down to 60 px), then the tabs scroll sideways (the wheel
+/// over them, the active one kept in view) and ▾ lists them all, as the web's bar scrolled.
+fn tabs(app: &App, ui: &mut Ui, bar: Rect, close: &mut Option<usize>, open: &mut bool, pick: &mut Option<usize>) {
+    let (p, m) = (&app.theme.p, &app.m);
+    let ctx = ui.ctx().clone();
+    let t_now = ui.input(|i| i.time);
+    let mut loading = false;
+    let pt = ui.painter().clone();
+    let cy = bar.center().y;
+    let total = |cap: f32| app.tabs.iter().map(|t| tab_w(&pt, p, m, t, cap) + 2.0).sum::<f32>();
+    let room = bar.width() - 24.0 - 2.0;
+    let mut cap = 150.0;
+    while cap > 60.0 && total(cap) > room { cap -= 10.0; }
+    let over = total(cap) > room;
+    let room = if over { room - 26.0 } else { room };
+    // Too little room for even the active tab: its name gives way, down to a few letters.
+    if let Some(t) = app.tabs.get(app.active) { cap = (cap - (tab_w(&pt, p, m, t, cap) - room).max(0.0)).max(16.0); }
+    let ws: Vec<f32> = app.tabs.iter().map(|t| tab_w(&pt, p, m, t, cap)).collect();
+    let sid = Id::unique("tab-scroll");
+    let mut off: f32 = ctx.data(|d| d.get_temp(sid)).unwrap_or(0.0);
+    if over {
+        if ui.rect_contains_pointer(bar) {
+            let d = ui.input(|i| i.smooth_scroll_delta);
+            off -= if d.x != 0.0 { d.x } else { d.y };
+        }
+        // The active tab in view.
+        let left: f32 = ws[..app.active.min(ws.len())].iter().map(|w| w + 2.0).sum();
+        let right = left + ws.get(app.active).copied().unwrap_or(0.0);
+        // Brought into view when it, its width or the room changes (a click, Alt+→, a new tab), not against the wheel.
+        let seen = (app.active, app.tabs.len(), (right - room) as i32);
+        if ctx.data(|d| d.get_temp::<(usize, usize, i32)>(sid.with("seen"))) != Some(seen) {
+            off = off.min(left).max(right - room);
+            ctx.data_mut(|d| d.insert_temp(sid.with("seen"), seen));
+        }
+        off = off.clamp(0.0, (total(cap) - room).max(0.0));
+    } else {
+        off = 0.0;
+    }
+    ctx.data_mut(|d| d.insert_temp(sid, off));
+    let clip = Rect::from_min_max(bar.min, pos2(bar.min.x + room.max(0.0), bar.max.y));
+    let pt = pt.with_clip_rect(clip);
+    let mut x = bar.min.x - off;
+    for (i, t) in app.tabs.iter().enumerate() {
+        let active = i == app.active;
+        let meta = t.st().map(|s| fmt_int(s.len())).unwrap_or_default();
+        let meta_g = pt.layout_no_wrap(meta, ui_font(11.0), if active { p.accent_2 } else { p.txt_dim });
+        let dirty = t.dirty();
+        let w = ws[i];
+        let r = Rect::from_min_size(pos2(x, (cy - m.tab_h / 2.0).round()), vec2(w, m.tab_h));
+        let resp = ui.interact(r.intersect(clip), Id::unique(("tab", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let h = ease(&ctx, resp.id, resp.hovered() && !active);
+        if active {
+            pt.rect_filled(r, m.r_tab, p.surf_2);
+        } else if h > 0.0 {
+            pt.rect_filled(r, m.r_tab, alpha(p.surf_2, 0.6 * h));
+        }
+        let mut cx = r.min.x + 10.0;
+        // State dot: loaded, or breathing while reading (1 s, as the web's pulse).
+        let reading = t.table.is_none() && t.error.is_none();
+        loading |= reading;
+        let dot_c = pos2(cx + 3.5, cy);
+        if reading {
+            let k = 0.5 + 0.5 * (t_now * std::f64::consts::TAU).sin() as f32;
+            pt.circle_filled(dot_c, 3.5 + 3.0 * (1.0 - k), alpha(p.prim, 0.18 * k));
+            pt.circle_filled(dot_c, 3.5, alpha(p.prim, 0.25 + 0.75 * k));
+        } else {
+            pt.circle_filled(dot_c, 3.5, if t.error.is_some() { p.danger } else { p.ok });
+        }
+        cx += 7.0 + 8.0;
+        let mut job = egui::text::LayoutJob::simple_singleline(t.name.clone(), ui_font(12.5), if active { p.txt_hi } else { p.txt_mut });
+        job.wrap = egui::text::TextWrapping { max_width: cap, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+        let g = pt.layout_job(job);
+        let gw = g.size().x;
+        let name_c = if active { p.txt_hi } else { mix(p.txt_hi, p.txt_mut, h) };
+        pt.galley_with_override_text_color(pos2(cx, snap(&ctx, cy - g.size().y / 2.0)), g, name_c);
+        cx += gw + 8.0;
+        let mw = meta_g.size().x;
+        pt.galley(pos2(cx, snap(&ctx, cy - meta_g.size().y / 2.0)), meta_g, p.txt_dim);
+        cx += mw;
+        if dirty {
+            pt.circle_filled(pos2(cx + 7.0, cy), 3.0, p.warn);
+        }
+        let xr = Rect::from_center_size(pos2(r.max.x - 8.0 - 8.0, cy), vec2(16.0, 16.0));
+        let xresp = ui.interact(xr.intersect(clip), Id::unique(("tab-x", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let xh = ease(&ctx, xresp.id, xresp.hovered());
+        if xh > 0.0 {
+            pt.rect_filled(xr, 4.0, p.danger.gamma_multiply(xh));
+        }
+        icons::cross(&pt, xr.shrink(4.0), 2.0, mix(p.on_danger, if active || h > 0.5 { p.txt_mut } else { p.txt_dim }, xh));
+        if xresp.clicked() {
+            *close = Some(i);
+        } else if resp.clicked() {
+            *pick = Some(i);
+        }
+        if resp.middle_clicked() {
+            *close = Some(i);
+        }
+        // The path, the size, and the edits not saved yet (as the web's).
+        let mut tip = t.path.as_ref().map_or_else(|| format!("{} — not on disk yet", t.name), |p| p.display().to_string());
+        if let Some(st) = t.st() {
+            let size = st.base.size as f64;
+            let sz = if size >= 1e9 { format!("{:.1} GB", size / 1e9) } else if size >= 1e6 { format!("{:.0} MB", size / 1e6) } else if size >= 1e3 { format!("{:.0} KB", size / 1e3) } else { format!("{size} B") };
+            tip += &format!("\n{sz} · {} rows", fmt_int(st.len()));
+        }
+        if let Some(x) = t.table.as_ref().filter(|x| x.dirty()) {
+            let n = x.pending_edits();
+            tip += &format!("\n● {} pending edit{} — Ctrl+S saves", fmt_int(n), if n == 1 { "" } else { "s" });
+        }
+        resp.on_hover_text(tip);
+        x = r.max.x + 2.0;
+    }
+    if loading {
+        // The breathing dot: 30 frames a second is smooth enough (not every frame the screen can).
+        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+    }
+    let x = x.min(bar.min.x + room.max(0.0));
+    if over {
+        // ▾: every tab, by name.
+        let lr = Rect::from_center_size(pos2(bar.max.x - 12.0, cy), vec2(24.0, 24.0));
+        let lresp = ui.interact(lr, Id::unique("tab-list"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let h = ease(&ctx, lresp.id, lresp.hovered());
+        if h > 0.0 { ui.painter().rect(lr, 5.0, p.surf_2.gamma_multiply(h), Stroke::new(1.0, p.brd.gamma_multiply(h)), StrokeKind::Inside); }
+        icons::paint(ui.painter(), Icon::ChevronDown, lr.shrink(5.0), mix(p.txt_strong, p.txt_mut, h));
+        let lresp = lresp.on_hover_text(format!("All {} tabs", app.tabs.len()));
+        egui::Popup::menu(&lresp).frame(crate::theme::menu_frame(p, m)).show(|ui| {
+            crate::widgets::width(ui, 260.0);
+            for (i, t) in app.tabs.iter().enumerate() {
+                let label = if t.dirty() { format!("● {}", t.name) } else { t.name.clone() };
+                if crate::widgets::Item::new(&label).checked(i == app.active).show(ui, p).clicked() { *pick = Some(i); ui.close(); }
+            }
+        });
+    }
+    let plus = Rect::from_center_size(pos2(x + 12.0, cy), vec2(24.0, 24.0));
+    let r = ui.interact(plus, Id::unique("tab-add"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let h = ease(&ctx, r.id, r.hovered());
+    if h > 0.0 {
+        ui.painter().rect(plus, 5.0, p.surf_2.gamma_multiply(h), Stroke::new(1.0, p.brd.gamma_multiply(h)), StrokeKind::Inside);
+    }
+    icons::plus(ui.painter(), plus.shrink(5.0), 2.0, mix(p.txt_strong, p.txt_mut, h));
+    if r.on_hover_text("Open a file (Ctrl+O)").clicked() {
+        *open = true;
+    }
+}
 
 /// An icon-only control over `r`; `draw` gets the hover share (0 → 1, eased).
 fn icon_button_at(ui: &mut Ui, r: Rect, id: Id, tip: &str, draw: impl FnOnce(&egui::Painter, Rect, f32)) -> egui::Response {
@@ -371,11 +344,49 @@ fn chip_value(v: &str) -> String {
     if v.chars().count() > 28 { v.chars().take(28).collect::<String>() + "…" } else { v.to_string() }
 }
 
-/// The toolbar (look.md, "Toolbar"), laid out by hand so it holds at any width down to
-/// ~700 px: the right group is measured first; the search field takes what is left after
-/// the chips, shrinking to 120; then the chips give way (those that do not fit fold into a
-/// "+N" chip listing them); then Save loses its label.
-pub fn toolbar(app: &mut App, ui: &mut Ui) {
+/// The filters in force, as chips.
+fn filter_chips(tab: &crate::tab::Tab) -> Vec<Chip> {
+    let mut chips: Vec<Chip> = Vec::new();
+    if !tab.filter.global.is_empty() {
+        chips.push((if tab.expr_mode { "Expression".into() } else { "Search".into() }, tab.filter.global.clone(), 0, 0));
+    }
+    let heads = tab.heads();
+    for (c, f) in tab.col_filters.iter().enumerate() {
+        if !f.is_empty() {
+            chips.push((heads.get(c).cloned().unwrap_or_default(), f.clone(), 1, c));
+        }
+    }
+    // Values hidden from a column's panel, a chart's part or a cell's menu.
+    for (c, set) in &tab.filter.hidden {
+        if set.is_empty() { continue; }
+        let what = match (set.len(), set.iter().next()) {
+            (1, Some(v)) if v.is_empty() => "not empty".to_string(),
+            (1, Some(v)) => format!("≠ {v}"),
+            (n, _) => format!("{} values hidden", fmt_int(n)),
+        };
+        chips.push((heads.get(*c).cloned().unwrap_or_default(), what, 3, *c));
+    }
+    // Values kept: a chart's part, a cell's value.
+    for pk in &tab.filter.picks {
+        let what = match &pk.keep {
+            csvfab_engine::view::Keeps::Values(v) if v.len() == 1 => match v.iter().next().map(String::as_str) { Some("") => "empty".to_string(), Some(v) => format!("= {v}"), None => String::new() },
+            csvfab_engine::view::Keeps::Values(v) => format!("{} values", fmt_int(v.len())),
+            csvfab_engine::view::Keeps::Part(..) => tab.spark.picks.get(&pk.col).map_or("a chart's part".to_string(), |p| p.label.clone()),
+        };
+        chips.push((heads.get(pk.col).cloned().unwrap_or_default(), what, 3, pk.col));
+    }
+    if let Some(r) = &tab.restrict {
+        chips.push((r.label.clone(), String::new(), 2, 0));
+    }
+    chips
+}
+
+/// The band above the grid (look.md, "Top band"), laid out by hand: the right group and the
+/// toggles are measured first; the search field keeps its width while the tabs can shrink,
+/// the tabs given what is left, 150 px at least; under that the field shrinks to 110, and
+/// Save loses its label. Tabs left, the search group right.
+pub fn top_band(app: &mut App, ui: &mut Ui) {
+    shots(app, &ui.ctx().clone());
     let ctx = ui.ctx().clone();
     let (p, m) = (app.theme.p.clone(), app.m.clone());
     let mut refresh = false;
@@ -384,12 +395,12 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
     let mut menu_run: Option<fn(&mut tools::Cx)> = None;
     let mut dialog = None;
     let saving = app.saving();
-    let frame = egui::Frame::new().fill(p.surf).inner_margin(egui::Margin::symmetric(m.toolbar_pad_x as i8, 8));
-    egui::Panel::top("toolbar").exact_size(m.toolbar_h).frame(frame).show_separator_line(false).show(ui, |ui| {
+    let (mut close, mut open_file, mut pick) = (None, false, None);
+    let frame = egui::Frame::new().fill(p.bg_deep).inner_margin(egui::Margin::symmetric(m.band_pad_x as i8, 0));
+    egui::Panel::top("band").exact_size(m.band_h).frame(frame).show_separator_line(false).show(ui, |ui| {
         let bar = ui.max_rect();
-        let bottom = bar.max.y + 8.0;
-        let full = bar.x_range().expand(m.toolbar_pad_x);
-        ui.painter().hline(full, ui.painter().round_to_pixel_center(bottom - 0.5), Stroke::new(1.0, p.brd));
+        let full = bar.x_range().expand(m.band_pad_x);
+        ui.painter().hline(full, ui.painter().round_to_pixel_center(bar.max.y - 0.5), Stroke::new(1.0, p.brd));
         // The progress line: 2 px of `prim` with its glow along the bottom edge while a file
         // is read, a view computed or a file written.
         if let Some(tab) = app.tabs.get(app.active).filter(|t| t.busy() || saving) {
@@ -402,23 +413,23 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
                     (x.max(0.0), (x + 240.0).min(w))
                 }
             };
-            let line = Rect::from_min_max(pos2(full.min + a, bottom - 2.0), pos2(full.min + b, bottom));
+            let line = Rect::from_min_max(pos2(full.min + a, bar.max.y - 2.0), pos2(full.min + b, bar.max.y));
             ui.painter().add(egui::Shadow { offset: [0, 0], blur: 8, spread: 0, color: alpha(p.prim, 0.7) }.as_shape(line, 1));
             ui.painter().rect_filled(line, 1.0, p.prim);
             // A busy line: 30 frames a second (not every frame the screen can draw).
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
-        let cy = bar.center().y;
-        let gap = m.toolbar_gap;
+        let cy = (bar.center().y - 0.5).round();
+        let gap = m.band_gap;
         let at = |x: f32, w: f32, h: f32| Rect::from_min_size(pos2(x, (cy - h / 2.0).round()), vec2(w, h));
 
-        // Menu button.
-        let mr = at(bar.min.x, 38.0, 32.0);
+        // Menu button: quiet, it fills on hover or open.
+        let mr = at(bar.min.x, 32.0, 32.0);
         let resp = ui.interact(mr, Id::unique("tb-menu"), Sense::click());
         let open = egui::Popup::is_id_open(&ctx, egui::Popup::default_response_id(&resp));
         let h = ease(&ctx, resp.id, resp.hovered() || open);
-        ui.painter().rect(mr, 6.0, mix(p.menu_bg_hover, p.menu_bg, h), Stroke::new(1.0, alpha(p.hi, 0.1)), StrokeKind::Inside);
-        icons::hamburger(ui.painter(), Rect::from_center_size(mr.center(), vec2(18.0, 18.0)), p.menu_fg);
+        if h > 0.0 { ui.painter().rect_filled(mr, m.r_tab, p.surf_2.gamma_multiply(h)); }
+        icons::hamburger(ui.painter(), Rect::from_center_size(mr.center(), vec2(18.0, 18.0)), mix(p.txt_hi, p.txt_mut, h));
         if !app.tabs.is_empty() && app.tabs[app.active].table.is_some() && crate::shot::take("menu").is_some() {
             egui::Popup::open_id(&ctx, egui::Popup::default_response_id(&resp));
         }
@@ -427,58 +438,13 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             main_menu(ui, app, &p, &mut cmd, &mut menu_run, &mut dialog);
         });
 
-        let Some(tab) = app.tabs.get_mut(app.active) else { return };
+        // Tabs from here to the search group, its width settled first.
+        let tabs_x = mr.max.x + gap;
+        let Some(tab) = app.tabs.get(app.active) else {
+            tabs(app, ui, Rect::from_x_y_ranges(tabs_x..=bar.max.x, bar.y_range()), &mut close, &mut open_file, &mut pick);
+            return;
+        };
         let pt = ui.painter().clone();
-
-        // The filters in force, as chips.
-        let mut chips: Vec<Chip> = Vec::new();
-        if !tab.filter.global.is_empty() {
-            chips.push((if tab.expr_mode { "Expression".into() } else { "Search".into() }, tab.filter.global.clone(), 0, 0));
-        }
-        let heads = tab.heads();
-        for (c, f) in tab.col_filters.iter().enumerate() {
-            if !f.is_empty() {
-                chips.push((heads.get(c).cloned().unwrap_or_default(), f.clone(), 1, c));
-            }
-        }
-        // Values hidden from a column's panel, a chart's part or a cell's menu.
-        for (c, set) in &tab.filter.hidden {
-            if set.is_empty() { continue; }
-            let what = match (set.len(), set.iter().next()) {
-                (1, Some(v)) if v.is_empty() => "not empty".to_string(),
-                (1, Some(v)) => format!("≠ {v}"),
-                (n, _) => format!("{} values hidden", fmt_int(n)),
-            };
-            chips.push((heads.get(*c).cloned().unwrap_or_default(), what, 3, *c));
-        }
-        // Values kept: a chart's part, a cell's value.
-        for pk in &tab.filter.picks {
-            let what = match &pk.keep {
-                csvfab_engine::view::Keeps::Values(v) if v.len() == 1 => match v.iter().next().map(String::as_str) { Some("") => "empty".to_string(), Some(v) => format!("= {v}"), None => String::new() },
-                csvfab_engine::view::Keeps::Values(v) => format!("{} values", fmt_int(v.len())),
-                csvfab_engine::view::Keeps::Part(..) => tab.spark.picks.get(&pk.col).map_or("a chart's part".to_string(), |p| p.label.clone()),
-            };
-            chips.push((heads.get(pk.col).cloned().unwrap_or_default(), what, 3, pk.col));
-        }
-        if let Some(r) = &tab.restrict {
-            chips.push((r.label.clone(), String::new(), 2, 0));
-        }
-        // What each one keeps, said in full on hover when the chip cuts it short.
-        // The search's options said too (as the web's chips): regex, case and accents, inverted.
-        let f = &tab.filter;
-        let opts: String = [(f.regex, "regular expression"), (f.match_case, "accents and case matched"), (f.invert, "inverted: the rows that do NOT match")].iter().filter(|o| o.0).map(|o| format!(" · {}", o.1)).collect();
-        let tips: Vec<String> = chips.iter().map(|(what, value, kind, _)| match kind {
-            0 if tab.expr_mode => format!("Rows where: {value}{}", if f.invert { " · inverted" } else { "" }),
-            0 => format!("Rows holding: {value}{opts}"),
-            1 => format!("Column \"{what}\" holds: {value}{opts}"),
-            3 => format!("Column \"{what}\": {value} — set in its panel or a chart"),
-            _ => format!("Only the rows: {what}"),
-        }).collect();
-        let widths: Vec<f32> = chips.iter().map(|c| chip_w(&pt, &p, c)).collect();
-        let clear_w = if chips.len() >= 2 { 6.0 + 24.0 } else { 0.0 };
-        let chips_need = if chips.is_empty() { 0.0 } else { widths.iter().sum::<f32>() + 6.0 * (chips.len() - 1) as f32 + clear_w };
-        let more_chip_w = 52.0;
-
         // The right group: [Discard]  [Save n | ▾], with or without labels (Extract is in ▾).
         let dirty = tab.dirty();
         let n = tab.table.as_ref().map_or(0, |t| t.pending_edits());
@@ -489,39 +455,17 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         let discard_w = if dirty { 34.0 + 10.0 } else { 0.0 };
         let right_w = |compact: bool| discard_w + if compact { 34.0 + 30.0 - 1.0 } else { save_full + 30.0 - 1.0 };
         let field_pref = if tab.expr_mode { m.search_expr_w } else { m.search_w };
-        let left_fixed = 38.0 + gap + 40.0 + gap + 118.0 + gap;
-        // Width for the field and the chips, with the right group in full or compact.
-        let split = |compact: bool| {
-            let room = (bar.width() - left_fixed - right_w(compact) - gap).max(0.0);
-            let field = (room - chips_need).clamp(120.0_f32.min(room), field_pref);
-            (field, room - field)
-        };
-        let (mut field_w, mut chip_room) = split(false);
-        let mut compact = false;
-        if chip_room + 0.5 < chips_need && chip_room < more_chip_w + clear_w + 40.0 {
-            compact = true;
-            (field_w, chip_room) = split(true);
-        }
-        // The chips that fit (the others fold into "+N"); what they leave goes back to the field.
-        let fits = if chips_need <= chip_room + 0.5 {
-            chips.len()
-        } else {
-            let budget = chip_room - clear_w - more_chip_w - 6.0;
-            let mut used = 0.0;
-            widths.iter().take_while(|w| {
-                used += *w + 6.0;
-                used - 6.0 <= budget
-            }).count()
-        };
-        if fits < chips.len() {
-            let used = widths[..fits].iter().map(|w| w + 6.0).sum::<f32>() + more_chip_w + clear_w;
-            field_w = (field_w + (chip_room - used).max(0.0)).min(field_pref);
-        }
-        let field_w = field_w.round();
+        // Width for the tabs and the field: past the ƒx button, the toggles, the right group.
+        let room = |compact: bool| (bar.max.x - tabs_x - gap - 40.0 - gap - 118.0 - gap - right_w(compact)).max(0.0);
+        let tabs_min = app.tabs.iter().map(|t| tab_w(&pt, &p, &m, t, 150.0) + 2.0).sum::<f32>().min(150.0) + 26.0;
+        let compact = room(false) - tabs_min < 200.0;
+        let field_w = (room(compact) - tabs_min).clamp(110.0_f32.min(room(compact)), field_pref).round();
 
-        // Search group: ƒx | field.
-        let mut x = mr.max.x + gap;
-        let fr = at(x, 40.0, m.input_h);
+        // Search group: ƒx | field, then the toggles and Save, against the right edge.
+        let group_x = bar.max.x - right_w(compact) - gap - 118.0 - gap - field_w - 40.0;
+        tabs(app, ui, Rect::from_x_y_ranges(tabs_x..=group_x - gap, bar.y_range()), &mut close, &mut open_file, &mut pick);
+        let Some(tab) = app.tabs.get_mut(app.active) else { return };
+        let fr = at(group_x, 40.0, m.input_h);
         let sr = at(fr.max.x, field_w, m.input_h);
         let fx = ui.interact(fr, Id::unique("tb-fx"), Sense::click());
         let on = tab.expr_mode;
@@ -540,7 +484,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             menu_run = Some(crate::tools::fx_picker::open_search);
         }
         let brd = if bad { p.danger } else { mix(p.prim, mix(p.brd_2, p.brd, sh), ff) };
-        ui.painter().rect(sr, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, p.bg_deep, Stroke::new(1.0, brd), StrokeKind::Inside);
+        ui.painter().rect(sr, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, p.bg, Stroke::new(1.0, brd), StrokeKind::Inside);
         if let Some(t) = crate::shot::take("search").or_else(|| crate::shot::take("searchre").inspect(|_| tab.filter.regex = true)) {
             tab.filter.global = t;
             refresh = true;
@@ -565,10 +509,9 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         if let (Some(e), None) = (&tab.filter_error, tab.filter_error_col) {
             r.on_hover_text(e.clone());
         }
-        x = sr.max.x + gap;
 
         // Toggles: ignore accents, regex, invert, expression (no transition: they switch at once).
-        let tr = at(x, 118.0, 32.0);
+        let tr = at(sr.max.x + gap, 118.0, 32.0);
         ui.painter().rect(tr, 7.0, p.bg_deep, Stroke::new(1.0, p.brd), StrokeKind::Inside);
         let toggles: [(&str, bool, Color32); 4] = [
             ("Match accents and case", tab.filter.match_case, p.accent_2),
@@ -600,10 +543,175 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
                 refresh = true;
             }
         }
-        x = tr.max.x + gap;
 
-        // Filter chips, each popping in (scale .96 → 1, fade, 150 ms); those that do not fit
-        // fold into "+N", which lists them.
+        // Right group: [Discard]  [Save n | ▾], joined (1 px over each other).
+        let now = ctx.input(|i| i.time);
+        let warn = if dirty { p.warn } else { p.txt };
+        // The badge runs to its new count and pops when it changes.
+        let bid = Id::unique(("save-badge", tab.uid));
+        let shown_n = ctx.animate_value_with_time(bid, n as f32, if crate::widgets::reduced_motion(&ctx) { 0.0 } else { 0.35 });
+        let shown_n = if (shown_n - n as f32).abs() < 0.5 { n } else { shown_n.round() as usize };
+        let (last_n, changed_at) = ctx.data(|d| d.get_temp::<(usize, f64)>(bid)).unwrap_or((n, f64::NEG_INFINITY));
+        let changed_at = if last_n != n { now } else { changed_at };
+        ctx.data_mut(|d| d.insert_temp(bid, (n, changed_at)));
+        let pop = (((now - changed_at) / 0.25) as f32).clamp(0.0, 1.0);
+        if pop < 1.0 {
+            ctx.request_repaint();
+        }
+        let save_w = if compact { 34.0 } else { save_full };
+        let gx = bar.max.x - (save_w + 30.0 - 1.0);
+        let save_r = at(gx, save_w, m.btn_h);
+        let more_r = at(save_r.max.x - 1.0, 30.0, m.btn_h);
+        let save = ui.interact(save_r, Id::unique("tb-save"), Sense::click());
+        let more = ui.interact(more_r, Id::unique("tb-save-more"), Sense::click());
+        let colored = dirty.then_some(p.warn);
+        seg(ui, &p, save_r, &save, CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, colored);
+        seg(ui, &p, more_r, &more, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, colored);
+        let icon_at = |r: Rect| if compact { Rect::from_center_size(r.center(), vec2(16.0, 16.0)) } else { Rect::from_min_size(pos2(r.min.x + 14.0, r.center().y - 8.0), vec2(16.0, 16.0)) };
+        icons::paint(&pt, Icon::Save, icon_at(save_r), warn);
+        if !compact {
+            pt.text(pos2(save_r.min.x + 36.0, save_r.center().y), Align2::LEFT_CENTER, "Save", medium(13.0), warn);
+        }
+        if let Some(b) = &badge {
+            let s = 1.0 + 0.18 * (1.0 - egui::emath::easing::cubic_out(pop));
+            let (font, h) = if compact { (semibold(9.5), 14.0) } else { (semibold(11.0), 18.0) };
+            let gb = pt.layout_no_wrap(fmt_int(shown_n), font.clone(), p.on_warn);
+            let full_w = (pt.layout_no_wrap(b.clone(), font, p.on_warn).size().x + if compact { 8.0 } else { 12.0 }).max(h);
+            // Beside "Save"; compact, on the icon's top-right corner, ringed with the band.
+            let c = if compact { pos2(save_r.center().x + 7.0 + full_w / 2.0 - 4.0, save_r.min.y + 6.0) } else { pos2(save_r.min.x + 36.0 + label_w("Save") + 8.0 + full_w / 2.0, save_r.center().y) };
+            let br = Rect::from_center_size(c, vec2(full_w, h) * s);
+            if compact {
+                pt.rect_filled(br.expand(1.5), h / 2.0 + 1.5, p.bg_deep);
+            }
+            pt.rect_filled(br, h / 2.0 * s, p.warn);
+            pt.galley(pos2(snap(&ctx, c.x - gb.size().x / 2.0), snap(&ctx, c.y - gb.size().y / 2.0)), gb, p.on_warn);
+        }
+        icons::paint(&pt, Icon::ChevronDownWide, Rect::from_center_size(more_r.center(), vec2(16.0, 12.0)), warn);
+        egui::Popup::menu(&more).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
+            crate::widgets::width(ui, 230.0);
+            if crate::widgets::Item::new("Save as…").icon(Icon::Save).keys("Ctrl+Shift+S").show(ui, &p).clicked() {
+                cmd = Some("save_as");
+                ui.close();
+            }
+            for c in tools::commands().into_iter().filter(|c| c.group == "Save") {
+                if command_item(c.name, c.keys.unwrap_or("")).enabled((c.enabled)(tab)).show(ui, &p).clicked() {
+                    menu_run = Some(c.run);
+                    ui.close();
+                }
+            }
+        });
+        let save_tip = match (&badge, compact) {
+            (Some(b), _) => format!("Save {b} edit{} (Ctrl+S)", if n == 1 { "" } else { "s" }),
+            _ => "Save (Ctrl+S)".to_string(),
+        };
+        // Labelled, it says it all; compact (the icon alone), the tip names it.
+        let save = if compact { save.on_hover_text(save_tip) } else { save };
+        if save.clicked() {
+            cmd = Some("save");
+        }
+        if dirty {
+            let r = at(gx - 10.0 - 34.0, 34.0, m.btn_h);
+            let d = ui.interact(r, Id::unique("tb-discard"), Sense::click());
+            let h = ease(&ctx, d.id, d.hovered());
+            pt.rect(r, 6.0, alpha(p.danger, 0.12 * h), Stroke::new(1.0, mix(p.danger, alpha(p.danger, 0.5), h)), StrokeKind::Inside);
+            icons::paint(&pt, Icon::Discard, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), p.danger);
+            if d.on_hover_text("Discard the edits: read the file again").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                cmd = Some("discard");
+            }
+        }
+    });
+    if let Some(i) = pick {
+        app.active = i;
+    }
+    if let Some(i) = close {
+        app.close_tab(i, false);
+    }
+    if open_file {
+        app.pick_files(&ctx);
+    }
+    if let Some(d) = dialog {
+        app.dialog = Some(d);
+    }
+    if refresh {
+        if let Some(t) = app.tab() {
+            t.refresh(&ctx);
+        }
+    }
+    if let Some(run) = menu_run {
+        app.run_command(run, &ctx);
+    }
+    match cmd {
+        Some("open") => app.pick_files(&ctx),
+        Some("save") => app.save(None, false, &ctx),
+        Some("save_as") => app.save_as(&ctx),
+        Some("undo") => app.undo(false, &ctx),
+        Some("redo") => app.undo(true, &ctx),
+        Some("palette") => app.palette = Some(Default::default()),
+        Some("card") => app.card.toggle(),
+        Some("inspector") => app.toggle_inspector(),
+        Some("quit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+        Some("discard") => app.open_tool(tools::export::discard()),
+        Some(band @ ("charts" | "filters" | "totals")) => {
+            if let Some(t) = app.tabs.get_mut(app.active) {
+                match band {
+                    "charts" => t.show_charts = !t.show_charts,
+                    "filters" => t.show_filters = !t.show_filters,
+                    _ => t.show_totals = !t.show_totals,
+                }
+            }
+        }
+        Some(d) => {
+            if let Some(i) = crate::theme::DENSITIES.iter().position(|x| x.0 == d) { app.set_density(i); }
+        }
+        None => {}
+    }
+}
+
+/// The filter chips' thin bar under the band (look.md, "Filter bar"), there only while a
+/// filter is in force. Each chip pops in (scale .96 → 1, fade, 150 ms); those that do not fit
+/// fold into "+N", which lists them; with two or more, a clear-all at the end.
+pub fn filter_bar(app: &mut App, ui: &mut Ui) {
+    let Some(tab) = app.tabs.get_mut(app.active) else { return };
+    let chips = filter_chips(tab);
+    if chips.is_empty() { return; }
+    let ctx = ui.ctx().clone();
+    let (p, m) = (&app.theme.p, &app.m);
+    let mut refresh = false;
+    // What each one keeps, said in full on hover when the chip cuts it short.
+    // The search's options said too (as the web's chips): regex, case and accents, inverted.
+    let f = &tab.filter;
+    let opts: String = [(f.regex, "regular expression"), (f.match_case, "accents and case matched"), (f.invert, "inverted: the rows that do NOT match")].iter().filter(|o| o.0).map(|o| format!(" · {}", o.1)).collect();
+    let tips: Vec<String> = chips.iter().map(|(what, value, kind, _)| match kind {
+        0 if tab.expr_mode => format!("Rows where: {value}{}", if f.invert { " · inverted" } else { "" }),
+        0 => format!("Rows holding: {value}{opts}"),
+        1 => format!("Column \"{what}\" holds: {value}{opts}"),
+        3 => format!("Column \"{what}\": {value} — set in its panel or a chart"),
+        _ => format!("Only the rows: {what}"),
+    }).collect();
+    let frame = egui::Frame::new().fill(mix(p.accent, p.surf, 0.05)).inner_margin(egui::Margin::symmetric(m.band_pad_x as i8, 0));
+    egui::Panel::top("chips").exact_size(m.chips_h).frame(frame).show_separator_line(false).show(ui, |ui| {
+        let bar = ui.max_rect();
+        ui.painter().hline(bar.x_range().expand(m.band_pad_x), ui.painter().round_to_pixel_center(bar.max.y - 0.5), Stroke::new(1.0, p.brd));
+        let cy = (bar.center().y - 0.5).round();
+        let at = |x: f32, w: f32, h: f32| Rect::from_min_size(pos2(x, (cy - h / 2.0).round()), vec2(w, h));
+        let pt = ui.painter().clone();
+        let widths: Vec<f32> = chips.iter().map(|c| chip_w(&pt, p, c)).collect();
+        let clear_w = if chips.len() >= 2 { 6.0 + 24.0 } else { 0.0 };
+        let chips_need = widths.iter().sum::<f32>() + 6.0 * (chips.len() - 1) as f32 + clear_w;
+        let more_chip_w = 52.0;
+        let room = bar.width();
+        // The chips that fit (the others fold into "+N").
+        let fits = if chips_need <= room + 0.5 {
+            chips.len()
+        } else {
+            let budget = room - clear_w - more_chip_w - 6.0;
+            let mut used = 0.0;
+            widths.iter().take_while(|w| {
+                used += *w + 6.0;
+                used - 6.0 <= budget
+            }).count()
+        };
+        let mut x = bar.min.x;
         let now = ctx.input(|i| i.time);
         let born_id = Id::unique("chip-born");
         let mut born = ctx.data(|d| d.get_temp::<Born>(born_id)).unwrap_or_default();
@@ -649,12 +757,12 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             pt.rect(r, 13.0, mix(alpha(p.accent, 0.18), p.chip_bg, h), Stroke::new(1.0, if open { p.prim } else { p.chip_brd }), StrokeKind::Inside);
             pt.text(r.center(), Align2::CENTER_CENTER, format!("+{}", chips.len() - fits), semibold(12.0), p.txt_strong);
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-            egui::Popup::menu(&resp).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
+            egui::Popup::menu(&resp).frame(crate::theme::menu_frame(p, m)).show(|ui| {
                 crate::widgets::width(ui, 260.0);
-                crate::widgets::head(ui, &p, "Filters · click to remove");
+                crate::widgets::head(ui, p, "Filters · click to remove");
                 for (what, value, kind, c) in chips.iter().skip(fits) {
                     let label = if value.is_empty() { what.clone() } else { format!("{what}  {}", chip_value(value)) };
-                    if crate::widgets::Item::new(&label).icon(Icon::Cross).show(ui, &p).clicked() {
+                    if crate::widgets::Item::new(&label).icon(Icon::Cross).show(ui, p).clicked() {
                         remove = Some((*kind, *c));
                         ui.close();
                     }
@@ -696,113 +804,9 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             }
             refresh = true;
         }
-
-        // Right group: [Discard]  [Save n | ▾], joined (1 px over each other).
-        let warn = if dirty { p.warn } else { p.txt };
-        // The badge runs to its new count and pops when it changes.
-        let bid = Id::unique(("save-badge", tab.uid));
-        let shown_n = ctx.animate_value_with_time(bid, n as f32, if crate::widgets::reduced_motion(&ctx) { 0.0 } else { 0.35 });
-        let shown_n = if (shown_n - n as f32).abs() < 0.5 { n } else { shown_n.round() as usize };
-        let (last_n, changed_at) = ctx.data(|d| d.get_temp::<(usize, f64)>(bid)).unwrap_or((n, f64::NEG_INFINITY));
-        let changed_at = if last_n != n { now } else { changed_at };
-        ctx.data_mut(|d| d.insert_temp(bid, (n, changed_at)));
-        let pop = (((now - changed_at) / 0.25) as f32).clamp(0.0, 1.0);
-        if pop < 1.0 {
-            ctx.request_repaint();
-        }
-        let save_w = if compact { 34.0 } else { save_full };
-        let gx = bar.max.x - (save_w + 30.0 - 1.0);
-        let save_r = at(gx, save_w, m.btn_h);
-        let more_r = at(save_r.max.x - 1.0, 30.0, m.btn_h);
-        let save = ui.interact(save_r, Id::unique("tb-save"), Sense::click());
-        let more = ui.interact(more_r, Id::unique("tb-save-more"), Sense::click());
-        let colored = dirty.then_some(p.warn);
-        seg(ui, &p, save_r, &save, CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, colored);
-        seg(ui, &p, more_r, &more, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, colored);
-        let icon_at = |r: Rect| if compact { Rect::from_center_size(r.center(), vec2(16.0, 16.0)) } else { Rect::from_min_size(pos2(r.min.x + 14.0, r.center().y - 8.0), vec2(16.0, 16.0)) };
-        icons::paint(&pt, Icon::Save, icon_at(save_r), warn);
-        if !compact {
-            pt.text(pos2(save_r.min.x + 36.0, save_r.center().y), Align2::LEFT_CENTER, "Save", medium(13.0), warn);
-        }
-        if let Some(b) = &badge {
-            let s = 1.0 + 0.18 * (1.0 - egui::emath::easing::cubic_out(pop));
-            let (font, h) = if compact { (semibold(9.5), 14.0) } else { (semibold(11.0), 18.0) };
-            let gb = pt.layout_no_wrap(fmt_int(shown_n), font.clone(), p.on_warn);
-            let full_w = (pt.layout_no_wrap(b.clone(), font, p.on_warn).size().x + if compact { 8.0 } else { 12.0 }).max(h);
-            // Beside "Save"; compact, on the icon's top-right corner, ringed with the toolbar.
-            let c = if compact { pos2(save_r.center().x + 7.0 + full_w / 2.0 - 4.0, save_r.min.y + 6.0) } else { pos2(save_r.min.x + 36.0 + label_w("Save") + 8.0 + full_w / 2.0, save_r.center().y) };
-            let br = Rect::from_center_size(c, vec2(full_w, h) * s);
-            if compact {
-                pt.rect_filled(br.expand(1.5), h / 2.0 + 1.5, p.surf);
-            }
-            pt.rect_filled(br, h / 2.0 * s, p.warn);
-            pt.galley(pos2(snap(&ctx, c.x - gb.size().x / 2.0), snap(&ctx, c.y - gb.size().y / 2.0)), gb, p.on_warn);
-        }
-        icons::paint(&pt, Icon::ChevronDownWide, Rect::from_center_size(more_r.center(), vec2(16.0, 12.0)), warn);
-        egui::Popup::menu(&more).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
-            crate::widgets::width(ui, 230.0);
-            if crate::widgets::Item::new("Save as…").icon(Icon::Save).keys("Ctrl+Shift+S").show(ui, &p).clicked() {
-                cmd = Some("save_as");
-                ui.close();
-            }
-            for c in tools::commands().into_iter().filter(|c| c.group == "Save") {
-                if command_item(c.name, c.keys.unwrap_or("")).enabled((c.enabled)(tab)).show(ui, &p).clicked() {
-                    menu_run = Some(c.run);
-                    ui.close();
-                }
-            }
-        });
-        let save_tip = match (&badge, compact) {
-            (Some(b), _) => format!("Save {b} edit{} (Ctrl+S)", if n == 1 { "" } else { "s" }),
-            _ => "Save (Ctrl+S)".to_string(),
-        };
-        // Labelled, it says it all; compact (the icon alone), the tip names it.
-        let save = if compact { save.on_hover_text(save_tip) } else { save };
-        if save.clicked() {
-            cmd = Some("save");
-        }
-        if dirty {
-            let r = at(gx - 10.0 - 34.0, 34.0, m.btn_h);
-            let d = ui.interact(r, Id::unique("tb-discard"), Sense::click());
-            let h = ease(&ctx, d.id, d.hovered());
-            pt.rect(r, 6.0, alpha(p.danger, 0.12 * h), Stroke::new(1.0, mix(p.danger, alpha(p.danger, 0.5), h)), StrokeKind::Inside);
-            icons::paint(&pt, Icon::Discard, Rect::from_center_size(r.center(), vec2(16.0, 16.0)), p.danger);
-            if d.on_hover_text("Discard the edits: read the file again").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                cmd = Some("discard");
-            }
-        }
     });
-    if let Some(d) = dialog {
-        app.dialog = Some(d);
-    }
     if refresh {
-        if let Some(t) = app.tab() {
-            t.refresh(&ctx);
-        }
-    }
-    if let Some(run) = menu_run {
-        app.run_command(run, &ctx);
-    }
-    match cmd {
-        Some("open") => app.pick_files(&ctx),
-        Some("save") => app.save(None, false, &ctx),
-        Some("save_as") => app.save_as(&ctx),
-        Some("undo") => app.undo(false, &ctx),
-        Some("redo") => app.undo(true, &ctx),
-        Some("palette") => app.palette = Some(Default::default()),
-        Some("card") => app.card.toggle(),
-        Some("quit") => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Some("discard") => app.open_tool(tools::export::discard()),
-        Some(band @ ("charts" | "filters" | "totals")) => {
-            if let Some(t) = app.tabs.get_mut(app.active) {
-                match band {
-                    "charts" => t.show_charts = !t.show_charts,
-                    "filters" => t.show_filters = !t.show_filters,
-                    _ => t.show_totals = !t.show_totals,
-                }
-            }
-        }
-        _ => {}
+        tab.refresh(&ctx);
     }
 }
 
@@ -982,6 +986,22 @@ fn main_menu(ui: &mut Ui, app: &App, p: &Colors, cmd: &mut Option<&str>, run: &m
         });
     }
     sep(ui, p);
+    // The display settings (the status bar has them too).
+    let resp = Item::new("Density").icon(Icon::Rows).submenu().show(ui, p);
+    egui::containers::menu::SubMenu::new().show(ui, &resp, |ui| {
+        width(ui, 200.0);
+        for (k, (name, _)) in crate::theme::DENSITIES.iter().enumerate() {
+            if Item::new(name).checked(k == app.m.density()).show(ui, p).clicked() {
+                *cmd = Some(*name);
+                ui.close();
+            }
+        }
+    });
+    if Item::new("Column inspector").icon(Icon::Profile).checked(app.config.inspector == Some(true)).show(ui, p).clicked() {
+        *cmd = Some("inspector");
+        ui.close();
+    }
+    sep(ui, p);
     match crate::widgets::row_buttons(ui, p, Some(Icon::Help), "Help", &[(Some(Icon::Keyboard), "Shortcuts", true), (Some(Icon::Info), "About…", true)]) {
         Some(0) => {
             *dialog = Some(Dialog::Shortcuts);
@@ -1116,6 +1136,29 @@ fn look_switch(pt: &egui::Painter, r: Rect, level: u8, p: &Colors) {
     pt.circle_stroke(c, rad, Stroke::new(1.0, alpha(p.hi, 0.3)));
 }
 
+/// What the status bar must have left for its density control to show: the control and the
+/// pills, counts and a message's worth beside it.
+const DENSITY_ROOM: f32 = 900.0;
+
+/// The density's segmented control: its names side by side, the one in force lit. Returns the one clicked.
+fn density_seg(ui: &mut Ui, p: &Colors, on: usize) -> Option<usize> {
+    let font = medium(11.5);
+    let ws = crate::theme::DENSITIES.map(|d| (ui.painter().layout_no_wrap(d.0.to_string(), font.clone(), p.txt).size().x + 16.0).round());
+    let (r, _) = ui.allocate_exact_size(vec2(ws.iter().sum::<f32>() + 2.0 * 2.0 + 2.0, 24.0), Sense::hover());
+    ui.painter().rect_filled(r, 7.0, alpha(p.gray, 0.12));
+    let mut x = r.min.x + 2.0;
+    let mut pick = None;
+    for (k, (name, _)) in crate::theme::DENSITIES.iter().enumerate() {
+        let b = Rect::from_min_size(pos2(x, r.min.y + 2.0), vec2(ws[k], 20.0));
+        x = b.max.x + 1.0;
+        let resp = ui.interact(b, Id::unique(("density", k)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        if k == on { ui.painter().rect_filled(b, 5.0, p.surf_3); }
+        ui.painter().text(b.center(), Align2::CENTER_CENTER, *name, font.clone(), if k == on { p.txt_hi } else if resp.hovered() { p.txt } else { p.txt_mut });
+        if resp.clicked() && k != on { pick = Some(k); }
+    }
+    pick
+}
+
 pub fn status_bar(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let (p, m) = (app.theme.p.clone(), app.m.clone());
@@ -1125,6 +1168,8 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
     let mut reread_ask: Option<(crate::tab::Choice<Enc>, crate::tab::Choice<u8>)> = None;
     let mut open_clean = false;
     let mut follow_toggle = false;
+    let mut density_pick = None;
+    let mut inspector_toggle = false;
     let frame = egui::Frame::new().inner_margin(egui::Margin { left: 18, right: 12, top: 0, bottom: 0 });
     egui::Panel::bottom("status").exact_size(m.status_h).frame(frame).show_separator_line(false).show(ui, |ui| {
         let r = ui.max_rect().expand2(vec2(18.0, 0.0));
@@ -1324,7 +1369,7 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 let tip = match lv {
                     crate::theme::ALL => "All colours · click: no type colours",
                     crate::theme::NO_TYPES => "No type colours · click: raw values",
-                    _ => "Raw values: no colours, pills, links nor scales · click: all colours",
+                    _ => "Raw values: no colours, dots, links nor scales · click: all colours",
                 };
                 if switch(ui, 18.0, 0.1, true, tip, &|pt, r, _| look_switch(pt, r, lv, &p)) {
                     let next = if lv == crate::theme::RAW { crate::theme::ALL } else { lv - 1 };
@@ -1345,6 +1390,15 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                     tab.show_totals = !tab.show_totals;
                 }
                 ui.add_space(14.0);
+                if switch(ui, 16.0, 0.12, app.config.inspector == Some(true), "Column inspector", &|pt, r, c| icons::inspector(pt, r, if c == Color32::WHITE { p.accent_2 } else { c })) {
+                    inspector_toggle = true;
+                }
+                ui.add_space(14.0);
+                // The rows' density; a narrow bar leaves it to the menu, the pills go first.
+                if ui.available_width() > DENSITY_ROOM {
+                    density_pick = density_seg(ui, &p, m.density());
+                    ui.add_space(14.0);
+                }
 
                 // Format pills (right to left): line breaks, titles, encoding, delimiter.
                 ui.spacing_mut().item_spacing.x = 8.0;
@@ -1587,6 +1641,12 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
     });
     if let Some(id) = theme_pick {
         app.set_theme(id, &ctx);
+    }
+    if let Some(d) = density_pick {
+        app.set_density(d);
+    }
+    if inspector_toggle {
+        app.toggle_inspector();
     }
     if open_clean {
         if let Some(c) = tools::commands().into_iter().find(|c| c.name == "Clean up…") { app.run_command(c.run, &ctx); }

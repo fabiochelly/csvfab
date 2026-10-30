@@ -3,6 +3,14 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.1.0', date: '2026-10-30', items: [
+        ['Parquet', 'Open and export Parquet files: typed columns, zstd, and 2 GB of data written in 2 seconds.'],
+        ['A quieter window', 'Tabs, search and Save share one slim band; filters get their own bar only when one is on.'],
+        ['A compact header', 'Each title sits on its chart in one block, leaving more room for the rows.'],
+        ['Three row densities', 'Compact, Normal or Airy, from the status bar.'],
+        ['Column inspector', 'An optional panel on the right follows the column in hand: key figures, spread, top values, what is worth a look.'],
+        ['Exports match the view', 'Hidden columns and filtered rows stay out of every export; saving the file keeps everything.'],
+    ] },
     { v: '2.0.5', date: '2026-10-30', items: [
         ['Full regular expressions', 'Look-arounds and back-references now work in the filter box, column filters and Find & replace, not only in formulas.'],
         ['Font samples', 'The font picker shows each monospace font in its own face.'],

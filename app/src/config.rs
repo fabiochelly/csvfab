@@ -36,6 +36,10 @@ pub struct Config {
     pub show_filters: Option<bool>,
     pub show_charts: Option<bool>,
     pub show_totals: Option<bool>,
+    /// The rows' density (an index of `theme::DENSITIES`; None: Normal).
+    pub density: Option<u8>,
+    /// The column inspector docked at the right (None: off).
+    pub inspector: Option<bool>,
     pub recent: Vec<PathBuf>,
     /// When each recent file was last opened (seconds since 1970).
     pub opened: std::collections::HashMap<PathBuf, u64>,
@@ -66,6 +70,8 @@ impl Config {
                 "show_filters" => c.show_filters = v.parse().ok(),
                 "show_charts" => c.show_charts = v.parse().ok(),
                 "show_totals" => c.show_totals = v.parse().ok(),
+                "density" => c.density = v.parse().ok(),
+                "inspector" => c.inspector = v.parse().ok(),
                 "recent" => {
                     let (at, p) = match v.split_once('\t') { Some((t, p)) if t.bytes().all(|b| b.is_ascii_digit()) => (t.parse().ok(), p), _ => (None, v) };
                     let p = PathBuf::from(p);
@@ -110,6 +116,8 @@ impl Config {
         if let Some(b) = self.show_filters { out += &format!("show_filters={b}\n"); }
         if let Some(b) = self.show_charts { out += &format!("show_charts={b}\n"); }
         if let Some(b) = self.show_totals { out += &format!("show_totals={b}\n"); }
+        if let Some(d) = self.density { out += &format!("density={d}\n"); }
+        if let Some(b) = self.inspector { out += &format!("inspector={b}\n"); }
         // When each was last opened (the welcome screen's "ago"), then its path.
         for r in &self.recent {
             match self.opened.get(r) {
@@ -303,6 +311,17 @@ mod tests {
         out.push(1);
         out.extend(b);
         out
+    }
+
+    /// The density and the inspector are remembered; a config without them means Normal, off.
+    /// (Each test thread has its own settings directory: `dir`.)
+    #[test]
+    fn density_and_inspector_round_trip() {
+        let c = Config::load();
+        assert_eq!((c.density, c.inspector), (None, None));
+        Config { density: Some(2), inspector: Some(true), ..Default::default() }.save();
+        let c = Config::load();
+        assert_eq!((c.density, c.inspector), (Some(2), Some(true)));
     }
 
     #[test]

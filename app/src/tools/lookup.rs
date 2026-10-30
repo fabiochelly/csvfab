@@ -29,6 +29,10 @@ pub fn publish(tabs: &[Tab]) {
         m.clear();
         m.extend(tabs.iter().filter(|t| t.filtered()).filter_map(|t| Some((t.uid, t.view.clone()?))));
     });
+    HIDDEN.with_borrow_mut(|m| {
+        m.clear();
+        m.extend(tabs.iter().filter(|t| !t.grid.hidden.is_empty()).map(|t| (t.uid, t.grid.hidden.clone())));
+    });
     TABS.with_borrow_mut(|v| {
         // Only when a table changed: the snapshot replaced may hold the last reference to
         // a closed or reloaded file (its mapping, its index), freed off the UI thread.
@@ -49,6 +53,18 @@ pub fn open_tabs() -> Vec<(u64, String, State)> {
 
 thread_local! {
     static SHOWN: std::cell::RefCell<std::collections::HashMap<u64, std::sync::Arc<Vec<csvfab_engine::RowId>>>> = Default::default();
+}
+
+thread_local! {
+    static HIDDEN: std::cell::RefCell<std::collections::HashMap<u64, std::collections::BTreeSet<usize>>> = Default::default();
+}
+
+/// `st`, the table of tab `uid`, without the columns that tab hides (all hidden: as it is).
+pub fn without_hidden(uid: u64, st: State) -> State {
+    HIDDEN.with_borrow(|m| match m.get(&uid) {
+        Some(h) => Some(st.without_columns(|c| h.contains(&c))).filter(|s| s.ncols > 0).unwrap_or(st),
+        None => st,
+    })
 }
 
 /// The rows tab `uid` shows, when a filter or a sort narrows or orders them.

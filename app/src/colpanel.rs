@@ -5,7 +5,8 @@
 //! other filters let through (this column's own value filter left out, so its
 //! hidden values still show, unticked), in a `Job`; ticking values and Apply
 //! hides the unticked ones (`Tab::hide_values`). The title's right click gives
-//! the column's structure instead (`title_menu`).
+//! the column's structure instead (`title_menu`). The column inspector (inspector.rs)
+//! docks the same count, histogram and tools.
 
 use crate::grid::{self, Action};
 use crate::icons::{self, Icon};
@@ -26,15 +27,19 @@ const MAX_LISTED: usize = 300;
 /// Up to this many values, a search or a recount runs at once; past it, in a job.
 const AT_ONCE: usize = 20_000;
 
-/// The count the panel shows.
+/// The count the panel and the inspector show.
 pub struct Counted {
-    vc: ValueCounts,
-    prof: PanelProfile,
+    pub(crate) vc: ValueCounts,
+    pub(crate) prof: PanelProfile,
     /// Value indices by count, most frequent first.
-    order: Arc<Vec<u32>>,
+    pub(crate) order: Arc<Vec<u32>>,
     /// Rows counted, and the file's.
-    scope: usize,
-    total: usize,
+    pub(crate) scope: usize,
+    pub(crate) total: usize,
+    /// The values that read as empty, and those not of the column's kind, as written: what
+    /// a value filter keeps to show them.
+    pub(crate) blanks: Arc<HashSet<String>>,
+    pub(crate) odd: Arc<HashSet<String>>,
 }
 
 /// The open panel's state (kept in `GridState::panel` while its popup is open).
@@ -172,7 +177,7 @@ impl Panel {
 
 /// The count in the background: the rows the other filters let through, this column's
 /// value filters aside (the expression and Invert as the view has them).
-fn count_job(tab: &Tab, col: usize, ctx: &egui::Context) -> Option<Job<Option<Counted>>> {
+pub(crate) fn count_job(tab: &Tab, col: usize, ctx: &egui::Context) -> Option<Job<Option<Counted>>> {
     let st = tab.st()?.clone();
     let own = tab.has_values(col);
     let view = tab.view.clone();
@@ -192,7 +197,17 @@ fn count_job(tab: &Tab, col: usize, ctx: &egui::Context) -> Option<Job<Option<Co
         let vc = stats::value_counts(&st, &ids, col, false, cancel)?;
         let prof = stats::panel_profile(&vc);
         let order = Arc::new(vc.by_count());
-        Some(Counted { vc, prof, order, scope: ids.len(), total: st.len() })
+        let mut blanks = HashSet::new();
+        let mut odd = HashSet::new();
+        let typed = prof.kind.filter(|k| *k != Kind::Text && prof.count < prof.filled);
+        for (v, _) in vc.iter() {
+            if v.trim().is_empty() {
+                blanks.insert(v.to_string());
+            } else if typed.is_some_and(|k| stats::key_of(k, v.trim()).is_none_or(f64::is_nan)) {
+                odd.insert(v.to_string());
+            }
+        }
+        Some(Counted { vc, prof, order, scope: ids.len(), total: st.len(), blanks: Arc::new(blanks), odd: Arc::new(odd) })
     }))
 }
 
@@ -227,8 +242,10 @@ fn ic(icon: Icon) -> impl Fn(&egui::Painter, Rect, Color32) {
     move |pt, r, c| icons::paint(pt, icon, r, c)
 }
 
-/// The tools row: move, split / merge, convert, sort, freeze, insert / delete.
-fn tools(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, actions: &mut Vec<Action>) {
+/// The tools row: move, split / merge, convert, sort, freeze, insert / delete. `popup`: in the
+/// panel, which a tool closes (the inspector stays); `add_open`: the insert menu is open.
+pub(crate) fn tools(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, add_open: &mut bool, popup: bool, actions: &mut Vec<Action>) {
+    let close = |ui: &Ui| if popup { ui.close(); };
     let ncols = tab.st().map_or(0, |s| s.ncols);
     let w = ui.available_width();
     // The groups' rects, wrapped onto more lines when the row is full.
@@ -256,58 +273,73 @@ fn tools(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, actions: &mut Vec<
     let ctx = ui.ctx().clone();
     if tool(ui, p, g[0], idl, &ic(Icon::ChevronLeft), "Move left", col > 0, false, false, (true, false)).clicked() {
         grid::move_column(tab, col, col - 1, &ctx);
-        ui.close();
+        close(ui);
     }
     if tool(ui, p, g[1], idr, &ic(Icon::ChevronRight), "Move right", col + 1 < ncols, false, false, (false, true)).clicked() {
         grid::move_column(tab, col, col + 1, &ctx);
-        ui.close();
+        close(ui);
     }
     let g = at(2, &mut x);
-    if tool(ui, p, g[0], id("split"), &ic(Icon::Split), "Split", true, false, false, (true, false)).clicked() { actions.push(Action::SplitColumn(col)); ui.close(); }
-    if tool(ui, p, g[1], id("merge"), &ic(Icon::Merge), "Merge", true, false, false, (false, true)).clicked() { actions.push(Action::MergeColumns(col)); ui.close(); }
+    if tool(ui, p, g[0], id("split"), &ic(Icon::Split), "Split", true, false, false, (true, false)).clicked() { actions.push(Action::SplitColumn(col)); close(ui); }
+    if tool(ui, p, g[1], id("merge"), &ic(Icon::Merge), "Merge", true, false, false, (false, true)).clicked() { actions.push(Action::MergeColumns(col)); close(ui); }
     let g = at(1, &mut x);
     if tool(ui, p, g[0], id("convert"), &ic(Icon::ConvertColumn), "Convert: rewrite its dates, numbers or phones into one format (the values change)", true, false, false, (true, true)).clicked() {
         actions.push(Action::ConvertColumn(col));
-        ui.close();
+        close(ui);
     }
     let g = at(2, &mut x);
     let sorted = tab.sort.first().filter(|k| k.col == col).map(|k| k.desc);
     let up = |pt: &egui::Painter, r: Rect, c: Color32| icons::arrow(pt, r, true, 2.0, c);
     let down = |pt: &egui::Painter, r: Rect, c: Color32| icons::arrow(pt, r, false, 2.0, c);
-    if tool(ui, p, g[0], id("asc"), &up, "Sort ascending", true, sorted == Some(false), false, (true, false)).clicked() { actions.push(Action::Sort(vec![SortKey { col, desc: false }])); ui.close(); }
-    if tool(ui, p, g[1], id("desc"), &down, "Sort descending", true, sorted == Some(true), false, (false, true)).clicked() { actions.push(Action::Sort(vec![SortKey { col, desc: true }])); ui.close(); }
+    if tool(ui, p, g[0], id("asc"), &up, "Sort ascending", true, sorted == Some(false), false, (true, false)).clicked() { actions.push(Action::Sort(vec![SortKey { col, desc: false }])); close(ui); }
+    if tool(ui, p, g[1], id("desc"), &down, "Sort descending", true, sorted == Some(true), false, (false, true)).clicked() { actions.push(Action::Sort(vec![SortKey { col, desc: true }])); close(ui); }
     let g = at(1, &mut x);
     let frozen = tab.grid.frozen == col + 1;
     if tool(ui, p, g[0], id("freeze"), &ic(Icon::FreezeColumn), if frozen { "Unfreeze the columns" } else { "Freeze up to this column: it stays in view when scrolling sideways" }, true, frozen, false, (true, true)).clicked() {
         grid::freeze_to(tab, col);
-        ui.close();
+        close(ui);
     }
     let g = at(2, &mut x);
     let plus = |pt: &egui::Painter, r: Rect, c: Color32| icons::plus(pt, r, 2.0, c);
     let minus = |pt: &egui::Painter, r: Rect, c: Color32| { pt.hline(r.x_range().shrink(2.5), (r.center().y * 2.0).round() / 2.0, Stroke::new(1.6, c)); };
-    let add_open = tab.grid.panel.as_ref().is_some_and(|x| x.add_open);
-    if tool(ui, p, g[0], id("add"), &plus, "Insert a column", true, add_open, false, (true, false)).clicked() {
-        if let Some(pn) = &mut tab.grid.panel { pn.add_open = !pn.add_open; }
+    if tool(ui, p, g[0], id("add"), &plus, "Insert a column", true, *add_open, false, (true, false)).clicked() {
+        *add_open = !*add_open;
     }
-    if tool(ui, p, g[1], id("del"), &minus, "Delete this column", true, false, true, (false, true)).clicked() { actions.push(Action::DeleteColumns(vec![col])); ui.close(); }
+    if tool(ui, p, g[1], id("del"), &minus, "Delete this column", true, false, true, (false, true)).clicked() { actions.push(Action::DeleteColumns(vec![col])); close(ui); }
     let gp = at(2, &mut x);
-    if tool(ui, p, gp[0], id("group"), &ic(Icon::GroupBy), "Group by this column…", true, false, false, (true, false)).clicked() { actions.push(Action::Tool(crate::tools::group::open(tab, Some(col)))); ui.close(); }
-    if tool(ui, p, gp[1], id("pivot"), &ic(Icon::Pivot), "Pivot table by this column…", true, false, false, (false, true)).clicked() { actions.push(Action::Tool(crate::tools::pivot::open(tab, Some(col)))); ui.close(); }
-    if add_open {
+    if tool(ui, p, gp[0], id("group"), &ic(Icon::GroupBy), "Group by this column…", true, false, false, (true, false)).clicked() { actions.push(Action::Tool(crate::tools::group::open(tab, Some(col)))); close(ui); }
+    if tool(ui, p, gp[1], id("pivot"), &ic(Icon::Pivot), "Pivot table by this column…", true, false, false, (false, true)).clicked() { actions.push(Action::Tool(crate::tools::pivot::open(tab, Some(col)))); close(ui); }
+    if *add_open {
         // The insert menu: under the + −, right-aligned.
         let pos = pos2(g[1].max.x - 180.0, g[1].max.y + 4.0);
         egui::Area::new(ui.scope_id().with("cp-add")).order(egui::Order::Foreground).fixed_pos(pos).show(&ctx, |ui| {
             crate::theme::menu_frame(p, &Metrics::default()).inner_margin(4).show(ui, |ui| {
                 width(ui, 180.0);
-                if Item::new("Insert a column before").icon(Icon::InsertBefore).show(ui, p).clicked() { actions.push(Action::InsertColumn(col)); ui.close(); }
-                if Item::new("Insert a column after").icon(Icon::InsertAfter).show(ui, p).clicked() { actions.push(Action::InsertColumn(col + 1)); ui.close(); }
+                if Item::new("Insert a column before").icon(Icon::InsertBefore).show(ui, p).clicked() { actions.push(Action::InsertColumn(col)); *add_open = false; close(ui); }
+                if Item::new("Insert a column after").icon(Icon::InsertAfter).show(ui, p).clicked() { actions.push(Action::InsertColumn(col + 1)); *add_open = false; close(ui); }
             });
         });
     }
 }
 
+/// A number's two looks: data bars and the colour scale, in `b1` and `b2`. Whether one was toggled.
+pub(crate) fn look_tools(ui: &mut Ui, tab: &mut Tab, col: usize, b1: Rect, b2: Rect, p: &Palette) -> bool {
+    let ctx = ui.ctx().clone();
+    let (bars_on, heat_on) = (tab.grid.bars.contains_key(&col), tab.grid.heat.contains_key(&col));
+    let mut hit = false;
+    if tool(ui, p, b1, ui.scope_id().with("cp-bars"), &ic(Icon::DataBars), "Data bars: each value drawn as a bar at the foot of its cell", true, bars_on, false, (true, false)).clicked() {
+        grid::toggle_look(tab, col, false, &ctx);
+        hit = true;
+    }
+    if tool(ui, p, b2, ui.scope_id().with("cp-heat"), &ic(Icon::ColorScale), "Colour scale: each cell tinted by its value", true, heat_on, false, (false, true)).clicked() {
+        grid::toggle_look(tab, col, true, &ctx);
+        hit = true;
+    }
+    hit
+}
+
 /// A number as the panel writes it: `1 234,5`, two decimals at most.
-fn num(x: f64) -> String {
+pub(crate) fn num(x: f64) -> String {
     stats::fmt_num(x, 0, 2, true)
 }
 
@@ -404,31 +436,35 @@ fn profile(ui: &mut Ui, c: &Counted, p: &Palette, m: &Metrics) -> Option<f64> {
     }
     if hist {
         y += 8.0;
-        let hr = Rect::from_min_size(pos2(x0, y), vec2(inner_w, 44.0));
-        let n = pr.hist.len() as f32;
-        let bw = (hr.width() - (n - 1.0)) / n;
-        let max = pr.hist.iter().map(|b| b.count).max().unwrap_or(1).max(1) as f32;
-        let pointer = ui.input(|i| i.pointer.hover_pos());
-        for (i, b) in pr.hist.iter().enumerate() {
-            let slot = Rect::from_min_size(pos2(hr.min.x + i as f32 * (bw + 1.0), hr.min.y), vec2(bw, hr.height()));
-            if b.count == 0 { continue; }
-            let bh = (b.count as f32 / max * 100.0).max(4.0) / 100.0 * hr.height();
-            let hot = pointer.is_some_and(|q| slot.contains(q)) && ui.rect_contains_pointer(slot);
-            let bar = Rect::from_min_max(pos2(slot.min.x, slot.max.y - bh), slot.max);
-            ui.painter().rect_filled(bar, CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, p.prim.gamma_multiply(if hot { 1.0 } else { 0.75 }));
-            if hot {
-                let vals = if b.first == b.last { b.first.clone() } else { format!("{} – {}", b.first, b.last) };
-                grid::tip(ui.ctx(), p, m, slot, &format!("{vals} · {} value{}", grid::fmt_int(b.count as usize), if b.count == 1 { "" } else { "s" }));
-            }
-        }
+        histogram(ui, Rect::from_min_size(pos2(x0, y), vec2(inner_w, 44.0)), pr, p, m);
     }
     go
+}
+
+/// Numbers or dates spread in `hr`: bars 1 apart, tops rounded; each says its values on hover.
+pub(crate) fn histogram(ui: &mut Ui, hr: Rect, pr: &PanelProfile, p: &Palette, m: &Metrics) {
+    let n = pr.hist.len() as f32;
+    let bw = (hr.width() - (n - 1.0)) / n;
+    let max = pr.hist.iter().map(|b| b.count).max().unwrap_or(1).max(1) as f32;
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    for (i, b) in pr.hist.iter().enumerate() {
+        let slot = Rect::from_min_size(pos2(hr.min.x + i as f32 * (bw + 1.0), hr.min.y), vec2(bw, hr.height()));
+        if b.count == 0 { continue; }
+        let bh = (b.count as f32 / max * 100.0).max(4.0) / 100.0 * hr.height();
+        let hot = pointer.is_some_and(|q| slot.contains(q)) && ui.rect_contains_pointer(slot);
+        let bar = Rect::from_min_max(pos2(slot.min.x, slot.max.y - bh), slot.max);
+        ui.painter().rect_filled(bar, CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, p.prim.gamma_multiply(if hot { 1.0 } else { 0.75 }));
+        if hot {
+            let vals = if b.first == b.last { b.first.clone() } else { format!("{} – {}", b.first, b.last) };
+            grid::tip(ui.ctx(), p, m, slot, &format!("{vals} · {} value{}", grid::fmt_int(b.count as usize), if b.count == 1 { "" } else { "s" }));
+        }
+    }
 }
 
 /// The first row shown whose number in `col` is closest to `x`, selected in the middle of
 /// the view (the median may be no cell's value): looked for in the background
 /// (`GridState::goto_job`), every row shown read.
-fn go_to_value(tab: &mut Tab, col: usize, x: f64, ctx: &egui::Context) {
+pub(crate) fn go_to_value(tab: &mut Tab, col: usize, x: f64, ctx: &egui::Context) {
     let Some(st) = tab.st().cloned() else { return };
     let view = tab.view.clone();
     let n = tab.shown();
@@ -456,9 +492,11 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
     if tab.grid.panel.as_ref().is_none_or(|x| x.col != col) {
         tab.grid.panel = Some(Panel::new(tab, col, &ctx));
     }
-    tools(ui, tab, col, p, actions);
+    let mut add_open = tab.grid.panel.as_ref().is_some_and(|x| x.add_open);
+    tools(ui, tab, col, p, &mut add_open, true, actions);
     sep(ui, p);
     let Some(pn) = tab.grid.panel.as_mut() else { return };
+    pn.add_open = add_open;
     if let Some(r) = pn.job.as_mut().and_then(|j| j.poll()) {
         pn.job = None;
         pn.counted = r.map(Arc::new);
@@ -503,15 +541,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
     if kind == Kind::Number {
         let b1 = Rect::from_min_size(pos2(field.max.x + 6.0, field.min.y), vec2(28.0, 30.0));
         let b2 = b1.translate(vec2(27.0, 0.0));
-        let (bars_on, heat_on) = (tab.grid.bars.contains_key(&col), tab.grid.heat.contains_key(&col));
-        if tool(ui, p, b1, ui.scope_id().with("cp-bars"), &ic(Icon::DataBars), "Data bars: each value drawn as a bar at the foot of its cell", true, bars_on, false, (true, false)).clicked() {
-            grid::toggle_look(tab, col, false, &ctx);
-            ui.close();
-        }
-        if tool(ui, p, b2, ui.scope_id().with("cp-heat"), &ic(Icon::ColorScale), "Colour scale: each cell tinted by its value", true, heat_on, false, (false, true)).clicked() {
-            grid::toggle_look(tab, col, true, &ctx);
-            ui.close();
-        }
+        if look_tools(ui, tab, col, b1, b2, p) { ui.close(); }
     }
     let Some(pn) = tab.grid.panel.as_mut() else { return };
     pn.update_search(&c, &ctx);

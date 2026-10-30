@@ -20,92 +20,74 @@ of three separated by U+202F (narrow no-break space): `1 000 000`.
 
 | zone | height | background |
 |---|---|---|
-| tab bar | 37 (`m.tab_bar_h`) | `bg_deep`, 1 px `brd` rule at its bottom |
-| toolbar | 52 (`m.toolbar_h`) | `surf`, 1 px `brd` rule at its bottom |
+| top band | 46 (`m.band_h`) | `bg_deep`, 1 px `brd` rule at its bottom |
+| filter bar (a filter in force) | 34 (`m.chips_h`) | `mix(accent, surf, .05)`, 1 px `brd` rule at its bottom |
 | find & replace bar (when open) | 50 + 1 | `bar_2`, 1 px `brd` bottom |
 | grid header: titles | 33 (`m.header_h`) | `surf` |
-| grid header: column charts (toggle) | 62 (`m.spk_h`) | gradient `surf` → `spk_bottom` |
+| grid header: column charts (toggle) | 35 (`m.spk_h`): one block of 68 with the titles | gradient `surf` → `spk_bottom` |
 | grid header: filter row (toggle) | 29 (`m.filter_h`) | `filter_bg` |
-| rows | 35 each (`m.row_h`) | stripes, see Grid |
-| totals row (toggle) | 35 (`m.totals_h`) | `surf`, 1 px `brd_2` rule on top |
+| rows | the density's: 28, 32 (default) or 38 (`m.row_h`) | stripes, see Grid |
+| totals row (toggle) | as a row (`m.totals_h`) | `surf`, 1 px `brd_2` rule on top |
 | horizontal scroll strip | 24 (`m.strip_w`) | `surf_2`, 1 px `brd` rule on top |
 | status bar | 36 (`m.status_h`) | vertical gradient `status_a` → `status_b`, 1 px `status_brd` rule on top |
 
 The vertical scroll strip is 24 px wide at the right edge, from the header's top to
 the horizontal strip; the corner between the two strips is `surf_2`. Panel fill
-behind everything: `bg`.
+behind everything: `bg`. Docked at the right of the grid, beside each other: the row card
+and the column inspector.
 
-## Tab bar
+## Top band
 
-- Padding 5 top, 10 left/right, 0 bottom; tabs 4 px apart, bottom-aligned on the
-  bar's 1 px `brd` bottom rule.
-- **Tab**: 30 tall (+1 px top border), padding 0 8 0 10, gap 8 between its parts,
-  max width 250 (`m.tab_max_w`). Fill `surf`, 1 px `brd` border on top/left/right
-  (none at the bottom), radius 6 6 0 0 (`m.r_tab`). Text ui 12.5, `txt_mut`.
-  Hover: fill `surf_2`.
-- **Active tab**: fill `surf`, text `txt_hi`, border `prim`; its bottom covers the
-  bar's rule with `surf` (1 px lower), so the tab opens into the toolbar.
-- Parts, left to right:
-  1. dot 7 × 7, circle: `ok` (loaded); a 1 px `txt_dim` ring, empty (released from
-     RAM); `prim` pulsing opacity 1 ↔ .25 over 1 s (loading).
-  2. file name, ellipsis.
-  3. meta: the row count, ui 11, `txt_dim` (`accent_2` on the active tab).
-  4. dirty mark `●` ui 11 bold `warn`, only with pending edits.
-  5. close ×: 16 × 16, radius 4, ui 14, `txt_dim`; hover fill `danger`, text `on_danger`.
-- After the tabs, 4 px gap: **+** button 24 × 24, radius 5, ui 17, `txt_mut`, 1 px
-  transparent border; hover fill `surf_2`, text `txt_strong`, border `brd`.
-- **Many tabs** (as the web's `overflow-x: auto`): the names shrink first (10 px steps,
-  down to 60), then the tabs scroll sideways under the wheel, clipped at the bar's
-  right, the active one brought into view when it changes; a ▾ button (chevron 14,
-  24 × 24 at the right end, + button's look) lists every tab (● before an unsaved one,
-  ✓ on the active).
-- Right end (optional in native): memory info, ui 11.5 `txt_dim` ("1/1 in RAM ≈ 153.4 MB ·
-  Keep in RAM: [3 tabs ▾]"), the select `bg_deep` / `brd` / radius 4 / `txt_mut`.
+One band instead of a tab bar and a toolbar: 46 tall, `bg_deep`, padding 0 12, items
+vertically centred, 8 apart (`m.band_gap`). Left to right: menu, tabs, then against the
+right edge the search group, its toggles, Discard, Save.
 
-## Toolbar
+**Narrow windows**: the right group and the toggles are measured first. The search field
+keeps its 260 while the tabs can shrink; the tabs get what is left, at least 150 + 26. Under
+that the field shrinks to 110, and Save loses its label below 200 of room for the field.
 
-52 tall, padding 8 × 16, `surf`; items vertically centred, 12 px apart
-(`m.toolbar_gap`), left to right:
-
-1. **Menu button** 38 × 32: fill `menu_bg` (hover / open `menu_bg_hover`), 1 px
-   border `alpha(hi, .1)`, radius 6; a hamburger 18 × 18 (three lines at y 6/12/18 of
-   24, stroke 2, round caps) in `menu_fg`. Opens the main menu below it.
-2. **Search group** (an input group, one frame):
+1. **Menu button** 32 × 32, radius 7: no fill at rest (hover / open: `surf_2`), a hamburger
+   18 × 18 in `txt_mut` (hover / open `txt_hi`). Opens the main menu below it.
+2. **Tabs**, 2 px apart:
+   - **Tab**: 32 tall (`m.tab_h`), padding 0 8 0 10, gap 8 between its parts, max width 250
+     (`m.tab_max_w`), radius 7 (`m.r_tab`), no border. No fill at rest, hover `surf_2` at
+     .6; text ui 12.5, `txt_mut`.
+   - **Active tab**: fill `surf_2`, text `txt_hi`.
+   - Parts, left to right:
+     1. dot 7 × 7, circle: `ok` (loaded); `prim` pulsing opacity 1 ↔ .25 over 1 s (loading);
+        `danger` (could not be read).
+     2. file name, ellipsis.
+     3. meta: the row count, ui 11, `txt_dim` (`accent_2` on the active tab).
+     4. dirty mark, a 6 px dot `warn`, only with pending edits.
+     5. close ×: 16 × 16, radius 4, `txt_dim`; hover fill `danger`, cross `on_danger`.
+   - After the tabs: **+** button 24 × 24, radius 5, `txt_mut`, 1 px transparent border; hover
+     fill `surf_2`, `txt_strong`, border `brd`.
+   - **Many tabs** (as the web's `overflow-x: auto`): the names shrink first (10 px steps,
+     down to 60), then the tabs scroll sideways under the wheel, clipped at their room's
+     right, the active one brought into view when it changes; a ▾ button (chevron 14,
+     24 × 24 at the room's right end, + button's look) lists every tab (● before an unsaved
+     one, ✓ on the active). Too little room for even the active tab: its name gives way,
+     down to 16 px.
+3. **Search group** (an input group, one frame):
    - ƒx button: 40 wide × 31, fill `addon_bg`, 1 px `brd`, radius 6 0 0 6; the ƒx
      glyph 22 × 19 in `txt_mut` (italic f joined to an x — draw it as a path, or
      "ƒx" in an italic serif 15 / 600). Hover: glyph `txt_hi`, border `prim`, fill
      `alpha(accent, .1)`.
-   - field: 260 × 31 (`m.search_w`), fill `bg_deep`, 1 px `brd`, radius 0 6 6 0,
+   - field: 260 × 31 (`m.search_w`), fill `bg`, 1 px `brd`, radius 0 6 6 0,
      padding 6 × 12, ui 14 `txt_hi`, placeholder "Filter..." `txt_sub`. Expression
      mode: 340 wide, mono 13. Invalid regex / expression: border `danger`, 3 px ring
      `alpha(danger, .2)`.
    - focus: border `prim` and a 4 px ring `focus_ring` around the whole group
      (button included), the button's border `prim` too.
-3. **Search toggles**: a frame 118 × 32, fill `bg_deep`, 1 px `brd`, radius 7,
-   padding 0 3, toggles 2 apart. Each toggle 26 × 28, a glyph 18 × 18 (stroke 1.35,
-   round), no background ever: off `txt_dim`, hover `txt_hi`, on `accent_2` (Invert
-   on: `orange_txt`). Glyphs: *ignore accents* "e" ui 600 17.5 with its acute accent
-   stroke 1.9 in `tgl_acc_off` (on: `danger_txt`); *regex* a dot and an asterisk
-   (`.*`); *invert* two horizontal lines crossed by a slash (≠); *expression* the ƒx
-   glyph 20 × 17. Keyboard focus: 2 px ring `alpha(prim, .45)`, radius 4.
-4. **Filter chips**: the rest of the line (min 260 wide; wraps onto more lines when
-   full, chips 4 px apart vertically, 6 horizontally), one per filter in force:
-   - chip: 24 + 2 px border tall (`m.chip_h` = 26), radius 12, padding 0 3 0 9,
-     gap 4, ui 12 `txt_hi`, fill `chip_bg`, border `chip_brd`.
-   - text: **what** in ui 600 `txt_strong` + 2 px, then the value (cut at 28 chars
-     with …). Inverted (the search and column-filter chips): border `orange_txt` (the
-     Invert toggle's colour); the tooltip names the options (regex, accents and case,
-     inverted).
-   - value filters (values hidden; a value or a chart part kept): `<column> ≠ v`,
-     `<column> = v`, `<column> 3 values hidden`, `<column> 10 to 20` (the part, as its
-     toast said it).
-   - ×: 18 × 18 circle, a cross 12 × 12 stroke 2 in `txt_mut`, hover `danger_txt`.
-   - Labels: `Search gmail`, `Expression {…}`, `<column> <text>` (column filter),
-     value filters, irregular rows, duplicates, marked rows.
-   - with 2+ chips: a *clear all* icon after them, 24 × 24, a funnel with a × (16 px,
-     stroke 2) in `txt_mut`, hover `danger_txt`.
-   - a new chip pops in (scale .96 → 1, opacity 0 → 1, 150 ms).
-5. **Right group** (pushed right, 10 apart):
+4. **Search toggles** (drawn by the user's design: neither their drawing nor their colours
+   change): a frame 118 × 32, fill `bg_deep`, 1 px `brd`, radius 7, padding 0 3, toggles 2
+   apart. Each toggle 26 × 28, a glyph 18 × 18 (stroke 1.35, round), no background ever:
+   off `txt_dim`, hover `txt_hi`, on `accent_2` (Invert on: `orange_txt`). Glyphs: *ignore
+   accents* "e" ui 600 17.5 with its acute accent stroke 1.9 in `tgl_acc_off` (on:
+   `danger_txt`); *regex* a dot and an asterisk (`.*`); *invert* two horizontal lines crossed
+   by a slash (≠); *expression* the ƒx glyph 20 × 17. Keyboard focus: 2 px ring
+   `alpha(prim, .45)`, radius 4.
+5. **Right group** (10 apart):
    - *Discard* (only with pending edits): outline button 34 × 30, padding 6 × 8, a ×
      16 × 16 stroke 2.4 in `danger`, border `alpha(danger, .5)`; hover fill
      `alpha(danger, .12)`, border `danger`.
@@ -114,8 +96,30 @@ behind everything: `bg`.
      choice: no toolbar button). *Save* with pending edits: text and border
      `warn` on Save and ▾, and a badge after "Save": the count, ui 11 bold, `on_warn`
      on `warn`, radius 12, padding 2 × 6. ▾: a chevron 16 × 12, padding 6 × 8.
-6. **Progress bar**: 2 px at the toolbar's bottom edge, `prim` with an 8 px `prim`
+6. **Progress bar**: 2 px at the band's bottom edge, `prim` with an 8 px `prim`
    glow, width = progress, fades out at the end.
+
+## Filter bar
+
+34 tall (`m.chips_h`), padding 0 12, under the top band and there only while a filter is in
+force: one chip per filter, 6 apart, on one line; those that do not fit fold into a "+N" chip
+(52 wide) listing them.
+
+- chip: 24 + 2 px border tall (`m.chip_h` = 26), radius 12, padding 0 3 0 9,
+  gap 4, ui 12 `txt_hi`, fill `chip_bg`, border `chip_brd`.
+- text: **what** in ui 600 `txt_strong` + 2 px, then the value (cut at 28 chars
+  with …). Inverted (the search and column-filter chips): border `orange_txt` (the
+  Invert toggle's colour); the tooltip names the options (regex, accents and case,
+  inverted).
+- value filters (values hidden; a value or a chart part kept): `<column> ≠ v`,
+  `<column> = v`, `<column> 3 values hidden`, `<column> 10 to 20` (the part, as its
+  toast said it).
+- ×: 18 × 18 circle, a cross 12 × 12 stroke 2 in `txt_mut`, hover `danger_txt`.
+- Labels: `Search gmail`, `Expression {…}`, `<column> <text>` (column filter),
+  value filters, irregular rows, duplicates, marked rows.
+- with 2+ chips: a *clear all* icon after them, 24 × 24, a funnel with a × (16 px,
+  stroke 2) in `txt_mut`, hover `danger_txt`.
+- a new chip pops in (scale .96 → 1, opacity 0 → 1, 150 ms).
 
 ### Buttons and fields (everywhere)
 
@@ -143,15 +147,22 @@ behind everything: `bg`.
   on its right (`m.gutter_rule_w`), on every band (titles, charts, filters, rows,
   totals). Always pinned left. Fill `surf_2` (row hovered: `idx_hover`).
 - **Columns**: auto width = widest value of the first 80 rows shown (mono advance ×
-  chars) + 21 (2 × 10 padding + 1 border) + pill extra (4) or swatch extra (20),
+  chars) + 21 (2 × 10 padding + 1 border) + dot extra (13) or swatch extra (20),
   clamped to 60…480 (`m.col_min_w`, `m.col_auto_max`); fit on demand (double-click
   the resize handle) up to 900, the title's own width as the floor (title text in
   ui 600 12.5 + icon + number + 26 + 22).
 - Every cell: 1 px `brd` rule on its right and at its bottom. Cell padding 10 each
-  side (`m.cell_pad_x`). Text mono 13, vertically centred in the 34 px above the rule,
+  side (`m.cell_pad_x`). Text mono 13, vertically centred in the row above the rule,
   no ligatures. A value wider than the cell is cut with an ellipsis "…".
+- **The column in hand** (`GridState::focus_col`, the last title clicked or the cursor's
+  column, not the last column of a whole row selected): its title, chart and cells get a
+  faint `alpha(accent, .07)`. A click on a title still sorts: nothing "selects first".
 
-### Title row (33)
+### Title line (33)
+
+The title line and the charts are one block, 68 tall; no rule between them. The charts off,
+the line stands alone, 33 with its rule. The parts below (type badge, sort arrow with its
+grey ghost on hover, ▾) are the user's: not to be redrawn or dropped.
 
 - Cell: padding 0 10, fill `surf`, ui 600 12.5 `txt_hi`, letter-spacing .01em.
   Hover over the title text: `txt_strong`. Parts, left to right:
@@ -182,39 +193,38 @@ behind everything: `bg`.
   scrolling part's left or right edge (or past it) the columns scroll under the pointer,
   faster the closer (up to 900 px/s past the edge).
 
-### Column charts band (62)
+### Column charts (35, under the title line)
 
-- Fill: vertical gradient `surf` → `spk_bottom` and a 1 px `alpha(hi, .03)` line at
-  its top. Each cell: padding 9 top, 10 sides, 7 bottom → a box 45 tall
-  (`m.spk_box_h`).
+- Fill: vertical gradient `surf` → `spk_bottom`, carrying on from the title line. Each cell:
+  padding 1 top, 10 sides, 7 bottom → a box 27 tall (`m.spk_box_h`).
 - Gutter cell: a bar-chart icon 15 × 15 in `txt_faint` (hover `txt_mut`), toggles
   the band.
 - **Number / date column** (`kc` = `num_txt` / `date_txt`):
-  - the curve: from 1 px below the box's top to 13 px above its bottom (31 tall).
+  - the curve: from the box's top to 3 px above the gauge (20 tall).
     32 bins of the values, as a smooth monotone area (Fritsch–Carlson through the
     bins' centres, a non-empty bin at least 7 % tall): filled with a vertical gradient
     `kc` → `alpha(kc, .28)` at opacity .55, under a 1.6 px line in `kc` (the line's
     width in px, whatever the stretch). Whole picture at opacity .85, 1 on hover.
     Few distinct values: bars instead (one per value, 76 % of the slot wide, tops
     rounded).
-  - the gauge: 6 tall (`m.spk_gauge_h`) at the box's bottom, radius 3, filled part
+  - the gauge: 4 tall (`m.spk_gauge_h`) at the box's bottom, radius 2, filled part
     `gauge_fill` (share of non-empty cells), rest `gauge_empty`, each part at least
     6 px. Hovered part: `ok` (empty part: `alpha(gray_hi, .55)`).
 - **Text column**:
-  - the ribbon: 6 tall at the bottom, radius 3: the 5 most frequent values (held
+  - the ribbon: 4 tall at the bottom, radius 2: the 5 most frequent values (held
     twice or more) in `p.pill[0..5]` order, then the others `ribbon_other`, then the
     empty cells `ribbon_empty`; widths by share, each ≥ 6 px, 2 px gaps between parts.
-  - the label, 12 px above the bottom (line 15), ui 500 11.5 `txt_sub`: if one value
-    holds ≥ half of the others: a 6 px dot in its ribbon colour, 5 px, the value in ui
+  - the label above it, one line centred over the 21 px left, ui 500 11.5 `txt_sub`: if one
+    value holds ≥ half of the others: a 6 px dot in its ribbon colour, 5 px, the value in ui
     600 `txt_hi` (≤ 70 % of the width, ellipsis), 5 px, its share ("26 %") in
-    `txt_faint`. Otherwise two lines ui 10 / 12 px apart by 2: "4 001+ values" (or
-    "all distinct") in `txt_sub`, "100 % filled" in `alpha(ok_rgb, .85)`.
-    Nothing filled: "empty" in `txt_faint`.
+    `txt_faint`. Otherwise, ui 500 10.5: "4 001+ values" (or "all distinct") in `txt_sub`, a
+    2 px dot, "100 % filled" in `alpha(ok_rgb, .85)`; as the column narrows, "filled" goes,
+    then the share. Nothing filled: "empty" in `txt_faint`.
 - Under a filter: the whole file's curve stays faint behind (opacity .3), the rows
   shown drawn on top in full colour, at their own scale (their shape, however few);
   gauges, text ribbons and labels count the rows shown.
 - A value filter set by clicking the chart: the picked bars' span gets a band
-  `alpha(prim, .2)` over the curve's height (box height − 14).
+  `alpha(prim, .2)` over the curve's height.
 - Hovering a bar / ribbon part: the rest of the box at .35 (.4 for the ribbon), the
   part in full colour; tooltip with the values and the count. Arrival animation:
   bars rise (scaleY 0 → 1) and ribbons unroll, 700 ms, 28 ms stagger per column.
@@ -232,7 +242,11 @@ behind everything: `bg`.
   applied — column "total": not a number: abc").
 - Gutter cell: a funnel 13 × 13 in `txt_faint` (hover `txt_mut`), hides the row.
 
-### Rows (35)
+### Rows
+
+**Density** (`theme::DENSITIES`, `Metrics::set_density`, remembered in the config): Compact
+28, Normal 32 (default), Airy 38, the 1 px rule included; the totals row follows. The row on
+top stays on top when it changes.
 
 - **Stripes by record**: a row's fill is `row_alt` when its record id (the file row
   number shown in the gutter) is even, `row_bg` when odd — not by position on screen,
@@ -240,7 +254,8 @@ behind everything: `bg`.
   current)`.
 - Hovered row: `row_hover_alt` / `row_hover_bg` (12 % accent, opaque).
 - Row of the active cell: `row_cur_alt` / `row_cur_bg` (16 % accent).
-- **Gutter cell**: the record id centred, mono 13 `txt` (formatted `1 164`). On row
+- **Gutter cell**: the record id centred, mono 12 `txt_dim`, `accent_2` on a row selected
+  whole (formatted `1 164`). On row
   hover a ⋮ button at its right (4 px in): 18 × 22, radius 4, three dots r 1.3 in
   `txt_mut` 4.5 apart; hover / open fill `surf_3`, dots `txt_strong` (row menu).
 - Marks on the gutter cell: irregular row (field count ≠ titles): 3 px `warn` bar
@@ -248,16 +263,16 @@ behind everything: `bg`.
   right edge; duplicate groups: 3 px bar at its right edge alternating `violet_txt` /
   `cyan_txt` group by group, and a 2 px `alpha(violet, .5)` line at the top of a
   group's first row.
-- **Cell text colours**: text `txt`; numbers right-aligned, `num_txt`; dates
-  `date_txt` (type colours can be switched off from the status bar: all `txt`, pills
-  grey); links / e-mails `accent_2` (underlined, 3 px offset, while Ctrl is held);
+- **Cell text colours**: text `txt`; numbers right-aligned in the mono font's tabular
+  digits, `num_txt`, the unit (€, $, £, ¥, %) in `txt_dim` (not at the raw level); dates
+  `date_txt` (type colours can be switched off from the status bar: all `txt`);
+  links / e-mails `accent_2` (underlined, 3 px offset, while Ctrl is held);
   JSON `txt_mut`; a cell whose column is lit by a chart hover: `txt_strong`, mono 600.
-- **Pills** (a text column of ≤ 12 distinct values averaging ≤ 24 chars): the text in
-  ui 12, colour `c`; behind it a capsule 20 tall (`m.pill_h`), vertically centred,
-  radius 10, fill `alpha(c, .17)`, from 7 px before the text to 7 px after it (the
-  cell's 10 px padding stays: the capsule starts 3 px into the cell). `c` =
-  `p.pill[k]` for the column's k-th most frequent value (k < 5), `pill_other`
-  otherwise; `p.pill_colors(slot)` gives both. Lit by a chart hover: fill at .32.
+- **Categories** (a text column of ≤ 12 distinct values averaging ≤ 24 chars): a dot 7 × 7
+  (`m.dot_d`) at the cell's 10 px padding, colour `c`, then 6 px on the text in ui 13 `txt`.
+  `c` = `p.pill[k]` for the column's k-th most frequent value (k < 5), `pill_other`
+  otherwise (`p.pill_colors(slot).0`). Lit by a chart hover: the dot 1 px wider, the text
+  `txt_strong`. The raw colour level shows the plain value, as before.
 - **Yes / no** columns: no text; a disc Ø 15 `prim` with a check (`on_prim`, two
   strokes 2 px) for yes; a ring Ø 15, 1 px `txt_faint`, for no; centred.
 - **Colour** columns: a swatch disc r 5.5 at x = 17 (its colour, a 1 px
@@ -291,11 +306,11 @@ behind everything: `bg`.
   padding 7 × 10, mono 13 / 19 line, text `txt_strong`, fill `bg`, 2 px `prim`
   border, radius 3, shadow 0 8 24 `rgba(0,0,0,.5)`; the cell's own text hidden.
 
-### Totals row (35, toggle)
+### Totals row (a row's height, toggle)
 
 - Stuck to the grid's bottom (right under the last row when all rows fit). Top rule
   1 px `brd_2`, fill `surf`, a shadow upwards (0 −4 12 `rgba(0,0,0,.18)`).
-- Cell (34 tall): padding 0 10, right rule `brd`; left the function's name ("SUM",
+- Cell (the row less its rule): padding 0 10, right rule `brd`; left the function's name ("SUM",
   "AVG", "COUNT"…) ui 600 10 uppercase, letter-spacing .05em, `txt_dim`; right the
   value mono 600 13 `txt_strong` (`num_txt` / `date_txt` by the column's kind),
   ellipsis; at .45 opacity while being recounted. Hover fill `surf_2`. A cell with no
@@ -327,7 +342,8 @@ behind everything: `bg`.
 
 ## Status bar (36)
 
-Gradient `status_a` → `status_b`, 1 px `status_brd` on top, padding 0 12 0 18, items
+The pills stay pills (the user's choice, not the first draft's plain text). Gradient
+`status_a` → `status_b`, 1 px `status_brd` on top, padding 0 12 0 18, items
 14 apart, ui 12 with tabular figures. Left to right:
 
 1. **Message** (takes the room left, ellipsis): `status_fg`. E.g. `customers-1m.csv |
@@ -362,8 +378,13 @@ Gradient `status_a` → `status_b`, 1 px `status_brd` on top, padding 0 12 0 18,
    - "Titles on line 1 AUTO" / "No titles": neutral.
    - line endings "CRLF" / "LF" / "CR": neutral, click switches.
    - the pills' menus open upwards, above the clicked pill (`.dd-menu`, min 210).
-6. **Switches**, each 6 px after the previous (so 14 apart), scale 1.12 on hover, off
+6. **Density**, 14 after the pills (when 900 are left for it: the Density menu has it
+   anyway): a segmented control 24 tall, radius 7, `alpha(gray, .12)`, padding 2, its three
+   names ui 500 11.5 `txt_mut` (hover `txt`), each padding 0 8, 20 tall, radius 5; the one in
+   force `surf_3`, `txt_hi`.
+7. **Switches**, each 6 px after the previous (so 14 apart), scale 1.12 on hover, off
    = greyscale at .45 opacity:
+   - column inspector: a window with a pane at its right, 16 × 16 in `accent_2`;
    - totals row: a Σ 15 × 15 (stroke 2) in `orange_txt`;
    - filter row: a filled funnel 15 × 15 in `accent_2`;
    - column charts: bars 16 × 16 in `cyan_txt`;
@@ -403,6 +424,7 @@ Gradient `status_a` → `status_b`, 1 px `status_brd` on top, padding 0 12 0 18,
   sep · Open (Ctrl+O) · Row [Go to… | Card] · File profile… · Look [Map | Insights] ·
   Schema [Create… | Validate…] · sep · Edit [Undo | Redo] · Review changes… · sep ·
   Find & replace (Ctrl+F) · Transform the file › · sep · Columns › · Rows › · sep ·
+  Density › (Compact, Normal, Airy) · Column inspector ✓ · sep ·
   Help [Shortcuts | About…] · Quit (Ctrl+Q, danger).
 
 ## Column panel (▾ of a title)
@@ -425,6 +447,38 @@ Gradient `status_a` → `status_b`, 1 px `status_brd` on top, padding 0 12 0 18,
   `surf_2`; "(empty)" in italic `txt_mut`. First row "(Select all)" with the total.
 - actions: 1 px `brd` line above, padding 8 4 2, right-aligned: Clear (outline),
   Apply (primary).
+
+## Column inspector
+
+The column panel, docked: at the right of the grid (left of the row card), 320 wide
+(`m.inspector_w`), `surf`, 1 px `brd` along its left edge, padding 12 6 0 16. Off by default,
+remembered in the config; its switch is in the status bar, also the main menu, its × closes it.
+Off, one flag is read a frame, and nothing is kept. It needs 300 px left for the grid, else
+it stands aside. It follows the column in hand; with none, the first column shown.
+
+- head: the name ui 600 15 `txt_hi`, under it ui 12 `txt_mut`, "Numbers · 4 747 distinct ·
+  3 545 of 5 000 rows" (the last only under a filter); a × 26 × 26, radius 6, right.
+- key figures, three a line, 40 tall: a label ui 11.5 `txt_dim` over its value mono 12.5
+  `txt_hi` (cut with …, in full as its tooltip): Filled, Distinct, Empty, then numbers Min,
+  Median, Mean, Max, Sum; dates First, Median, Mean, Last; text Shortest, Longest. A number's
+  median goes to the row closest to it, as in the panel.
+- numbers and dates: the panel's histogram, 92 tall, its two ends mono 11 `txt_mut` under it.
+- other values repeating: "Top values", the 8 most frequent (30 tall, 2 apart, radius 6,
+  `surf_2`, a bar of its share `alpha(accent, .14)`, .32 when it is the filter in force; the
+  category's dot, the value ui 13 `txt`, the count mono 12 `txt_mut` right), "and N more". A
+  click sets the value filter a chart's part sets (same chip, same message), again: off.
+- "Worth a look" (ui 500 11.5 `txt_dim`, as every head here): lines ui 12.5 `txt`, up to two
+  lines, "Show" ui 500 12.5 `accent_2` at the right: empty cells, values not of the column's
+  kind (both from the count, shown by a value filter), then up to 4 Insights cards naming
+  the column first (outliers, values written otherwise…), shown as the dialog does. "Nothing
+  stands out." when there is nothing.
+- "Actions": the panel's tools row, and for numbers its data bars and colour scale.
+
+Everything comes from jobs: the panel's count once the column has been in hand for 150 ms
+(the dictionary cache of `colcache` under it, the last 4 counts kept while they hold under a
+million values), the Insights report shared with its dialog, 1.5 s after the table last
+changed. "Counting…" until the first count; the last count of a column stays up while the
+next one is made.
 
 ## Row card (Ctrl+I)
 
@@ -578,5 +632,5 @@ reduced-motion setting by skipping them.
   `FontId::proportional(…)`. A value's width for column sizing: chars × the advance of
   "0" in the mono font, measured once:
   `ctx.fonts_mut(|f| f.glyph_width(&FontId::monospace(13.0), '0'))`.
-- Text vertical centring: `Align2::LEFT_CENTER` at the row's centre (y + 17).
-- Selection fill, marks and pills are translucent: paint them after the row fill.
+- Text vertical centring: `Align2::LEFT_CENTER` at the row's centre (y + (row_h − 1) / 2).
+- Selection fill, marks and the column's tint are translucent: paint them after the row fill.

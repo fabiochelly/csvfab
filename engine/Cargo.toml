@@ -37,10 +37,13 @@ getrandom = "0.4.3"
 libc = "0.2"
 fancy-regex = "0.20"
 rustc-hash = "2"
-# Parquet (convert/parquet_read.rs, parquet_write.rs): no default features, only the codecs
-# files use. zstd is the one C library (built by cc, as SQLite). No brotli: 1.1 MB for a codec few
-# files use, refused by name. crc: the checksums of pages that have one are checked.
-parquet = { version = "60", default-features = false, features = ["arrow", "snap", "flate2-zlib-rs", "lz4", "zstd", "simdutf8", "crc"] }
+# Parquet (convert/parquet_read.rs, parquet_write.rs): no default features, only what files use.
+# zstd is the one C library (built by cc, as SQLite). crc: the checksums of pages that have one
+# are checked.
+parquet = { version = "60", default-features = false, features = ["arrow", "snap", "flate2-zlib-rs", "lz4", "zstd", "brotli", "simdutf8", "crc"] }
+# Not used here: parquet takes it without its `std` feature, and without it no x86_64 build
+# picks AVX2 at run time. Named for that feature, so that strings are checked by SIMD.
+simdutf8 = "0.1"
 arrow-array = { version = "60", default-features = false }
 arrow-schema = { version = "60", default-features = false }
 bytes = "1"
