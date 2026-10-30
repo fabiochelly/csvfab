@@ -205,10 +205,102 @@ fn masks(b: &[u8], p: usize, nl: u8, dl: u8) -> (u64, u64, u64, u64) {
     }
 }
 
+/// The same with NEON (part of every aarch64 target): four compares of 16 bytes per mask,
+/// folded into 64 bits by pairwise adds (simdjson's way: each byte's bit, then sums).
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn masks(b: &[u8], p: usize, nl: u8, dl: u8) -> (u64, u64, u64, u64) {
+    assert!(p + 64 <= b.len());
+    // SAFETY: NEON is part of aarch64; the 64 bytes are in bounds (asserted).
+    unsafe {
+        let ptr = b.as_ptr().add(p);
+        let v = [neon::load(ptr), neon::load(ptr.add(16)), neon::load(ptr.add(32)), neon::load(ptr.add(48))];
+        (neon::eq_mask(&v, nl), neon::eq_mask(&v, dl), neon::eq_mask(&v, Q), neon::eq_mask(&v, b'\r'))
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    use std::arch::aarch64::*;
+
+    #[inline(always)]
+    pub unsafe fn load(p: *const u8) -> uint8x16_t {
+        unsafe { vld1q_u8(p) }
+    }
+
+    /// Bit i: byte i of the 64 (the four vectors end to end) is `x`.
+    #[inline(always)]
+    pub unsafe fn eq_mask(v: &[uint8x16_t; 4], x: u8) -> u64 {
+        unsafe {
+            const BITS: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
+            let (bits, vx) = (vld1q_u8(BITS.as_ptr()), vdupq_n_u8(x));
+            let t = |k: usize| vandq_u8(vceqq_u8(v[k], vx), bits);
+            let s0 = vpaddq_u8(t(0), t(1));
+            let s1 = vpaddq_u8(t(2), t(3));
+            let s = vpaddq_u8(s0, s1);
+            let s = vpaddq_u8(s, s);
+            vgetq_lane_u64::<0>(vreinterpretq_u64_u8(s))
+        }
+    }
+}
+
+/// Delimiters among the 64 bytes at `p` of `rec` (bit i: `rec[p + i] == d`); none past its end.
+#[inline(always)]
+fn delims(rec: &[u8], p: usize, d: u8) -> u64 {
+    let rest = rec.len() - p;
+    if rest >= 64 {
+        return delims64(&rec[p..p + 64], d);
+    }
+    let mut pad = [0u8; 64];
+    pad[..rest].copy_from_slice(&rec[p..]);
+    delims64(&pad, d) & ((1u64 << rest) - 1)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn delims64(b: &[u8], d: u8) -> u64 {
+    use std::arch::x86_64::*;
+    assert!(b.len() >= 64);
+    // SAFETY: SSE2 is part of x86_64; the 64 bytes are in bounds (asserted).
+    unsafe {
+        let (ptr, vd) = (b.as_ptr(), _mm_set1_epi8(d as i8));
+        let mut m = 0u64;
+        for k in 0..4 {
+            let v = _mm_loadu_si128(ptr.add(16 * k) as *const __m128i);
+            m |= (_mm_movemask_epi8(_mm_cmpeq_epi8(v, vd)) as u16 as u64) << (16 * k);
+        }
+        m
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn delims64(b: &[u8], d: u8) -> u64 {
+    assert!(b.len() >= 64);
+    // SAFETY: NEON is part of aarch64; the 64 bytes are in bounds (asserted).
+    unsafe {
+        let p = b.as_ptr();
+        neon::eq_mask(&[neon::load(p), neon::load(p.add(16)), neon::load(p.add(32)), neon::load(p.add(48))], d)
+    }
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[inline(always)]
+fn delims64(b: &[u8], d: u8) -> u64 {
+    delims_scalar(b, d)
+}
+
+/// `delims64` byte by byte: other targets, and the tests' reference.
+#[cfg_attr(any(target_arch = "x86_64", target_arch = "aarch64"), allow(dead_code))]
+#[inline(always)]
+fn delims_scalar(b: &[u8], d: u8) -> u64 {
+    b[..64].iter().enumerate().fold(0u64, |m, (i, &c)| m | ((c == d) as u64) << i)
+}
+
 /// The bit-mask scanner: whole records from `i` (a record start) while their
 /// quoting is regular, those starting before `stop`. Returns where it stopped:
 /// the start of the record it could not take (or of the next record to scan).
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[allow(clippy::too_many_arguments)]
 #[inline(never)]
 fn blocks(b: &[u8], i: usize, stop: usize, d: Dialect, width: &mut i64, limit: usize, s: &mut Slice, progress: Option<&AtomicUsize>, reported: &mut usize) -> usize {
@@ -277,7 +369,7 @@ fn blocks(b: &[u8], i: usize, stop: usize, d: Dialect, width: &mut i64, limit: u
     rs
 }
 
-#[cfg(not(target_arch = "x86_64"))]
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 #[allow(clippy::too_many_arguments)]
 fn blocks(_: &[u8], i: usize, _: usize, _: Dialect, _: &mut i64, _: usize, _: &mut Slice, _: Option<&AtomicUsize>, _: &mut usize) -> usize {
     i
@@ -441,12 +533,15 @@ pub fn content_len(span: &[u8], d: Dialect) -> usize {
 }
 
 /// Visits a record's fields (content without its line break). A field holding
-/// `""` is unescaped into `tmp`. `f` returns false to stop.
+/// `""` is unescaped into `tmp`. `f` returns false to stop. The delimiters are
+/// found 64 bytes at a time (a bit mask, `delims`), not field by field.
 #[inline]
 pub fn visit_fields(rec: &[u8], d: u8, tmp: &mut Vec<u8>, mut f: impl FnMut(usize, &[u8]) -> bool) {
     let len = rec.len();
     let mut pos = 0;
     let mut idx = 0;
+    // The delimiters of rec[at..at + 64] (none read yet: at > len).
+    let (mut at, mut mask) = (usize::MAX, 0u64);
     loop {
         if pos < len && rec[pos] == Q {
             // Quoted: up to a quote followed, spaces aside, by the delimiter or the end.
@@ -486,7 +581,18 @@ pub fn visit_fields(rec: &[u8], d: u8, tmp: &mut Vec<u8>, mut f: impl FnMut(usiz
                 None => return,
             }
         } else {
-            let end = memchr(d, &rec[pos..]).map_or(len, |k| pos + k);
+            // The next delimiter: in the block read, else in the blocks after it.
+            if pos < at || pos >= at + 64 {
+                at = pos;
+                mask = delims(rec, at, d);
+            }
+            let mut m = mask >> (pos - at) << (pos - at);
+            while m == 0 && at + 64 < len {
+                at += 64;
+                mask = delims(rec, at, d);
+                m = mask;
+            }
+            let end = if m == 0 { len } else { at + m.trailing_zeros() as usize };
             if !f(idx, &rec[pos..end]) { return; }
             if end >= len { return; }
             pos = end + 1;
@@ -665,6 +771,70 @@ mod tests {
         let b = b"a,b\n1,2,3\n4\n5,6\n";
         let s = scan(b, CSV, None);
         assert_eq!(s.odd, vec![(1, 3), (2, 1)]);
+    }
+
+    /// The field visitor of before (a memchr per field): the reference for the bit masks.
+    fn visit_ref(rec: &[u8], d: u8) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        let (len, mut pos) = (rec.len(), 0);
+        loop {
+            if pos < len && rec[pos] == Q {
+                let (mut j, mut body) = (pos + 1, Vec::new());
+                let next = loop {
+                    match memchr(Q, &rec[j..]) {
+                        None => { body.extend_from_slice(&rec[j..]); break None; }
+                        Some(off) => {
+                            let k = j + off;
+                            body.extend_from_slice(&rec[j..k]);
+                            if k + 1 < len && rec[k + 1] == Q { body.push(Q); j = k + 2; continue; }
+                            let mut m = k + 1;
+                            while m < len && ((rec[m] == b' ' && d != b' ') || (rec[m] == b'\t' && d != b'\t')) { m += 1; }
+                            if m >= len { break None; }
+                            if rec[m] == d { break Some(m + 1); }
+                            body.push(Q);
+                            j = k + 1;
+                        }
+                    }
+                };
+                out.push(body);
+                match next { Some(n) => pos = n, None => return out }
+            } else {
+                let end = memchr(d, &rec[pos..]).map_or(len, |k| pos + k);
+                out.push(rec[pos..end].to_vec());
+                if end >= len { return out; }
+                pos = end + 1;
+            }
+        }
+    }
+
+    #[test]
+    fn fields_by_masks_as_by_bytes() {
+        let pieces: &[&[u8]] = &[b"a", b"bc", b"12345", b",", b",", b",,", b";", b"\t", b"\"", b"\"\"", b"\"x,y\"", b"\"q\"\"q\"", b" ", b"\" ", b"\xC3\xA9",
+            b"long field with words and more words ", b"\"a quoted field, long enough to cross a block of sixty-four bytes\"", b"\n"];
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut rnd = |n: usize| { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; (seed % n as u64) as usize };
+        let mut tmp = Vec::new();
+        for round in 0..20000 {
+            let target = rnd(if round % 10 == 0 { 600 } else { 140 });
+            let mut rec = Vec::new();
+            while rec.len() < target { rec.extend_from_slice(pieces[rnd(pieces.len())]); }
+            for d in [b',', b';', b'\t', b' '] {
+                let want = visit_ref(&rec, d);
+                let mut got = Vec::new();
+                visit_fields(&rec, d, &mut tmp, |i, v| { assert_eq!(i, got.len()); got.push(v.to_vec()); true });
+                assert_eq!(got, want, "{:?} {:?}", d as char, String::from_utf8_lossy(&rec));
+                // Stopped at each field in turn: with_field gives the same field.
+                for (k, w) in want.iter().enumerate().step_by(3) {
+                    assert_eq!(with_field(&rec, d, k, &mut tmp, |v| v.to_vec()).as_ref(), Some(w));
+                }
+                // Every position of the masks against the bytes.
+                for p in (0..rec.len()).step_by(7) {
+                    let want: u64 = (0..64).filter(|&i| p + i < rec.len() && rec[p + i] == d).fold(0, |m, i| m | 1 << i);
+                    assert_eq!(delims(&rec, p, d), want);
+                    if p + 64 <= rec.len() { assert_eq!(delims_scalar(&rec[p..], d), want); }
+                }
+            }
+        }
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Duplicates timings: `cargo run --release -p csvfab-engine --example dupes_bench -- customers-5m.csv`
-//! (customers files: first/last name 1/2, e-mail 3, phone 4, postal code 7, city 8, country 9).
+//! (customers files: first/last name 1/2, e-mail 3, phone 4, postal code 7, city 8, country 9;
+//! another file's columns by `COLS=email,phone,last,first,postal`, e.g. `COLS=4,5,1,2,9`).
 //! `CROSS=1`: the cross-checks suggested for the file instead, timed, with
 //! `EXAMPLES=n` groups of each shown (their name, e-mail and phone columns).
 
@@ -18,11 +19,14 @@ fn main() {
     let reps: usize = std::env::var("REPS").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
     if std::env::var("CROSS").is_ok() { return cross(st, &ids, reps) }
     let f = |col, clean| Field { col, clean };
+    // The columns e-mail, phone, last name, first name, postal code (`COLS=4,5,1,2,9` for another file).
+    let c: Vec<usize> = std::env::var("COLS").ok().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).filter(|v: &Vec<usize>| v.len() == 5).unwrap_or(vec![3, 4, 2, 1, 7]);
+    let (email, phone, last, first, postal) = (c[0], c[1], c[2], c[3], c[4]);
     let specs = [
-        ("e-mail", DupSpec { keys: vec![vec![f(3, Clean::Email)]] }),
-        ("e-mail OR phone OR name + postal code", DupSpec { keys: vec![vec![f(3, Clean::Email)], vec![f(4, Clean::Phone)], vec![f(2, Clean::Slug), f(1, Clean::Slug), f(7, Clean::Digits)]] }),
+        ("e-mail", DupSpec { keys: vec![vec![f(email, Clean::Email)]] }),
+        ("e-mail OR phone OR name + postal code", DupSpec { keys: vec![vec![f(email, Clean::Email)], vec![f(phone, Clean::Phone)], vec![f(last, Clean::Slug), f(first, Clean::Slug), f(postal, Clean::Digits)]] }),
         ("whole row", DupSpec::default()),
-        ("last (sound) + first + postal", DupSpec { keys: vec![vec![f(2, Clean::Sound { tol: 0.8 }), f(1, Clean::Loose), f(7, Clean::Digits)]] }),
+        ("last (sound) + first + postal", DupSpec { keys: vec![vec![f(last, Clean::Sound { tol: 0.8 }), f(first, Clean::Loose), f(postal, Clean::Digits)]] }),
     ];
     let only = std::env::var("ONLY").unwrap_or_default();
     for (what, spec) in specs {

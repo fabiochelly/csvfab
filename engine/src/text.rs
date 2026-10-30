@@ -45,6 +45,20 @@ pub fn find_high(b: &[u8]) -> Option<usize> {
     b[i..].iter().position(|&c| c >= 0x80).map(|k| i + k)
 }
 
+/// The first byte from `i` on that starts a character of two bytes or more (≥ 0xC0), 8 bytes
+/// at a time: in valid UTF-8, where the non-ASCII characters are.
+#[inline]
+pub fn find_lead(b: &[u8], mut i: usize) -> Option<usize> {
+    while i + 8 <= b.len() {
+        let w = u64::from_le_bytes(b[i..i + 8].try_into().unwrap());
+        // Bits 7 and 6 of a byte both set (bit 6 shifted onto bit 7 of the same byte).
+        let m = w & (w << 1) & 0x8080_8080_8080_8080;
+        if m != 0 { return Some(i + (m.trailing_zeros() / 8) as usize); }
+        i += 8;
+    }
+    b[i..].iter().position(|&c| c >= 0xC0).map(|k| i + k)
+}
+
 /// The fold of one non-ASCII character (the reference: `fold_into`'s table is built from it).
 fn fold_char(c: char, out: &mut String) {
     match c {
@@ -170,7 +184,8 @@ pub fn parse_number(s: &str) -> Option<f64> {
         return t.parse::<f64>().ok();
     }
     let mut neg = false;
-    let mut digits = String::with_capacity(t.len());
+    // The digits, separators and exponent kept, on the stack (at most one byte per byte of `t`).
+    let mut digits = Ascii::default();
     let (mut commas, mut dots, mut last_sep) = (0, 0, ' ');
     let mut seen_digit = false;
     let mut chars = t.chars().peekable();
@@ -214,16 +229,41 @@ pub fn parse_number(s: &str) -> Option<f64> {
     } else {
         '.'
     };
-    let clean: String = digits
-        .chars()
-        .filter_map(|c| match c {
-            ',' | '.' if c == dec => Some('.'),
-            ',' | '.' => None,
-            _ => Some(c),
-        })
-        .collect();
-    let v: f64 = clean.parse().ok()?;
+    let mut clean = Ascii::default();
+    for &c in &digits.b[..digits.n] {
+        match c {
+            b',' | b'.' if c as char == dec => clean.push('.'),
+            b',' | b'.' => {}
+            _ => clean.push(c as char),
+        }
+    }
+    let v: f64 = clean.as_str().parse().ok()?;
     Some(if neg { -v } else { v })
+}
+
+/// A few ASCII characters on the stack (`parse_number`'s 40 bytes and an exponent's sign).
+struct Ascii {
+    b: [u8; 48],
+    n: usize,
+}
+
+impl Default for Ascii {
+    fn default() -> Ascii {
+        Ascii { b: [0; 48], n: 0 }
+    }
+}
+
+impl Ascii {
+    #[inline]
+    fn push(&mut self, c: char) {
+        self.b[self.n] = c as u8;
+        self.n += 1;
+    }
+
+    fn as_str(&self) -> &str {
+        // Only ASCII is pushed.
+        std::str::from_utf8(&self.b[..self.n]).unwrap_or("")
+    }
 }
 
 /// A date (and time) as a sortable number YYYYMMDDhhmmss: `2024-03-15`,
@@ -282,6 +322,15 @@ mod tests {
         assert!(!sort_key(&"9".repeat(400)).contains(&0xFF));
         assert_eq!(sort_key("007"), sort_key("7"));
         assert!(sort_key("0") < sort_key("1") && sort_key("00") == sort_key("0"));
+    }
+
+    #[test]
+    fn lead_bytes_found() {
+        let s = "abcdefghé€ijklmnopqrstuvwxyz日本 x😀";
+        let want: Vec<usize> = s.char_indices().filter(|(_, c)| !c.is_ascii()).map(|(i, _)| i).collect();
+        let (b, mut got, mut i) = (s.as_bytes(), Vec::new(), 0);
+        while let Some(p) = find_lead(b, i) { got.push(p); i = p + 1; }
+        assert_eq!(got, want);
     }
 
     #[test]

@@ -148,6 +148,106 @@ outputs to tmpfs; the machine was busy, so a quieter run in brackets), `bench_ui
 - Not done: the rayon pool is still built on the main thread (`compute_pool`, < 1 ms): built on
   another thread, a file read starting meanwhile would build rayon's default pool (not niced).
 
+## Column reads, search, numbers (2026-10-30, 16 threads, `bench_ui` A/B back to back, medians of 3 processes)
+
+The user's 2 GB file (5.3M rows × 38 columns, French, accents and a quoted `"35,61 €"` in every
+row) and customers-5m; "first" is the first run in a process (caches cold), "again" a second one.
+Engine passes: `engine/examples/col_bench FILE [runs] [columns…]` (new), `dupes_bench` (`COLS=` for
+another file's columns). The machine was busy during the final run: absolute times are higher than
+in the sections above, the A/B is fair.
+
+| op (bench_ui) | 2 GB before | 2 GB after | 5M before | 5M after |
+|---|---|---|---|---|
+| filter "lyon" (global), again | 98 ms | 66 ms | 52 ms | 36 ms |
+| filter total>1000, first (cache built) | 355 ms | 104 ms | 114 ms | 90 ms |
+| filter `num({total}) > 1000` | 120 ms | 96 ms | 101 ms | 95 ms |
+| sort by date, first | 210 ms | 156 ms | 103 ms | 104 ms |
+| sort country + total, first | 120 ms | 115 ms | 109 ms | 108 ms |
+| find "Lyon" (Ctrl+F) | 108 ms | 95 ms | 117 ms | 52 ms |
+| totals row turned on | 360 ms | 248 ms | 90 ms | 77 ms |
+| group by city (sum) | 260 ms | 223 ms | 95 ms | 89 ms |
+| pivot | 123 ms | 102 ms | 115 ms | 85 ms |
+| duplicates (suggested keys), again | 537 ms | 479 ms | 761 ms | 696 ms |
+| file profile | 557 ms | 471 ms | 181 ms | 167 ms |
+| computed column | 154 ms | 137 ms | 137 ms | 129 ms |
+| file profile again after one cell typed (`profile_edit`) | 507 ms | 58 ms | | |
+| a duplicate row hovered, view off and sorted (`dupes_hover`, frame) | 46 ms | 0.9 ms | | |
+| a duplicate row hovered, duplicates view (frame) | 4.4 ms | 0.8 ms | | |
+
+Open, sorts again, save, Excel export, insights, column values: unchanged (within ±5 %, checked
+again with 12 runs where one looked worse: sort country + total again +3 %, sort by date again −7 %).
+Engine alone, 2 GB: every field of every record visited 171 → 118 ms; field 28 read 142 → 84 ms;
+global "lyon" 151 → 85 ms (the bytes searched alone: 30 ms); find's row test 141 → 53 ms; totals of
+the 16 number columns 940 → 620 ms; a number column's first cache 320 → 80 ms, a date column's
+(birth dates) 272 → 50 ms.
+
+- **Fields by bit masks** (`scan::visit_fields`): the delimiters of 64 bytes at a time as a mask
+  (SSE2 on x86_64, NEON on aarch64, a byte loop elsewhere), the next field's end a `trailing_zeros`,
+  not a `memchr` per field (fields are ~10 bytes). Every column read goes through it (`with_field`,
+  `State::visit`, `visit_cols`): column caches, totals, profile, group, pivot, formulas, dupes, saves.
+  Quoted fields as before. Tested against the old visitor on random records (`fields_by_masks_as_by_bytes`).
+- **NEON**: the scanner's four masks (`scan::masks`) and the delimiter mask have an aarch64 version
+  (`scan::neon`, simdjson's pairwise-add movemask); the bit-mask scanner (`blocks`) now runs on
+  aarch64 too (it fell back to the byte scanner there). Not compiled here: the aarch64 target is
+  not installed on this machine — CI's macOS build is the check. x86 tests the same logic via the
+  scalar reference.
+- **No dictionary tried for a number or date cache in doubt** (`colcache::build_dict`, `sure`): a
+  column of amounts (86 % distinct in the sample) passed the sample, built most of a dictionary
+  and gave up (250 ms), then parsed its numbers (80 ms). For `Need::Num`/`Date` a sample more than
+  ¾ distinct goes straight to the numbers; the dictionary stays possible for value counts and
+  charts (not marked "no dictionary").
+- **Global search: accents told by a table** (`view::block_search`): with a needle trusted in a
+  cell, only characters folding into one of its letters matter; the two-byte ones are looked up in
+  a 1920-bit table made with the pattern (`fold2`), three-byte ones (€, narrow no-break space)
+  remembered per thread (`fold3`), and in checked UTF-8 only lead bytes are visited, 8 at a time
+  (`text::find_lead`). The rest (record found, window folded) only for those few characters.
+- **Find's row test by SIMD** (`edit::replace`, `Raw::Ascii`): an ASCII search without k or s (the
+  only letters a case-ignoring regex matches beyond ASCII: K, ſ — a test checks it against the regex
+  crate) uses `CiFinder` (AVX2) instead of a regex per record.
+- **Numbers parsed once** (`stats::num_cell`, `cell_read` in the profile): `cell_kind` parsed a
+  number, then the caller parsed it again; `parse_number`'s non-plain path builds its digits on the
+  stack (two `String`s a cell before).
+- **Duplicates**: the hash pairs sorted by a parallel bucket pass on the top bits (`radix::sort_pairs`,
+  same order as `sort_unstable`): −5 % on the whole find (2 GB 573 → 547 ms, 5M 818 → 773 ms, `dupes_bench`).
+- **Per-column versions, app side**: the file profile keeps each column's line with what it read
+  (`ColKey`: the file, the order, the column's layers and field — as the totals' `Basis`); a cell
+  typed reads that column again, not the 38. The duplicate bar's "others shown" (every frame of a
+  hover) went through the whole view — a HashSet of it (view off) or `contains` per row (duplicates
+  view); now a bit per row of the view, made once per view (`DupMarks::shown`), and only counted.
+  Engine caches never were per table version (keyed by file and field); the sparkline band is
+  sampled (≤ 50 000 cells), not worth a per-column key.
+
+### Tried, not kept / not done
+- Single pass for several duplicate keys: not done after timing the phases — hashing is bound by
+  cleaning the values, not by reading the records (fields 1–9 on the 2 GB file): ≤ 50 ms of 480 to
+  gain, for three keys' hashes held at once (+170 MB).
+- Search: the remaining 55 ms above the byte search on the 2 GB file are the 23M accented characters
+  visited; a SIMD lead-byte mask would take some more.
+- Group by reads each row twice (a hash pass, then the aggregation); insights, save (a kernel copy
+  when untouched, 430 ms to tmpfs) and the Excel export were not changed.
+
+### PGO (evaluated, not applied)
+Manual `-Cprofile-generate`/`-Cprofile-use` (rustc 1.99, LLVM 23; `llvm-profdata` 23.1.3 reads its
+profiles), trained by `bench_ui` on customers-5m and the 2 GB file (every op once), A/B on the 2 GB file:
+
+| | totals | group by | find | dupes first | insights | profile | export | filter_col / sort first |
+|---|---|---|---|---|---|---|---|---|
+| PGO vs release | −17 % | −15 % | −13 % | −14 % | −7 % | −5 % | −6 % | +8 … +16 % (worse) |
+
+The passes bound by CPU gain 5–20 %; first sorts and column caches (bound by reading memory) lose
+8–16 %. Mixed: worth it only with a training set that is not the benchmark itself. The steps:
+
+    D=/tmp/pgo; rm -rf $D; mkdir -p $D
+    RUSTFLAGS="-Cprofile-generate=$D" cargo build --release -p csvfab --example bench_ui
+    target/release/examples/bench_ui customers-5m.csv --repeat 1 --out /tmp/pgo-out
+    llvm-profdata merge -o $D/merged.profdata $D/*.profraw
+    RUSTFLAGS="-Cprofile-use=$D/merged.profdata -Cllvm-args=-pgo-warn-missing-function=false" \
+        cargo build --release -p csvfab
+
+(`llvm-profdata` must be the LLVM of rustc: `rustup component add llvm-tools` gives it as
+`~/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-profdata`.) Each RUSTFLAGS change rebuilds every
+crate (5–6 min here, 20 min for the instrumented build plus its runs).
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

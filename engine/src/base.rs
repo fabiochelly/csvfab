@@ -382,6 +382,11 @@ impl Base {
 
     /// Record i without its line break.
     #[inline]
+    /// The whole data was checked (or produced) as UTF-8.
+    pub fn checked_utf8(&self) -> bool {
+        self.valid_utf8
+    }
+
     pub fn record(&self, i: usize) -> &[u8] {
         let s = self.span(i);
         &s[..scan::content_len(s, self.dialect)]

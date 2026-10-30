@@ -39,13 +39,28 @@ pub fn cell_kind(v: &str) -> Option<Kind> {
     }
 }
 
-/// A cell's number, when it reads as one (not a date, not text).
+/// `cell_kind` with what it parsed: the number, the date's key (NaN for text).
+#[inline]
+fn cell_read(v: &str) -> Option<(Kind, f64)> {
+    let s = v.trim();
+    let c = s.chars().next()?;
+    if !(c.is_ascii_digit() || matches!(c, '+' | '-' | '.' | ',' | '€' | '$' | '£')) {
+        return Some((Kind::Text, f64::NAN));
+    }
+    if let Some(d) = parse_date(s) { return Some((Kind::Date, d)); }
+    Some(parse_number(s).map_or((Kind::Text, f64::NAN), |x| (Kind::Number, x)))
+}
+
+/// A cell's number, when it reads as one (not a date, not text): `cell_kind`'s Number,
+/// parsed once.
 #[inline]
 pub fn num_cell(v: &str) -> Option<f64> {
-    match cell_kind(v)? {
-        Kind::Number => parse_number(v).filter(|x| x.is_finite()),
-        _ => None,
+    let s = v.trim();
+    let c = s.chars().next()?;
+    if !(c.is_ascii_digit() || matches!(c, '+' | '-' | '.' | ',' | '€' | '$' | '£')) || parse_date(s).is_some() {
+        return None;
     }
+    parse_number(s).filter(|x| x.is_finite())
 }
 
 /// The key a value sorts and bins on: its number, or its date as YYYYMMDDhhmmss.
@@ -636,7 +651,7 @@ impl ProfAcc {
     #[inline]
     fn add(&mut self, v: &str, pos: u32) {
         let v = v.trim();
-        let Some(k) = cell_kind(v) else {
+        let Some((k, x)) = cell_read(v) else {
             self.p.empty += 1;
             return;
         };
@@ -645,19 +660,15 @@ impl ProfAcc {
         match k {
             Kind::Number => {
                 self.p.nums += 1;
-                if let Some(x) = parse_number(v) {
-                    self.p.sum += x;
-                    self.p.cnt += 1;
-                    self.nlo.lower(x, pos);
-                    self.nhi.higher(x, pos);
-                }
+                self.p.sum += x;
+                self.p.cnt += 1;
+                self.nlo.lower(x, pos);
+                self.nhi.higher(x, pos);
             }
             Kind::Date => {
                 self.p.dates += 1;
-                if let Some(x) = parse_date(v) {
-                    self.dlo.lower(x, pos);
-                    self.dhi.higher(x, pos);
-                }
+                self.dlo.lower(x, pos);
+                self.dhi.higher(x, pos);
             }
             Kind::Text => self.p.texts += 1,
         }

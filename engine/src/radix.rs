@@ -107,6 +107,29 @@ fn finish<T: Ord + Copy + Send + Sync>((mut v, starts): (Vec<T>, Vec<usize>), sh
     v.par_iter().with_min_len(1 << 14).map(|x| pos(x)).collect()
 }
 
+/// (key, position) pairs in the order `sort_unstable` gives them, in parallel: one bucket pass
+/// on the keys' top bits (spread keys: hashes), then each bucket sorted on its own, in cache.
+pub fn sort_pairs(v: &mut Vec<(u64, u32)>) {
+    let n = v.len();
+    if n < 1 << 15 {
+        v.sort_unstable();
+        return;
+    }
+    let bits = (usize::BITS - (n >> 9).leading_zeros()).clamp(4, 16);
+    let shift = 64 - bits;
+    let src = &*v;
+    let (mut out, starts) = scatter(n, 1 << bits, |i| (src[i].0 >> shift) as usize, |i| src[i]);
+    let mut rest = out.as_mut_slice();
+    let mut slices = Vec::with_capacity(starts.len());
+    for k in 1..starts.len() {
+        let (a, b) = rest.split_at_mut(starts[k] - starts[k - 1]);
+        if a.len() > 1 { slices.push(a); }
+        rest = b;
+    }
+    slices.into_par_iter().for_each(|s| if s.len() > n / 16 { s.par_sort_unstable() } else { s.sort_unstable() });
+    *v = out;
+}
+
 /// A key's first 8 bytes, big-endian, zero padded: ordered as the bytes are
 /// (equal prefixes still need the whole keys compared).
 #[inline]
@@ -232,6 +255,21 @@ mod tests {
             check(&(0..n).map(|_| next() >> 20).collect::<Vec<_>>());
             check(&(0..n).map(|i| if i % 3 == 0 { u64::MAX } else { next() % 1000 << 40 }).collect::<Vec<_>>());
             check(&(0..n).map(|_| 5).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn pairs_as_sort_unstable() {
+        let mut x = 0x2545F4914F6CDD1Du64;
+        let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        for &n in &[0usize, 5, 40_000, 300_000] {
+            for spread in [u64::MAX, 1000, 1] {
+                let mut v: Vec<(u64, u32)> = (0..n as u32).map(|i| (if spread == u64::MAX { next() } else { next() % spread << 50 }, i)).collect();
+                let mut want = v.clone();
+                want.sort_unstable();
+                sort_pairs(&mut v);
+                assert_eq!(v, want);
+            }
         }
     }
 

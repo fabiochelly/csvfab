@@ -13,12 +13,13 @@ use crate::theme::{alpha, Palette};
 use csvfab_engine::group::fr_num;
 use csvfab_engine::stats::{self, ColProfile};
 use csvfab_engine::view::Kind;
-use csvfab_engine::{kinds, RowId, State};
+use csvfab_engine::table::Layer;
+use csvfab_engine::{kinds, Base, RowId, State};
 use eframe::egui::{self, pos2, text::LayoutJob, vec2, Color32, Rect, Sense, Stroke, TextFormat, Ui};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 /// Past this many rows, an evenly spaced sample of them is read.
 const SAMPLE: usize = 1_000_000;
@@ -27,10 +28,47 @@ const GROUP: usize = 4;
 
 #[derive(Clone)]
 struct Done {
-    version: u64,
-    ncols: usize,
     cols: Arc<Vec<ColProfile>>,
+    /// What each column's line was read from.
+    keys: Arc<Vec<ColKey>>,
+    /// The file's garbled accents (its bytes only: kept while the file is the same).
     mojibake: bool,
+    base: Weak<Base>,
+}
+
+/// What a column's line reads: the rows (the file, their order, how many) and the column's
+/// cells (its field of the file, its edit layers). Held weakly, compared by address (as the
+/// totals row's `Basis`): an edit in one column leaves the other columns' lines standing.
+#[derive(Clone)]
+struct ColKey {
+    base: Weak<Base>,
+    order: Option<Weak<Vec<RowId>>>,
+    len: usize,
+    header: bool,
+    field: Option<usize>,
+    cells: Weak<Vec<Arc<Layer>>>,
+}
+
+impl ColKey {
+    fn of(st: &State, c: usize) -> ColKey {
+        ColKey {
+            base: Arc::downgrade(&st.base),
+            order: st.order.as_ref().map(Arc::downgrade),
+            len: st.len(),
+            header: st.header,
+            field: csvfab_engine::colcache::field_of(st, c),
+            cells: st.cols.get(c).map_or_else(Weak::new, Arc::downgrade),
+        }
+    }
+
+    fn is(&self, st: &State, c: usize) -> bool {
+        self.base.as_ptr() == Arc::as_ptr(&st.base)
+            && self.order.as_ref().map_or(std::ptr::null(), Weak::as_ptr) == st.order.as_ref().map_or(std::ptr::null(), Arc::as_ptr)
+            && self.len == st.len()
+            && self.header == st.header
+            && self.field == csvfab_engine::colcache::field_of(st, c)
+            && st.cols.get(c).is_some_and(|l| self.cells.as_ptr() == Arc::as_ptr(l))
+    }
 }
 
 thread_local! {
@@ -49,6 +87,7 @@ struct Profile {
     /// The grid's hidden columns, marked "(hidden)".
     hidden: std::collections::BTreeSet<usize>,
     version: u64,
+    keys: Arc<Vec<ColKey>>,
 }
 
 /// The rows read: all of them, or SAMPLE evenly spaced.
@@ -65,18 +104,30 @@ impl Profile {
         let st = t.st.clone();
         let version = t.version();
         let headers = st.headers();
-        let cached = CACHE.with(|c| c.borrow().get(&cx.tab.uid).cloned()).filter(|d| d.version == version && d.ncols == st.ncols);
-        let parts = Arc::new(Mutex::new(vec![None; st.ncols]));
+        let cached = CACHE.with(|c| c.borrow().get(&cx.tab.uid).cloned());
+        let keys: Arc<Vec<ColKey>> = Arc::new((0..st.ncols).map(|c| ColKey::of(&st, c)).collect());
+        // The lines of the columns whose rows and cells are the same as when last read.
+        let kept: Vec<Option<ColProfile>> = (0..st.ncols)
+            .map(|c| cached.as_ref().filter(|d| d.keys.get(c).is_some_and(|k| k.is(&st, c))).map(|d| d.cols[c].clone()))
+            .collect();
+        let moji = cached.as_ref().filter(|d| d.base.as_ptr() == Arc::as_ptr(&st.base)).map(|d| d.mojibake);
         let (rows, sampled) = (st.len().min(SAMPLE), st.len() > SAMPLE);
-        let job = cached.is_none().then(|| {
+        let todo: Vec<usize> = (0..st.ncols).filter(|&c| kept[c].is_none()).collect();
+        if let (true, Some(m)) = (todo.is_empty(), moji) {
+            let done = Done { cols: Arc::new(kept.into_iter().flatten().collect()), keys: keys.clone(), mojibake: m, base: Arc::downgrade(&st.base) };
+            return Profile { job: None, parts: Default::default(), done: Some(done), rows, sampled, headers, hidden: cx.tab.grid.hidden.clone(), version, keys };
+        }
+        let parts = Arc::new(Mutex::new(kept));
+        let job = {
             let parts = parts.clone();
+            let kept = st.ncols - todo.len();
             Job::spawn(cx.ctx, move |cancel, progress| {
+                progress.fetch_add(kept, Ordering::Relaxed);
                 let (ids, _) = sample(&st);
-                let ctx_mojibake = kinds::file_mojibake(&st);
+                let ctx_mojibake = moji.unwrap_or_else(|| kinds::file_mojibake(&st));
                 // A few columns a pass: each record read once for them (the pass is bound
                 // by reading records), their distinct values held together (memory).
-                let cols: Vec<usize> = (0..st.ncols).collect();
-                for group in cols.chunks(GROUP) {
+                for group in todo.chunks(GROUP) {
                     let ps = stats::profile_cols(&st, &ids, group, cancel)?;
                     let mut parts = parts.lock().unwrap();
                     for (&c, p) in group.iter().zip(ps) { parts[c] = Some(p); }
@@ -84,8 +135,8 @@ impl Profile {
                 }
                 Some(ctx_mojibake)
             })
-        });
-        Profile { job, parts, done: cached, rows, sampled, headers, hidden: cx.tab.grid.hidden.clone(), version }
+        };
+        Profile { job: Some(job), parts, done: None, rows, sampled, headers, hidden: cx.tab.grid.hidden.clone(), version, keys }
     }
 
     /// The table as tab-separated text.
@@ -169,7 +220,8 @@ impl Tool for Profile {
                 self.job = None;
                 if let Some(moji) = r {
                     let cols: Vec<ColProfile> = self.parts.lock().unwrap().iter().map(|c| c.clone().unwrap_or_default()).collect();
-                    let d = Done { version: self.version, ncols: cols.len(), cols: Arc::new(cols), mojibake: moji };
+                    let base = cx.tab.table.as_ref().map_or_else(Weak::new, |t| Arc::downgrade(&t.st.base));
+                    let d = Done { cols: Arc::new(cols), keys: self.keys.clone(), mojibake: moji, base };
                     CACHE.with(|c| c.borrow_mut().insert(cx.tab.uid, d.clone()));
                     self.done = Some(d);
                 }
@@ -355,7 +407,7 @@ mod tests {
         assert_eq!(cut("abcdef", 4), "abc…");
         assert_eq!(size(2048), "2.0 KB");
         let cols: Vec<Option<ColProfile>> = (0..2).map(|c| stats::profile_col(&t.st, &ids, c, &Default::default())).collect();
-        let pf = Profile { job: None, parts: Default::default(), done: None, rows: 3, sampled: false, headers: t.st.headers(), hidden: Default::default(), version: 0 };
+        let pf = Profile { job: None, parts: Default::default(), done: None, rows: 3, sampled: false, headers: t.st.headers(), hidden: Default::default(), version: 0, keys: Default::default() };
         let tsv = pf.tsv(&cols);
         let lines: Vec<&str> = tsv.lines().collect();
         assert_eq!(lines[1], "A\tNumbers\t2\t1\t2\t1\t2\t3\t1.5");

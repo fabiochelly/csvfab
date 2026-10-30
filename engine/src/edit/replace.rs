@@ -44,6 +44,9 @@ enum How {
 enum Raw {
     Case(memmem::Finder<'static>),
     NoCase(regex::bytes::Regex),
+    /// ASCII text without a letter that has other cases beyond ASCII (k: K, s: ſ): the
+    /// regex's matches are its ASCII cases, found by SIMD (`CiFinder`).
+    Ascii(crate::cifind::CiFinder),
 }
 
 pub struct Replace {
@@ -79,8 +82,13 @@ impl Replace {
         } else {
             let esc = regex::escape(f);
             let re = build(&esc).map_err(|e| e.to_string())?;
-            let raw = raw_ok.then(|| regex::bytes::RegexBuilder::new(&esc).case_insensitive(true).size_limit(SIZE_LIMIT).build().ok()).flatten();
-            (How::LitCi(re), raw.map(Raw::NoCase))
+            let low = f.to_ascii_lowercase();
+            let ascii = (raw_ok && f.is_ascii() && !low.contains(['k', 's'])).then(|| crate::cifind::CiFinder::new(low.as_bytes())).flatten();
+            let raw = match ascii {
+                Some(ci) => Some(Raw::Ascii(ci)),
+                None => raw_ok.then(|| regex::bytes::RegexBuilder::new(&esc).case_insensitive(true).size_limit(SIZE_LIMIT).build().ok()).flatten().map(Raw::NoCase),
+            };
+            (How::LitCi(re), raw)
         };
         Ok(Some(Replace { how, rep: spec.replace.clone(), raw }))
     }
@@ -118,6 +126,7 @@ impl CellOp for Replace {
                 match raw {
                     Raw::Case(fi) => fi.find(rec).is_some(),
                     Raw::NoCase(re) => re.is_match(rec),
+                    Raw::Ascii(ci) => ci.find(rec).is_some(),
                 }
             }
             _ => true,
@@ -338,6 +347,24 @@ mod tests {
         let spec = ReplaceSpec { find: find.into(), replace: with.into(), regex, match_case: case };
         let r = Replace::new(&spec, &t.st).unwrap().unwrap();
         changes(&t.st, &all_rows(&t.st), cols, &r, &NO).unwrap()
+    }
+
+    #[test]
+    fn ascii_cases_are_the_regex_cases() {
+        // The letters a case-ignoring regex matches beyond ASCII: only k (K, Kelvin) and s (ſ),
+        // which `Raw::Ascii` leaves to the regex.
+        let mut wide = Vec::new();
+        for l in b'a'..=b'z' {
+            let re = regex::Regex::new(&format!("(?i)^{}$", l as char)).unwrap();
+            if (0x80..0x11_0000u32).filter_map(char::from_u32).any(|c| re.is_match(c.encode_utf8(&mut [0; 4]))) { wide.push(l as char); }
+        }
+        assert_eq!(wide, ['k', 's']);
+        // Rows found by the SIMD finder as by the regex.
+        let t = crate::table::Table::new(std::sync::Arc::new(crate::Base::from_bytes(b"a,b\nLyon,1\nx,lYoN-sur\nly on,2\nLYO,N\n\"q\"\"LyOn\",3\n".to_vec(), crate::OpenOptions::default())), None);
+        let op = Replace::new(&ReplaceSpec { find: "lyon".into(), ..Default::default() }, &t.st).unwrap().unwrap();
+        assert!(matches!(op.raw, Some(Raw::Ascii(_))) || crate::cifind::CiFinder::new(b"lyon").is_none());
+        let may: Vec<bool> = (0..t.st.len()).map(|p| op.row_may_change(&t.st, t.st.data_id(p), &mut ())).collect();
+        assert_eq!(may, [true, true, false, false, true]);
     }
 
     #[test]

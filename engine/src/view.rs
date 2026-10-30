@@ -169,6 +169,9 @@ enum Pat {
         /// An ASCII needle, case ignored: found in the raw bytes as they are (SIMD, both cases
         /// at once), not in a lower-cased copy of them.
         ci: Option<crate::cifind::CiFinder>,
+        /// Bit `u - 0x80`: the two-byte character U+u (up to U+07FF) folds into one of the
+        /// needle's letters (`text::folds_into`) — the accents of a text told by a table.
+        fold2: Box<[u64; 30]>,
     },
     Re {
         re: regex::Regex,
@@ -216,7 +219,13 @@ impl Pat {
         let blank = needle.bytes().all(|b| b == b' ' || b == b'\t');
         let mask = needle.bytes().filter(|&b| b < 0x80).fold(0u128, |m, b| m | 1 << b);
         let ci = (!case && raw_ok).then(|| crate::cifind::CiFinder::new(needle.as_bytes())).flatten();
-        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask, ci })
+        let mut fold2 = Box::new([0u64; 30]);
+        if !case && raw_ok {
+            for u in 0x80..0x800u32 {
+                if char::from_u32(u).is_some_and(|c| crate::text::folds_into(c, mask)) { fold2[(u - 0x80) as usize / 64] |= 1 << ((u - 0x80) % 64); }
+            }
+        }
+        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask, ci, fold2 })
     }
 
     #[inline]
@@ -434,6 +443,10 @@ struct Scratch {
     low: Vec<u8>,
     /// Per record of a block: HIT, NONASCII, SUSPECT, UNKNOWN.
     flags: Vec<u8>,
+    /// (character, whether it folds into one of the needle's letters) of three-byte characters
+    /// met, by code point modulo 64, for the needle `fold3_mask` (0: none yet).
+    fold3: Vec<(u32, bool)>,
+    fold3_mask: u128,
     row: Vec<String>,
 }
 
@@ -735,14 +748,18 @@ const UNKNOWN: u8 = 8;
 fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &mut Scratch) {
     s.flags.clear();
     let utf8 = b.enc.mem_utf8();
-    let mask = match g {
-        Pat::Sub { mask, .. } => Some(*mask),
-        Pat::Re { .. } => None,
+    let (mask, fold2) = match g {
+        Pat::Sub { mask, fold2, .. } => (Some(*mask), Some(&**fold2)),
+        Pat::Re { .. } => (None, None),
     };
     let (needle_len, trust) = match g {
         Pat::Sub { needle, blank, .. } => (needle.len(), trust(needle, *blank, b)),
         Pat::Re { .. } => (0, false),
     };
+    if let Some(m) = mask.filter(|&m| m != s.fold3_mask || s.fold3.is_empty()) {
+        s.fold3 = vec![(0, false); 64];
+        s.fold3_mask = m;
+    }
     // Other encodings: the non-ASCII records are read the slow way.
     s.flags.resize(len, if mask.is_some() && !utf8 { UNKNOWN } else { 0 });
     let bytes = b.bytes();
@@ -780,10 +797,40 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
             pos = b.starts.get(rec) - bs;
         }
         if let (Some(mask), true) = (mask, utf8) {
+            // A needle trusted in a cell reads NONASCII nowhere: only the characters folding
+            // into one of its letters matter (none when the case counts), the two-byte ones
+            // told by `fold2` without decoding them or finding their record.
+            let quick = fold2.filter(|_| trust);
+            // Checked UTF-8: only the first bytes of characters are looked at (8 at a time).
+            let leads = quick.is_some() && b.checked_utf8();
             let mut i = 0;
             let mut rec = r;
-            while let Some(k) = crate::text::find_high(&raw[i..]) {
-                let p = i + k;
+            loop {
+                let next = if leads { crate::text::find_lead(raw, i) } else { crate::text::find_high(&raw[i..]).map(|k| i + k) };
+                let Some(p) = next else { break };
+                if let Some(t) = quick {
+                    let at = |k: usize| raw.get(p + k).copied().unwrap_or(0);
+                    let (c0, c1, c2) = (raw[p], at(1), at(2));
+                    if (0xC2..=0xDF).contains(&c0) && c1 & 0xC0 == 0x80 {
+                        let u = ((c0 as usize & 0x1F) << 6 | (c1 as usize & 0x3F)) - 0x80;
+                        if case || t[u / 64] >> (u % 64) & 1 == 0 {
+                            i = p + 2;
+                            continue;
+                        }
+                    } else if (0xE0..=0xEF).contains(&c0) && c1 & 0xC0 == 0x80 && c2 & 0xC0 == 0x80 && !(c0 == 0xE0 && c1 < 0xA0) && !(c0 == 0xED && c1 >= 0xA0) {
+                        // Three bytes (€, the narrow no-break space…): the verdict of the last
+                        // characters seen, kept, since folding one of these costs more.
+                        let u = (c0 as u32 & 0x0F) << 12 | (c1 as u32 & 0x3F) << 6 | (c2 as u32 & 0x3F);
+                        let m = &mut s.fold3[u as usize % 64];
+                        if m.0 != u {
+                            *m = (u, char::from_u32(u).is_some_and(|c| crate::text::folds_into(c, mask)));
+                        }
+                        if case || !m.1 {
+                            i = p + 3;
+                            continue;
+                        }
+                    }
+                }
                 while b.starts.get(rec + 1) <= bs + p { rec += 1; }
                 let n = match raw[p] { 0xC2..=0xDF => 2, 0xE0..=0xEF => 3, 0xF0..=0xF4 => 4, _ => 0 };
                 match std::str::from_utf8(&raw[p..(p + n).min(raw.len())]).ok().filter(|_| n > 0).and_then(|c| c.chars().next()) {

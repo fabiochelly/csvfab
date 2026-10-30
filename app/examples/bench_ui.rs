@@ -52,7 +52,7 @@ const ALL_OPS: &[&str] = &[
 
 /// Edits, timed with the longest frame they cost the UI thread (`frame_max`): not in the
 /// default run (each leaves the table edited, so the next run opens the file again).
-const EDIT_OPS: &[&str] = &["clear_all", "fill_all", "move_col", "insert_row", "dup_row", "paste", "totals_edit", "panel_id", "merge_layers"];
+const EDIT_OPS: &[&str] = &["clear_all", "fill_all", "move_col", "insert_row", "dup_row", "paste", "totals_edit", "panel_id", "merge_layers", "dupes_hover", "profile_edit"];
 
 fn say(line: &str) {
     let mut o = std::io::stdout().lock();
@@ -855,6 +855,70 @@ impl Bench {
                 self.until(op, Self::edited)?;
                 let d = t0.elapsed();
                 Ok((d, obj(&[("cell", esc(&self.cell_at(7, n)))])))
+            }
+            "profile_edit" => {
+                // The file profile open and read, then one cell typed: until its lines are all there again.
+                self.command("File profile…")?;
+                let profiled = |h: &mut H| {
+                    let ts = texts(h);
+                    h.state_mut().tools.len() == 1 && ts.iter().any(|(t, _)| t == "Copy as text") && !ts.iter().any(|(t, _)| t.starts_with("Profiling"))
+                };
+                self.until("profile", profiled)?;
+                self.quiesce();
+                let c = self.col("total_spent");
+                let id = self.tab().shown_id(3);
+                let t0 = self.mark(op);
+                self.timed(|b| b.app().apply(vec![csvfab::grid::Action::SetCells(vec![(id, c, "12.5".into())])], &ctx));
+                self.frame();
+                self.until(op, profiled)?;
+                let d = t0.elapsed();
+                self.close_tools();
+                Ok((d, obj(&[("cell", esc(&self.tab().st().map(|s| s.cell(id, c)).unwrap_or_default()))])))
+            }
+            "dupes_hover" => {
+                // The duplicates marked (the dialog's suggested keys, "Mark them"), then a duplicate
+                // row hovered (its bar drawn every frame): in the duplicates view, then with the
+                // view off and the rows sorted. ms: the slowest frame; the medians beside.
+                self.command("Remove duplicates…")?;
+                self.until("dupes counted", |h| has_text(h, |t| (t.contains(" groups") && t.contains("deleted")) || t.starts_with("No duplicate among")))?;
+                // The dialog is taller than a 1080 px screen: its buttons in reach for the click.
+                let size = self.ctx.content_rect().size();
+                self.h.set_size(egui::vec2(size.x, size.y.max(1600.0)));
+                self.frame();
+                self.quiesce();
+                let p = self.press_text("Mark them")?;
+                self.release(p);
+                self.h.set_size(size);
+                self.until("dupes marked", |h| { let a = h.state_mut(); let t = &a.tabs[a.active]; csvfab::tools::dupes::in_view(t) && t.table.is_some() && !t.busy() })?;
+                self.close_tools();
+                self.quiesce();
+                let body = self.ctx.viewport(|v| {
+                    v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && w.sense.senses_drag()).map(|w| w.rect).max_by(|a, b| a.area().total_cmp(&b.area()))
+                }).ok_or("no grid body")?;
+                let hover = |b: &mut Bench| -> Vec<f64> {
+                    (0..12).map(|k| {
+                        b.h.event(egui::Event::PointerMoved(body.min + egui::vec2(body.width() * 0.4 + k as f32, 12.0)));
+                        let t = Instant::now();
+                        b.frame();
+                        t.elapsed().as_secs_f64() * 1e3
+                    }).skip(2).collect()
+                };
+                let stat = |mut v: Vec<f64>| { v.sort_by(f64::total_cmp); (v[v.len() / 2], v[v.len() - 1]) };
+                let (view_med, view_max) = stat(hover(self));
+                // The view off, sorted: the first duplicate row shown scrolled to the top.
+                let c = self.col("total_spent");
+                csvfab::tools::dupes::toggle_view(self.tab(), &ctx);
+                self.view_op("dupes_hover sort", |t| t.sort = vec![SortKey { col: c, desc: true }])?;
+                let t = self.tab();
+                let pos = (0..t.shown().min(1_000_000)).find(|&p| t.marks.dups.as_ref().is_some_and(|d| d.group(t.shown_id(p)).is_some())).ok_or("no duplicate row shown")?;
+                t.grid.set_top(pos);
+                self.frame();
+                self.quiesce();
+                let (sort_med, sort_max) = stat(hover(self));
+                self.app().close_tab(0, true);
+                self.frame();
+                let ms = |x: f64| format!("{x:.2}");
+                Ok((Duration::from_secs_f64(view_max.max(sort_max) / 1e3), obj(&[("view_med", ms(view_med)), ("view_max", ms(view_max)), ("sorted_med", ms(sort_med)), ("sorted_max", ms(sort_max))])))
             }
             _ => Err(format!("unknown op {op}")),
         }

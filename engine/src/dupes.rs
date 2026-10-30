@@ -803,7 +803,7 @@ fn exact_pass(st: &State, ids: &[RowId], key: Option<&[Field]>, cancel: &AtomicB
         .flat_map_iter(|v| v)
         .collect();
     if cancel.load(Ordering::Relaxed) { return None; }
-    hs.par_sort_unstable();
+    crate::radix::sort_pairs(&mut hs);
     let runs = runs(&hs);
     let joined: Vec<Vec<(u32, u32)>> = runs
         .par_iter()
@@ -876,7 +876,7 @@ fn sound_pass(st: &State, ids: &[RowId], key: &[Field], cancel: &AtomicBool, pro
         .flat_map_iter(|v| v)
         .collect();
     if cancel.load(Ordering::Relaxed) { return None; }
-    hs.par_sort_unstable();
+    crate::radix::sort_pairs(&mut hs);
     let runs = runs(&hs);
     let joined: Vec<Vec<(u32, u32)>> = runs
         .par_iter()
@@ -1188,7 +1188,7 @@ fn cross_pass(st: &State, ids: &[RowId], parts: &[Part], via: Via, cancel: &Atom
         .flat_map_iter(|v| v)
         .collect();
     if cancel.load(Ordering::Relaxed) { return None; }
-    hs.par_sort_unstable();
+    crate::radix::sort_pairs(&mut hs);
     let runs = runs(&hs);
     let joined: Vec<Vec<(u32, u32)>> = runs
         .par_iter()

@@ -157,6 +157,9 @@ pub struct DupMarks {
     pub order: Order,
     /// Per group, the columns that differ (computed when the group is drawn).
     diff: Mutex<HashMap<u32, Arc<Vec<usize>>>>,
+    /// The rows of a view (held weakly, its length), as a bit per row id: which of a group's
+    /// rows it shows, without going through the view at every frame of a hover.
+    shown: Mutex<Option<(std::sync::Weak<Vec<RowId>>, usize, Arc<Vec<u64>>)>>,
 }
 
 pub const VIEW_LABEL: &str = "Duplicates only";
@@ -172,7 +175,7 @@ impl KeyDraft {
 #[cfg(test)]
 impl DupMarks {
     pub fn new(keys: Vec<KeyDraft>, rules: Vec<Rule>, d: Dupes) -> DupMarks {
-        DupMarks { keys, rules, names: Vec::new(), dupes: Arc::new(d), order: Order::File, diff: Default::default() }
+        DupMarks { keys, rules, names: Vec::new(), dupes: Arc::new(d), order: Order::File, diff: Default::default(), shown: Default::default() }
     }
 }
 
@@ -970,7 +973,7 @@ fn mark(cx: &mut Cx, f: Found, order: Order) {
     }
     let (rows, groups, review) = (d.rows(), d.groups(), d.count_scored(0, 70));
     let ids = d.side_by_side(order);
-    cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: f.keys, rules: f.rules, names: f.names, dupes: d, order, diff: Default::default() })));
+    cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: f.keys, rules: f.rules, names: f.names, dupes: d, order, diff: Default::default(), shown: Default::default() })));
     cx.tab.restrict_to(VIEW_LABEL, ids, cx.ctx);
     let first = match order { Order::LeastSure if review > 0 => format!(", the {} to review first", kit::n(review)), Order::LeastSure => ", least sure first".into(), Order::SurestFirst => ", surest first".into(), Order::File => String::new() };
     cx.toast(format!("{} rows in {} duplicate groups, side by side{first} — hover a row to see how sure, delete it or merge it with the next; differing values in red.", kit::n(rows), kit::n(groups)));
@@ -1009,7 +1012,7 @@ pub fn reorder(tab: &mut Tab, ctx: &egui::Context, order: Order) {
     let Some(m) = tab.marks.dups.clone() else { return };
     if m.order == order { return }
     let view = in_view(tab);
-    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules: m.rules.clone(), names: m.names.clone(), dupes: m.dupes.clone(), order, diff: Default::default() })));
+    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules: m.rules.clone(), names: m.names.clone(), dupes: m.dupes.clone(), order, diff: Default::default(), shown: Default::default() })));
     DRAFTS.with(|d| if let Some(x) = d.borrow_mut().get_mut(&tab.uid) { x.2 = order });
     if view { tab.restrict_to(VIEW_LABEL, m.dupes.side_by_side(order), ctx); }
 }
@@ -1029,7 +1032,8 @@ pub fn clear(tab: &mut Tab, ctx: &egui::Context) {
 pub fn bar(ui: &mut Ui, p: &Palette, tab: &Tab, id: RowId, left: f32, row: Rect) -> Option<DupAct> {
     let m = tab.marks.dups.as_ref()?;
     let g = m.group(id)?;
-    let others = others_shown(tab, m, g, id).len();
+    // Drawn every frame of a hover: counted, not put in the view's order.
+    let others = others_of(tab, m, g, id).len();
     let font = kit::ui(12.0);
     let y = row.center().y;
     let mut act = None;
@@ -1090,22 +1094,37 @@ pub fn merge_hint(ctx: &egui::Context) -> Option<(RowId, u32)> {
 }
 
 /// The other rows of group g that are shown (all of them in the duplicates view).
-fn others_shown(tab: &Tab, m: &DupMarks, g: u32, id: RowId) -> Vec<RowId> {
+/// The other rows of group g the view shows, in file order.
+fn others_of(tab: &Tab, m: &DupMarks, g: u32, id: RowId) -> Vec<RowId> {
     let members = m.dupes.members(g);
-    let shown: Box<dyn Fn(RowId) -> bool> = match &tab.view {
-        // The view may be millions of rows: a set of it only when the group is not all in sight.
-        Some(v) if !in_view(tab) => {
-            let set: std::collections::HashSet<RowId> = members.iter().copied().collect();
-            let found: std::collections::HashSet<RowId> = v.iter().copied().filter(|x| set.contains(x)).collect();
-            Box::new(move |x| found.contains(&x))
-        }
-        _ => Box::new(|_| true),
+    let Some(v) = tab.view.as_ref().filter(|_| !in_view(tab)) else {
+        // No view, or the duplicates view: every row of the group is there.
+        return members.iter().copied().filter(|&x| x != id).collect();
     };
-    // In view order (the order of the view; the group's file order otherwise).
-    let mut out: Vec<RowId> = members.iter().copied().filter(|&x| x != id && shown(x)).collect();
+    // The view may be millions of rows: its bits made once, then looked up for each group.
+    let bits = {
+        let mut c = m.shown.lock().unwrap();
+        match &*c {
+            Some((w, len, b)) if w.as_ptr() == Arc::as_ptr(v) && *len == v.len() => b.clone(),
+            _ => {
+                let mut b = vec![0u64; (v.iter().copied().max().map_or(0, |x| x as usize) + 64) / 64];
+                for &x in v.iter() { b[x as usize / 64] |= 1 << (x % 64); }
+                let b = Arc::new(b);
+                *c = Some((Arc::downgrade(v), v.len(), b.clone()));
+                b
+            }
+        }
+    };
+    members.iter().copied().filter(|&x| x != id && bits.get(x as usize / 64).is_some_and(|w| w >> (x % 64) & 1 == 1)).collect()
+}
+
+/// The other rows of group g the view shows, in view order (the group's file order without one).
+fn others_shown(tab: &Tab, m: &DupMarks, g: u32, id: RowId) -> Vec<RowId> {
+    let mut out = others_of(tab, m, g, id);
     if let Some(v) = &tab.view {
         if out.len() > 1 {
-            let pos: HashMap<RowId, usize> = v.iter().enumerate().filter(|(_, x)| out.contains(x)).map(|(k, &x)| (x, k)).collect();
+            let want: std::collections::HashSet<RowId> = out.iter().copied().collect();
+            let pos: HashMap<RowId, usize> = v.iter().enumerate().filter(|(_, x)| want.contains(x)).map(|(k, &x)| (x, k)).collect();
             out.sort_by_key(|x| pos.get(x).copied().unwrap_or(usize::MAX));
         }
     }
@@ -1206,7 +1225,7 @@ pub fn poll_refresh(tab: &mut Tab, ctx: &egui::Context) {
         return;
     }
     let ids = d.side_by_side(m.order);
-    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), order: m.order, diff: Default::default() })));
+    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), order: m.order, diff: Default::default(), shown: Default::default() })));
     // Counted on that table: changed since, it is counted again.
     tab.dups_seen = key;
     if view {

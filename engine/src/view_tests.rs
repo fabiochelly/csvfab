@@ -111,7 +111,7 @@ impl Rng {
 const WORDS: &[&str] = &[
     "Lyon", "lyon", "LYON", "Émile", "emile", "Zoé", "Straße", "œuvre", "Œuf", "Ærø", "  Lyon ", "a\u{a0}b", "Ly", "on", "\u{212A}elvin",
     "x;y", "x,y", "say \"hi\"", "line\nbreak", "", " ", "日本", "İstanbul", "ﬁne", "Ångström", ";", "\u{37e}", "tab\there", "Paris",
-    "paris ", "Villeurbanne", "Dubois, Laurent & Associés", "associes", "  ", "LyOn-sur-Saône", "\u{2003}x\u{2003}", "-", "é", "E\u{301}mile", "a:b", "x:",
+    "paris ", "Villeurbanne", "Dubois, Laurent & Associés", "associes", "  ", "LyOn-sur-Saône", "\u{2003}x\u{2003}", "-", "é", "E\u{301}mile", "a:b", "x:", "Lÿôn", "ŁYŃ", "5 €", "ℓyon",
 ];
 const NUMS: &[&str] = &[
     "1234.5", "1 234,50 €", "-12,5 %", "1,234,567", "(42)", "-0", "0", "0.0", "1e3", "", "abc", "15.03.2024", "2024-03-15", "1e999",

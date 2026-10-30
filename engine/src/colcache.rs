@@ -369,13 +369,18 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
     let n = b.n;
     if !no_dict && col.dict.is_none() {
         if allowed(n * 4 + n / 4 * avg_len(b, field).min(64)) {
-            match build_dict(b, field, cancel) {
-                Some(d) => {
+            // Numbers and dates are parsed in one pass of their own: a dictionary is tried for
+            // them only when the sample says it will pay (a column of amounts, half distinct,
+            // got through the sample and failed after building most of one).
+            let sure = matches!(need, Need::Num | Need::Date);
+            match build_dict(b, field, sure, cancel) {
+                Ok(d) => {
                     update(base, field, |s| s.col.dict = Some(Arc::new(d)));
                     return Some(get_field(base, field));
                 }
-                None if cancel.load(Ordering::Relaxed) => return None,
-                None => update(base, field, |s| s.no_dict = true),
+                Err(_) if cancel.load(Ordering::Relaxed) => return None,
+                Err(true) => update(base, field, |s| s.no_dict = true),
+                Err(false) => {}
             }
         } else {
             return None;
@@ -460,9 +465,10 @@ fn build_nums(b: &Base, field: usize, parse: fn(&str) -> Option<f64>, cancel: &A
 
 type Map = hashbrown::HashMap<Box<[u8]>, u32, foldhash::fast::FixedState>;
 
-/// A dictionary of the field, None if it holds too many distinct values to pay
-/// (more than one row in 8) or if cancelled.
-fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
+/// A dictionary of the field. Err(true): it holds too many distinct values to pay (more
+/// than one row in 8); Err(false): cancelled, or `sure` and the sample left it in doubt
+/// (more than three quarters of it distinct): not tried.
+fn build_dict(b: &Base, field: usize, sure: bool, cancel: &AtomicBool) -> Result<Dict, bool> {
     let n = b.n;
     let cap = (n / 8).max(64);
     // A sample first: a column of mostly distinct values is told in a few thousand rows.
@@ -474,7 +480,8 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
             with_raw(b, j * (n / k), field, &mut tmp, |v| if !seen.contains_key(v) { seen.insert(v.into(), 0); });
         }
         // Nearly all distinct: tens of thousands of values or more.
-        if seen.len() > k * 9 / 10 { return None; }
+        if seen.len() > k * 9 / 10 { return Err(true); }
+        if sure && seen.len() > k * 3 / 4 { return Err(false); }
     }
     let abort = AtomicBool::new(false);
     let parts: Vec<(Vec<u32>, Vec<Box<[u8]>>)> = chunks(n)
@@ -504,7 +511,8 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
             (codes, vals)
         })
         .collect();
-    if cancel.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed) { return None; }
+    if cancel.load(Ordering::Relaxed) { return Err(false); }
+    if abort.load(Ordering::Relaxed) { return Err(true); }
     // One code space: each chunk's codes renumbered.
     let mut map = Map::default();
     let mut raw: Vec<Box<[u8]>> = Vec::new();
@@ -521,7 +529,7 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
                 .collect()
         })
         .collect();
-    if raw.len() > cap { return None; }
+    if raw.len() > cap { return Err(true); }
     drop(map);
     let mut codes = Vec::with_capacity(n);
     for ((c, _), m) in parts.iter().zip(&remaps) {
@@ -534,7 +542,7 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
     let keys = crate::radix::Keys::build(values.len(), |i, out| crate::text::sort_key_into(folded[i].trim().as_bytes(), out));
     let (_, rank, nranks) = crate::radix::text_order(values.len(), |i| keys.get(i));
     let (num_rank, date_rank) = (num_ranks(&num), num_ranks(&date));
-    Some(Dict { codes, values, folded, num, date, rank, nranks, num_rank, date_rank })
+    Ok(Dict { codes, values, folded, num, date, rank, nranks, num_rank, date_rank })
 }
 
 type Job = (Arc<Base>, usize, Need);
