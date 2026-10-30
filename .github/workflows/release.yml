@@ -63,6 +63,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
       - uses: Swatinem/rust-cache@v2
+      # On Apple silicon: the scanner's NEON paths run here, nowhere else.
+      - name: Engine tests
+        run: cargo test --locked -p csvfab-engine --lib --tests
       - name: Build
         run: |
           cargo build --locked --release -p csvfab --target aarch64-apple-darwin
