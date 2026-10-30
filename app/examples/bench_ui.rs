@@ -682,7 +682,12 @@ impl Bench {
                 Ok((d, obj(&[("bytes", bytes.to_string()), ("path", esc(&dest.display().to_string()))])))
             }
             "export_xlsx" => {
-                let dest = self.file.with_extension("xlsx");
+                // The dialog writes beside the tab's file: the tab is pointed into the output
+                // folder for the export, never left writing beside the source.
+                std::fs::create_dir_all(&self.out_dir).map_err(|e| e.to_string())?;
+                let inside = self.out_dir.join(self.file.file_name().unwrap());
+                let real = self.tab().path.replace(inside);
+                let dest = self.out_dir.join(self.file.with_extension("xlsx").file_name().unwrap());
                 let _ = std::fs::remove_file(&dest);
                 self.app().toasts.clear(); // a previous run's "Workbook written" must not count
                 self.command("Save as Excel workbook")?;
@@ -695,8 +700,10 @@ impl Bench {
                 say("@op export_xlsx");
                 let t0 = Instant::now();
                 self.release(p);
-                self.until(op, |h| has_text(h, |t| t.contains("Workbook written") || t.starts_with("Could not")))?;
+                let done = self.until(op, |h| has_text(h, |t| t.contains("Workbook written") || t.starts_with("Could not")));
                 let d = t0.elapsed();
+                self.tab().path = real;
+                done?;
                 let msg = find_text(&self.h, |t| t.contains("Workbook written") || t.starts_with("Could not")).unwrap_or_default();
                 let bytes = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
                 Ok((d, obj(&[("text", esc(&msg)), ("bytes", bytes.to_string()), ("path", esc(&dest.display().to_string()))])))

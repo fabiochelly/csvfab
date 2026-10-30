@@ -161,6 +161,21 @@ pub struct DupMarks {
 
 pub const VIEW_LABEL: &str = "Duplicates only";
 
+#[cfg(test)]
+impl KeyDraft {
+    /// One column compared exactly (tests).
+    pub fn column(name: &str) -> KeyDraft {
+        KeyDraft { fields: vec![FieldDraft { col: name.into(), func: FNS.iter().position(|f| f.0 == "exact").unwrap(), tol: 0.0, expr: String::new(), cross: None }] }
+    }
+}
+
+#[cfg(test)]
+impl DupMarks {
+    pub fn new(keys: Vec<KeyDraft>, rules: Vec<Rule>, d: Dupes) -> DupMarks {
+        DupMarks { keys, rules, names: Vec::new(), dupes: Arc::new(d), order: Order::File, diff: Default::default() }
+    }
+}
+
 impl DupMarks {
     #[inline]
     pub fn group(&self, id: RowId) -> Option<u32> {
@@ -211,7 +226,7 @@ fn spec_text(keys: &[KeyDraft]) -> String {
 
 /// The keys against the tab's columns, as rules: Err(message) for a formula
 /// that does not compile, Ok(None) when a column is gone.
-fn compile(headers: &[String], keys: &[KeyDraft]) -> Result<Option<Vec<Rule>>, String> {
+pub(crate) fn compile(headers: &[String], keys: &[KeyDraft]) -> Result<Option<Vec<Rule>>, String> {
     let col = |name: &str| headers.iter().position(|h| h == name);
     let mut out = Vec::new();
     for k in keys {
@@ -1138,7 +1153,6 @@ pub fn apply(cx: &mut Cx, act: DupAct) {
     cx.tab.after_edit(true, cx.ctx);
     cx.tab.grid.scroll = scroll;
     if let Some(msg) = msg { cx.toast(msg); }
-    refresh(cx);
 }
 
 /// A row's number as the gutter shows it: its record's place in the file.
@@ -1146,54 +1160,69 @@ fn file_number(st: &State, id: RowId) -> usize {
     (id as usize + 1).saturating_sub(st.header as usize)
 }
 
-/// Counts the marked groups again after the rows changed (edits, undo): in
-/// the background, the marks and the duplicates view then follow.
-pub fn refresh(cx: &mut Cx) {
-    let Some(m) = cx.tab.marks.dups.clone() else { return };
-    let Some(st) = cx.tab.st() else { return };
+/// The marked groups counted again (`Tab::poll` starts it a moment after the table changed: an
+/// edit, an undo, a tool, a save that renumbered the rows): one job per tab, a newer one
+/// cancelling the one under way, so an older count never lands over a newer one.
+pub struct Refresh {
+    job: Job<Option<(Dupes, Vec<Rule>)>>,
+    marks: Arc<DupMarks>,
+    /// The table the count is of (`Tab::table_key`).
+    key: (usize, u64),
+}
+
+/// Starts the count for the marks shown (or held back while the rows were renumbered).
+pub fn start_refresh(tab: &mut Tab, ctx: &egui::Context) {
+    let Some(m) = tab.marks.dups.clone().or_else(|| tab.dups_held.clone()) else { return };
+    let Some(st) = tab.st().cloned() else { return };
     let headers = st.headers();
     match compile(&headers, &m.keys) {
         Ok(Some(rules)) => {
-            let st = st.clone();
             let names: Vec<usize> = m.names.iter().filter_map(|n| headers.iter().position(|h| h == n)).collect();
-            let job = Job::spawn(cx.ctx, move |cancel, _| eng::find_rules(&st, &all_ids(&st), &rules, &names, cancel, None).map(|d| (d, rules)));
-            cx.out.push(Cmd::Tool(Box::new(Refresh { job, marks: m })));
+            let key = tab.table_key();
+            // The one under way is dropped, hence cancelled.
+            tab.dups_job = Some(Refresh { job: Job::spawn(ctx, move |cancel, _| eng::find_rules(&st, &all_ids(&st), &rules, &names, cancel, None).map(|d| (d, rules))), marks: m, key });
         }
         // A compared column is gone: the marks go.
-        _ => clear(cx.tab, cx.ctx),
+        _ => {
+            tab.dups_held = None;
+            clear(tab, ctx);
+        }
     }
 }
 
-/// The background count of `refresh`; draws nothing.
-struct Refresh {
-    job: Job<Option<(Dupes, Vec<Rule>)>>,
-    marks: Arc<DupMarks>,
-}
-
-impl Tool for Refresh {
-    fn show(&mut self, cx: &mut Cx) -> bool {
-        let Some(r) = self.job.poll() else { return true };
-        // Marks changed meanwhile (cleared, or set anew): this count is not theirs.
-        if !cx.tab.marks.dups.as_ref().is_some_and(|m| Arc::ptr_eq(m, &self.marks)) { return false; }
-        let Some((d, rules)) = r else { return false };
-        let view = in_view(cx.tab);
-        if d.groups() == 0 { clear(cx.tab, cx.ctx); return false; }
-        let m = &self.marks;
-        let ids = d.side_by_side(m.order);
-        cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), order: m.order, diff: Default::default() })));
-        if view {
-            cx.tab.restrict = Some(Restrict { label: VIEW_LABEL.into(), ids: Arc::new(ids) });
-            let scroll = cx.tab.grid.scroll;
-            cx.tab.refresh(cx.ctx);
-            cx.tab.grid.scroll = scroll;
-        }
-        false
+/// Takes the count once done: the marks and the duplicates view follow.
+pub fn poll_refresh(tab: &mut Tab, ctx: &egui::Context) {
+    let Some(r) = tab.dups_job.as_mut().and_then(|j| j.job.poll()) else { return };
+    let Refresh { marks: m, key, .. } = tab.dups_job.take().unwrap();
+    // Marks changed meanwhile (cleared, or set anew): this count is not theirs.
+    let held = tab.dups_held.take();
+    let current = tab.marks.dups.as_ref().or(held.as_ref());
+    if !current.is_some_and(|c| Arc::ptr_eq(c, &m)) { return; }
+    let Some((d, rules)) = r else { return };
+    let view = in_view(tab) || (held.is_some() && tab.restrict.as_ref().is_some_and(|r| r.label == VIEW_LABEL));
+    if d.groups() == 0 {
+        if view { tab.restrict = None; tab.refresh(ctx); }
+        tab.marks_mut_dups(None);
+        return;
+    }
+    let ids = d.side_by_side(m.order);
+    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), order: m.order, diff: Default::default() })));
+    // Counted on that table: changed since, it is counted again.
+    tab.dups_seen = key;
+    if view {
+        tab.restrict = Some(Restrict { label: VIEW_LABEL.into(), ids: Arc::new(ids) });
+        let scroll = tab.grid.scroll;
+        tab.refresh(ctx);
+        tab.grid.scroll = scroll;
     }
 }
 
 impl Tab {
-    /// Sets (or clears) the duplicate marks, keeping the other marks.
+    /// Sets (or clears) the duplicate marks, keeping the other marks: counted on the table as
+    /// it is now (an edit after this counts them again).
     pub fn marks_mut_dups(&mut self, d: Option<Arc<DupMarks>>) {
+        if d.is_none() { self.dups_job = None; self.dups_held = None; }
+        self.dups_seen = self.table_key();
         Arc::make_mut(&mut self.marks).dups = d;
     }
 }

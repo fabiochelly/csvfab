@@ -14,7 +14,7 @@ use crate::tab::Tab;
 use crate::theme::{alpha, Metrics, Palette};
 use crate::widgets::{head, sep, width, Item};
 use csvfab_engine::stats::{self, PanelProfile, ValueCounts};
-use csvfab_engine::view::{self, Kind, SortKey};
+use csvfab_engine::view::{Kind, SortKey};
 use csvfab_engine::RowId;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui};
 use std::collections::HashSet;
@@ -48,7 +48,8 @@ pub struct Panel {
     matched: Option<String>,
     /// A search among many values under way, for this query (the list shown meanwhile is the last one).
     search: Option<(String, Job<Vec<u32>>)>,
-    /// Values unticked, trimmed (the filter compares trimmed cells); shared with the jobs reading it.
+    /// Values unticked, exactly as written (the filter compares the cells as they are); shared
+    /// with the jobs reading it.
     excluded: Arc<HashSet<String>>,
     /// Bumped at every change of `excluded`.
     ex_ver: u64,
@@ -131,7 +132,7 @@ impl Panel {
             return Some(true);
         }
         if self.matching.len() <= AT_ONCE {
-            let v = self.matching.iter().all(|&i| !self.excluded.contains(c.vc.value(i as usize).trim()));
+            let v = self.matching.iter().all(|&i| !self.excluded.contains(c.vc.value(i as usize)));
             self.all_on = Some((key, v));
             return Some(v);
         }
@@ -139,7 +140,7 @@ impl Panel {
             let (c2, m, ex) = (c.clone(), self.matching.clone(), self.excluded.clone());
             self.all_job = Some((key, Job::spawn(ctx, move |_, _| {
                 use rayon::prelude::*;
-                !m.par_iter().with_min_len(4096).any(|&i| ex.contains(c2.vc.value(i as usize).trim()))
+                !m.par_iter().with_min_len(4096).any(|&i| ex.contains(c2.vc.value(i as usize)))
             })));
         }
         None
@@ -149,7 +150,7 @@ impl Panel {
     fn tick_all(&mut self, c: &Arc<Counted>, on: bool, ctx: &egui::Context) {
         let apply = move |ex: &mut HashSet<String>, c: &Counted, m: &[u32]| {
             for &i in m {
-                let v = c.vc.value(i as usize).trim();
+                let v = c.vc.value(i as usize);
                 if on { ex.remove(v); } else if !ex.contains(v) { ex.insert(v.to_string()); }
             }
         };
@@ -170,30 +171,19 @@ impl Panel {
 }
 
 /// The count in the background: the rows the other filters let through, this column's
-/// hidden values aside (a formula search is left out of that recount).
+/// value filters aside (the expression and Invert as the view has them).
 fn count_job(tab: &Tab, col: usize, ctx: &egui::Context) -> Option<Job<Option<Counted>>> {
     let st = tab.st()?.clone();
-    let own = tab.filter.hidden.iter().any(|(c, h)| *c == col && !h.is_empty());
+    let own = tab.has_values(col);
     let view = tab.view.clone();
-    let mut spec = tab.filter.clone();
-    spec.hidden.retain(|(c, _)| *c != col);
-    if tab.expr_mode { spec.global.clear(); }
-    let within = tab.restrict.as_ref().map(|r| r.ids.clone());
+    let q = if own { tab.query(Some(col)).ok() } else { None };
     let sorted_only = tab.view.as_ref().is_some_and(|v| v.len() == st.len()) && tab.restrict.is_none();
     Some(Job::spawn(ctx, move |cancel, _| {
         let all = || -> Vec<RowId> { (0..st.len()).map(|p| st.data_id(p)).collect() };
-        let ids: Arc<Vec<RowId>> = if !own {
-            match view {
-                Some(v) if !sorted_only => v,
-                _ => Arc::new(all()),
-            }
-        } else {
-            let f = view::Filter::compile(&spec).ok()?;
-            Arc::new(match &within {
-                Some(w) => view::filter_ids(&st, &f, w, cancel)?,
-                None if f.is_empty() => all(),
-                None => view::filter(&st, &f, cancel)?,
-            })
+        let ids: Arc<Vec<RowId>> = match (q, view) {
+            (Some(q), _) => Arc::new(q.run(&st, None, cancel)?),
+            (None, Some(v)) if !sorted_only => v,
+            _ => Arc::new(all()),
         };
         // The column's dictionary, built once (kept for the file): this count and the next
         // ones (another filter, the panel opened again) count its codes instead of hashing
@@ -559,7 +549,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
                     let fw = (r.width() * n as f32 / max_count).max(1.0);
                     pt.rect_filled(Rect::from_min_size(r.min, vec2(fw, r.height())), 4.0, alpha(p.accent, 0.11));
                     let shown = if v.trim().is_empty() { if v.is_empty() { "(Empty)".to_string() } else { "(Blank)".to_string() } } else { grid::display(v).into_owned() };
-                    let on = pn.toggling.as_ref().map_or_else(|| !pn.excluded.contains(v.trim()), |t| t.0);
+                    let on = pn.toggling.as_ref().map_or_else(|| !pn.excluded.contains(v), |t| t.0);
                     (shown, n, on, if v.trim().is_empty() { p.txt_mut } else { p.txt_hi }, v.trim().is_empty())
                 };
                 if resp.hovered() { pt.rect_filled(r, 4.0, p.surf_2); }
@@ -582,7 +572,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, col: usize, p: &Palette, m: &Metrics, ac
         if let Some((which, on)) = toggle {
             match which {
                 Some(i) => {
-                    let v = c.vc.value(i as usize).trim();
+                    let v = c.vc.value(i as usize);
                     let ex = Arc::make_mut(&mut pn.excluded);
                     if on { ex.remove(v); } else { ex.insert(v.to_string()); }
                     pn.ex_ver += 1;

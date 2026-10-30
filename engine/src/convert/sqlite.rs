@@ -6,7 +6,7 @@
 //! text), REAL when all are numbers, TEXT otherwise — and inserts every row in
 //! one transaction through one prepared statement.
 
-use super::{check, check_dir, io_err, number_text, replace, temp_beside, tick, visit_row, CsvOut, Exported, Imported, Rows, Sheet};
+use super::{check, check_dir, io_err, number_text, replace, temp_beside, tick, CsvOut, Exported, Imported, Rows, Sheet};
 use crate::table::{RowId, State};
 use rayon::prelude::*;
 use rusqlite::types::{Null, ValueRef};
@@ -257,10 +257,9 @@ pub fn write(st: &State, rows: Option<&[RowId]>, dest: &Path, table: &str, progr
     let parts: Vec<Vec<Counts>> = (0..n.div_ceil(CHUNK)).into_par_iter().map(|k| {
         let mut ks = vec![[0u64; 4]; width];
         if check(cancel).is_err() { return ks; }
-        let (mut tmp, mut buf) = (Vec::new(), Vec::new());
         let end = ((k + 1) * CHUNK).min(n);
         for pos in k * CHUNK..end {
-            visit_row(st, rows.id(pos), &mut tmp, &mut buf, |c, v| if let Some(x) = ks.get_mut(c) { see(x, v) });
+            st.visit(rows.id(pos), |c, v| if let Some(x) = ks.get_mut(c) { see(x, v) });
         }
         tick(progress, end - k * CHUNK);
         ks
@@ -288,7 +287,6 @@ pub fn write(st: &State, rows: Option<&[RowId]>, dest: &Path, table: &str, progr
         {
             let marks = vec!["?"; width].join(", ");
             let mut ins = tx.prepare(&format!("INSERT INTO {} VALUES ({marks})", ident(table))).map_err(e)?;
-            let (mut tmp, mut buf) = (Vec::new(), Vec::new());
             let mut failed: Option<rusqlite::Error> = None;
             for pos in 0..n {
                 if pos & 4095 == 4095 {
@@ -296,7 +294,7 @@ pub fn write(st: &State, rows: Option<&[RowId]>, dest: &Path, table: &str, progr
                     tick(progress, 4096);
                 }
                 let mut next = 0;
-                visit_row(st, rows.id(pos), &mut tmp, &mut buf, |c, v| {
+                st.visit(rows.id(pos), |c, v| {
                     if c >= width || failed.is_some() { return; }
                     let t = v.trim();
                     let r = if t.is_empty() {

@@ -126,7 +126,7 @@ pub fn dest_path(first: &Path) -> Option<PathBuf> {
 }
 
 /// One field, quoted when it holds the delimiter, a quote, a line break or
-/// starts or ends with a space (as `save::write_record`).
+/// starts or ends with a space (as a save writes a field).
 #[inline]
 fn put_field(s: &str, d: u8, enc: Enc, out: &mut Vec<u8>) {
     let needs = s.bytes().any(|b| b == d || b == b'"' || b == b'\n' || b == b'\r') || s.starts_with(' ') || s.ends_with(' ');

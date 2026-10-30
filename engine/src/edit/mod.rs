@@ -21,8 +21,6 @@ pub mod series;
 #[cfg(test)]
 mod bench;
 
-use crate::enc;
-use crate::scan;
 use crate::table::{RowId, State, Table};
 use rayon::prelude::*;
 use std::ops::Range;
@@ -58,49 +56,24 @@ where
     if cancel.load(Ordering::Relaxed) { None } else { out }
 }
 
-/// Columns to visit, as a list and as a mask.
+/// Columns to visit, sorted, each once.
 pub(crate) struct ColSet {
     list: Vec<usize>,
-    mask: Vec<bool>,
-    last: usize,
 }
 
 impl ColSet {
     pub(crate) fn new(cols: &[usize]) -> ColSet {
-        let last = cols.iter().copied().max().unwrap_or(0);
-        let mut mask = vec![false; last + 1];
-        for &c in cols {
-            mask[c] = true;
-        }
         let mut list = cols.to_vec();
         list.sort_unstable();
         list.dedup();
-        ColSet { list, mask, last }
+        ColSet { list }
     }
 }
 
 /// Runs `f(column, text)` on the columns of `cols` in row `id`, in column
-/// order ("" past the end of a short row). Many columns of a pristine row:
-/// its record is split once, where `with_cell` would scan it once per column.
-pub(crate) fn visit_cells(st: &State, id: RowId, cols: &ColSet, tmp: &mut Vec<u8>, mut f: impl FnMut(usize, &str)) {
-    let b = &st.base;
-    if cols.list.len() > 2 && st.pristine(id) && !b.dialect.lines {
-        let (enc, mut seen) = (b.enc, 0);
-        scan::visit_fields(b.record(id as usize), b.dialect.delim, tmp, |i, v| {
-            if cols.mask.get(i) == Some(&true) {
-                f(i, &enc::decode(enc, v));
-            }
-            seen = i + 1;
-            i < cols.last
-        });
-        for &c in cols.list.iter().filter(|&&c| c >= seen) {
-            f(c, "");
-        }
-        return;
-    }
-    for &c in &cols.list {
-        st.with_cell(id, c, tmp, |v| f(c, v));
-    }
+/// order ("" past the end of a short row): the record split once for all of them.
+pub(crate) fn visit_cells(st: &State, id: RowId, cols: &ColSet, mut f: impl FnMut(usize, &str)) {
+    st.visit_cols(id, &cols.list, |k, v| f(cols.list[k], v));
 }
 
 /// What an operation makes of one cell.
@@ -170,14 +143,13 @@ pub fn scan<O: CellOp>(st: &State, ids: &[RowId], cols: &[usize], op: &O, collec
     if set.list.is_empty() {
         return Some(Scan::default());
     }
-    let parts = par_chunks(ids.len(), cancel, |r, s: &mut (Vec<u8>, O::Scratch)| {
-        let (tmp, sc) = (&mut s.0, &mut s.1);
+    let parts = par_chunks(ids.len(), cancel, |r, sc: &mut O::Scratch| {
         let mut p = Scan::default();
         for &id in &ids[r] {
             if !op.row_may_change(st, id, sc) {
                 continue;
             }
-            visit_cells(st, id, &set, tmp, |col, v| match op.cell(v, col, sc) {
+            visit_cells(st, id, &set, |col, v| match op.cell(v, col, sc) {
                 Outcome::Skip => {}
                 Outcome::Same => p.same += 1,
                 Outcome::Bad => {

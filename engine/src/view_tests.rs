@@ -337,3 +337,28 @@ fn refines() {
     let hid = |h: &HashSet<String>| FilterSpec { hidden: vec![(0, Arc::new(h.clone()))], ..Default::default() };
     assert!(hid(&h2).refines(&hid(&h1)) && !hid(&h1).refines(&hid(&h2)));
 }
+
+/// Columns moved or added: the records are still searched as raw bytes, block by block, and
+/// find what a reading of their cells finds — an empty cell matched (an added column, a short
+/// record), a removed column's text not found, edited rows read from their cells.
+#[test]
+fn search_after_columns_moved_or_added() {
+    let mut src = String::from("a,b,c\n");
+    for i in 0..3000 {
+        src.push_str(&match i % 7 { 0 => format!("x{i},\"q, {i}\"\n"), 3 => format!("lyon{i},Émile,{i},extra\n"), _ => format!("n{i},Lyon {i},{}\n", i % 10) });
+    }
+    let no = AtomicBool::new(false);
+    let edits: [fn(&mut Table); 4] = [|t| t.move_column(0, 2), |t| t.insert_column(1, "new"), |t| t.delete_columns(&[1]), |t| {
+        let id = t.st.data_id(40);
+        t.set_cells(&[(id, 0, "lyon edited".into())]);
+    }];
+    let mut t = table(&src);
+    for e in edits {
+        e(&mut t);
+        for (g, regex) in [("lyon", false), ("emile", false), ("q, 1", false), ("extra", false), ("^$", true), ("^x1", true), ("9$", true)] {
+            let spec = FilterSpec { global: g.into(), regex, ..Default::default() };
+            let got = filter(&t.st, &Filter::compile(&spec).unwrap(), &no).unwrap();
+            assert_eq!(got, old::filter(&t.st, &old::Filter::compile(&spec).unwrap(), &no).unwrap(), "{g}");
+        }
+    }
+}

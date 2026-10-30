@@ -72,6 +72,82 @@ Not done: totals do not read the non-dictionary number cache (`colcache` num is
 differently); inserting a row still writes a new order (one parallel pass, ~2 ms at 5M)
 rather than editing it in place, since every cache keys the order by its address.
 
+## Writing files in parallel (2026-10-30, the user's 2 GB file: 5.3M rows × 38 columns, 16 threads)
+
+`engine/examples/save_bench FILE CASE DEST` (A/B against the binary from before, back to back;
+outputs to tmpfs; the machine was busy, so a quieter run in brackets), `bench_ui --ops export_xlsx,save_csv`.
+
+| op | before | after |
+|---|---|---|
+| Excel export (1,048,576 rows), app | 12.9–14.1 s, one core, 499 MB | 0.50–0.64 s, 353 MB |
+| Excel export, customers-5m (1M rows) | — | 0.21 s, 121 MB |
+| save after a computed column | 3.68 s [2.84] | 1.64 s [1.03] |
+| save after a column moved | 3.90 s [2.86] | 1.55 s [1.00] |
+| save re-encoded to Windows-1252 | 1.97 s [1.25] | 1.23 s [0.76] |
+| save re-encoded to UTF-16 | 9.16 s [5.95] | 2.29 s [2.13] |
+| save with CRLF chosen | 0.73 s | 0.56 s |
+| save untouched (kernel copy) | 0.47 s | 0.47 s |
+| crash-recovery copy, computed column | a full copy, ~2 GB, ~1 s every 30 s | journal 82 MB, 51 ms, 3 s after the edit |
+
+- **Workbook** (`convert/xlsx_write.rs`): the sheet XML is made by hand in chunks of 1–8K rows
+  on every core (style indices read from a workbook rust_xlsxwriter makes without the rows,
+  numbers by itoa/zmij, cells without `r` where they follow on), each chunk deflated on its own
+  ending in a sync flush (pigz's way: the chunks end to end are one deflate stream), CRC32s
+  combined, the zip written here (Zip64 only when a bound on the XML, counted in the typing
+  pass, passes 4 GB) — a wave of chunks made while the previous one is written. The other parts
+  are rust_xlsxwriter's, copied compressed. A test compares every cell (XML, styles resolved,
+  calamine's reading, the parts) with rust_xlsxwriter's own output, kept as the fallback
+  (`write_slow`) for a workbook layout the splice cannot read. rust_xlsxwriter repeats an empty
+  header row (`<row r="1"/>` twice) when there is no data row: not here. LibreOffice is not
+  installed on this machine: checked with Python's zipfile (CRCs) and expat (well-formed XML).
+- **Saves** (`save.rs`): rows made here are encoded on every core, the line breaks between them
+  and the read-back check of the reused index included; a thread of its own writes while the
+  next rows are made (short pieces gathered into 1 MB hand-overs); UTF-16 transcoded in
+  parallel. Fields are written straight from the record (`State::visit`), no String per field;
+  byte-exact with the old path (`rows_written_as_their_fields`). Just before the rename the file
+  is looked at again: another program's write during a long save is refused (`SaveError::Changed`).
+- **One scan per record after a column insert/delete/move** (`State::visit`, `visit_cols`): the
+  record split once, its fields mapped to the columns through the inverse column map, only
+  columns with edit layers looked up — used by saves, exports, stats, edits, kinds, dupes, group,
+  formulas, insights, schema, find. The global search still reads raw blocks when columns were
+  only moved or added (and the pattern finds nothing in an empty cell). Fields of files checked
+  UTF-8 at open are no longer re-checked (`Base::text`).
+- **Recovery** (`engine/src/journal.rs`, `app/src/recovery.rs`): a table on its file as still on
+  disk keeps a journal of its edits (layers, column map, order, header, line break, the file's
+  stamp), replayed over the file on restore (refused if the file changed since); otherwise
+  (no file, file changed) the whole copy as before.
+- **After a save that kept every row in place** the column caches of columns no edit touched are
+  carried to the new file (`colcache::carry`) and the rows shown are kept, not filtered and
+  sorted again; charts and totals still recount (on the carried caches).
+- Not done: the CRLF-forced save still copies records one at a time on one thread (0.56 s);
+  pwrite of encoded blocks from several threads (the single writer is now the limit on tmpfs).
+
+## Parity batch (2026-10-30, customers-5m, 16 threads, machine busy: medians of 3, A/B back to back)
+
+| measure | before | after |
+|---|---|---|
+| text sort, first (rank cache built): email / street / company | 410 / 163 / 99 ms | 445 / 153 / 99 ms (natural keys: digits as numbers) |
+| text sort, cached ranks: email | 25 ms | 20 ms |
+| bench_ui sort_text (first run) | 53 ms (audit) | 46 ms |
+
+- Text sort keys (`text::sort_key_into`) are made once per column with the rank cache (one more
+  pass over the folded text, in parallel): no cost once cached.
+- Per frame: the search highlights (`Hl`, a regex compiled) made once per change of the searches,
+  not every frame; a cell whose text, look and searches are the last frame's keeps its marks (no
+  search through it); `tools::commands()` made once (a static), their shortcut keys parsed once;
+  the column titles kept per table version (`Tab::heads`); busy indicators (spinner, progress bars,
+  the loading dot) at 30 frames a second, not every frame; the welcome screen's recent files sized
+  in a job (never a stat on a frame); the selection's sum not restarted at every frame of a drag
+  (counted once the button is up; the rows read in the job); every row's id of an unfiltered tab
+  kept per table (`shown_ids`) for the tools.
+- Off the UI thread: "Fill empty cells from above" (a patch in a job), a row moved or a column
+  renamed no longer analyse every column again; Job threads and the compute pool run at nice 4.
+- Start-up: the settings read once (they were read twice), written on a thread of their own
+  (opening the files given wrote them before the window existed), the icons rasterised on their
+  own thread beside the fonts, the paths made absolute once.
+- Not done: the rayon pool is still built on the main thread (`compute_pool`, < 1 ms): built on
+  another thread, a file read starting meanwhile would build rayon's default pool (not niced).
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

@@ -249,11 +249,11 @@ pub fn scan(st: &State, cancel: &AtomicBool) -> Option<CleanScan> {
             }
         }
     };
-    let parts = par_chunks(ids.len(), cancel, |r, tmp: &mut Vec<u8>| {
+    let parts = par_chunks(ids.len(), cancel, |r, _: &mut ()| {
         let (mut counts, mut filled) = ([0usize; 8], vec![false; n]);
         for &id in &ids[r] {
             let mut blank = true;
-            visit_cells(st, id, &cols, tmp, |c, v| {
+            visit_cells(st, id, &cols, |c, v| {
                 count(v, &mut counts);
                 if !is_blank(v) {
                     blank = false;
@@ -273,8 +273,7 @@ pub fn scan(st: &State, cancel: &AtomicBool) -> Option<CleanScan> {
         filled.iter_mut().zip(f).for_each(|(a, b)| *a |= b);
     }
     if st.header && st.all_len() > 0 {
-        let mut tmp = Vec::new();
-        visit_cells(st, st.all_id(0), &cols, &mut tmp, |_, v| count(v, &mut out.counts));
+        visit_cells(st, st.all_id(0), &cols, |_, v| count(v, &mut out.counts));
     }
     out.empty_cols = (0..n).filter(|&c| !filled[c]).collect();
     out.counts[CleanOp::Cols.index()] = out.empty_cols.len();
@@ -305,12 +304,12 @@ pub fn plan(st: &State, on: &[CleanOp], s: &CleanScan, cancel: &AtomicBool) -> O
     let rows = on.contains(&CleanOp::Rows);
     let ids = all_rows(st);
     let cols = ColSet::new(&(0..st.ncols).collect::<Vec<_>>());
-    let parts = par_chunks(ids.len(), cancel, |r, s: &mut (Vec<u8>, String, String)| {
+    let parts = par_chunks(ids.len(), cancel, |r, s: &mut (String, String)| {
         let (mut changes, mut empty) = (Vec::new(), Vec::new());
         for &id in &ids[r] {
             let mut blank = true;
-            visit_cells(st, id, &cols, &mut s.0, |c, v| {
-                let new = if v.is_empty() || ops.is_empty() { None } else { clean_cell(&ops, v, &mut s.1, &mut s.2) };
+            visit_cells(st, id, &cols, |c, v| {
+                let new = if v.is_empty() || ops.is_empty() { None } else { clean_cell(&ops, v, &mut s.0, &mut s.1) };
                 blank &= is_blank(new.as_deref().unwrap_or(v));
                 if let Some(new) = new {
                     changes.push((id, c, new));
@@ -324,8 +323,8 @@ pub fn plan(st: &State, on: &[CleanOp], s: &CleanScan, cancel: &AtomicBool) -> O
     })?;
     let mut p = CleanPlan { cols: if on.contains(&CleanOp::Cols) { s.empty_cols.clone() } else { Vec::new() }, ..Default::default() };
     if st.header && st.all_len() > 0 && !ops.is_empty() {
-        let (h, mut tmp, mut a, mut b) = (st.all_id(0), Vec::new(), String::new(), String::new());
-        visit_cells(st, h, &cols, &mut tmp, |c, v| {
+        let (h, mut a, mut b) = (st.all_id(0), String::new(), String::new());
+        visit_cells(st, h, &cols, |c, v| {
             if let Some(new) = clean_cell(&ops, v, &mut a, &mut b) {
                 p.changes.push((h, c, new));
             }

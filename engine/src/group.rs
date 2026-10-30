@@ -106,47 +106,21 @@ pub fn coll_key(s: &str) -> Vec<u8> {
 
 // ---- Several cells of a row --------------------------------------------------
 
-/// Reads a few columns of a row in one pass over its record (when it is still
-/// the file's bytes): `v[k]` is the cell of `cols[k]`.
+/// Reads a few columns of a row in one pass over its record: `v[k]` is the cell of `cols[k]`.
 pub(crate) struct Reader {
     cols: Vec<usize>,
-    /// Field → the slots it fills.
-    slots: Vec<Vec<usize>>,
-    tmp: Vec<u8>,
     pub v: Vec<String>,
 }
 
 impl Reader {
     pub fn new(cols: &[usize]) -> Reader {
-        let max = cols.iter().copied().max().map_or(0, |m| m + 1);
-        let mut slots = vec![Vec::new(); max];
-        for (k, &c) in cols.iter().enumerate() { slots[c].push(k) }
-        Reader { cols: cols.to_vec(), slots, tmp: Vec::new(), v: vec![String::new(); cols.len()] }
+        Reader { cols: cols.to_vec(), v: vec![String::new(); cols.len()] }
     }
 
     pub fn read(&mut self, st: &State, id: RowId) {
-        let Reader { cols, slots, tmp, v } = self;
+        let Reader { cols, v } = self;
         v.iter_mut().for_each(String::clear);
-        if !st.pristine(id) {
-            for (k, &c) in cols.iter().enumerate() {
-                st.with_cell(id, c, tmp, |s| v[k].push_str(s));
-            }
-            return;
-        }
-        let b = &st.base;
-        let rec = b.record(id as usize);
-        if b.dialect.lines {
-            for &k in slots.first().map_or(&[][..], |s| s.as_slice()) { v[k].push_str(&crate::enc::decode(b.enc, rec)) }
-            return;
-        }
-        crate::scan::visit_fields(rec, b.dialect.delim, tmp, |i, f| {
-            let Some(ks) = slots.get(i) else { return false };
-            if let Some((&k0, rest)) = ks.split_first() {
-                v[k0].push_str(&crate::enc::decode(b.enc, f));
-                for &k in rest { let (a, c) = (v[k0].clone(), &mut v[k]); c.push_str(&a) }
-            }
-            i + 1 < slots.len()
-        });
+        st.visit_cols(id, cols, |k, s| v[k].push_str(s));
     }
 }
 

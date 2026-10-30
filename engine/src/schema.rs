@@ -1221,12 +1221,11 @@ pub fn infer(st: &State, cancel: &AtomicBool, progress: Option<&AtomicUsize>) ->
     let accs: Vec<Vec<Acc>> = (0..n.div_ceil(SLICE)).into_par_iter().map(|k| {
         let mut acc = vec![Acc::new(); w];
         if cancel.load(Ordering::Relaxed) { return acc; }
-        let (mut tmp, mut row) = (Vec::new(), Vec::new());
         let end = ((k + 1) * SLICE).min(n);
         for p in k * SLICE..end {
             let shape_row = p % shape_step == 0;
             let mut upto = 0;
-            kinds::visit_row(st, st.data_id(p), &mut tmp, &mut row, |c, s| {
+            st.visit(st.data_id(p), |c, s| {
                 if c < w { acc[c].add(s, p as u32, shape_row); upto = c + 1; }
             });
             for a in &mut acc[upto..] { a.add("", p as u32, shape_row); }
@@ -1430,7 +1429,6 @@ pub fn validate(st: &State, schema: &Schema, cancel: &AtomicBool, progress: Opti
     let parts: Vec<Hits> = (0..n.div_ceil(SLICE)).into_par_iter().map(|k| {
         let mut hits = Hits::default();
         if cancel.load(Ordering::Relaxed) || slow.load(Ordering::Relaxed) { return hits; }
-        let (mut tmp, mut row) = (Vec::new(), Vec::new());
         let mut cells: Vec<String> = vec![String::new(); w];
         let end = ((k + 1) * SLICE).min(n);
         for p in k * SLICE..end {
@@ -1438,7 +1436,7 @@ pub fn validate(st: &State, schema: &Schema, cancel: &AtomicBool, progress: Opti
             let id = st.data_id(p);
             let p32 = p as u32;
             let mut len = 0;
-            kinds::visit_row(st, id, &mut tmp, &mut row, |c, s| {
+            st.visit(id, |c, s| {
                 if c < w { cells[c].clear(); cells[c].push_str(s); }
                 len = c + 1;
             });
@@ -1560,34 +1558,30 @@ pub fn validate(st: &State, schema: &Schema, cancel: &AtomicBool, progress: Opti
 /// again and compared by their values.
 fn duplicates(st: &State, cancel: &AtomicBool, key: impl Fn(&[&str], ()) -> Option<(u64, String)> + Sync, cols: &[usize]) -> Option<Vec<(u32, String)>> {
     let n = st.len();
-    let read = |p: usize, tmp: &mut Vec<u8>, row: &mut Vec<String>, vals: &mut Vec<String>| -> Option<(u64, String)> {
+    let read = |p: usize, vals: &mut Vec<String>| -> Option<(u64, String)> {
         vals.clear();
         vals.resize(cols.len(), String::new());
-        kinds::visit_row(st, st.data_id(p), tmp, row, |c, s| {
-            for (k, _) in cols.iter().enumerate().filter(|e| *e.1 == c) { vals[k] = s.to_string(); }
-        });
+        st.visit_cols(st.data_id(p), cols, |k, s| vals[k] = s.to_string());
         let refs: Vec<&str> = vals.iter().map(String::as_str).collect();
         key(&refs, ())
     };
     let parts: Vec<Vec<(u64, u32)>> = (0..n.div_ceil(SLICE)).into_par_iter().map(|k| {
-        let (mut tmp, mut row, mut vals) = (Vec::new(), Vec::new(), Vec::new());
-        let mut out = Vec::new();
+        let (mut vals, mut out) = (Vec::new(), Vec::new());
         if cancel.load(Ordering::Relaxed) { return out; }
         for p in k * SLICE..((k + 1) * SLICE).min(n) {
-            if let Some((h, _)) = read(p, &mut tmp, &mut row, &mut vals) { out.push((h, p as u32)); }
+            if let Some((h, _)) = read(p, &mut vals) { out.push((h, p as u32)); }
         }
         out
     }).collect();
     if cancel.load(Ordering::Relaxed) { return None; }
     let mut hs: Vec<(u64, u32)> = parts.into_iter().flatten().collect();
     hs.par_sort_unstable();
-    let (mut tmp, mut row, mut vals) = (Vec::new(), Vec::new(), Vec::new());
-    let mut out = Vec::new();
+    let (mut vals, mut out) = (Vec::new(), Vec::new());
     for g in hs.chunk_by(|a, b| a.0 == b.0).filter(|g| g.len() > 1) {
         // The readings of one hash are compared by the text the key gives (the shown value of the reading).
         let mut firsts: Vec<String> = Vec::new();
         for &(_, p) in g {
-            let (_, v) = read(p as usize, &mut tmp, &mut row, &mut vals)?;
+            let (_, v) = read(p as usize, &mut vals)?;
             let canon = canon_of(&vals);
             if firsts.contains(&canon) { out.push((p, v)); } else { firsts.push(canon); }
         }

@@ -34,6 +34,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let (field, at) = (fm.field, fm.at);
     let p = app.theme.p.clone();
     let has_sel = egui::TextEdit::load_state(ctx, field).and_then(|s| s.cursor.char_range()).is_some_and(|r| r.primary.index != r.secondary.index);
+    // A filter box (the search, a column's): "Clear the filter", as the web's — not in other
+    // fields; what needs a text is greyed in an empty one.
+    let tab = app.tabs.get(app.active);
+    let filter = tab.and_then(|t| {
+        if field == Id::unique("global-search") { return Some(t.filter.global.is_empty()); }
+        (0..t.col_filters.len()).find(|&c| field == Id::unique(("col-filter", c))).map(|c| t.col_filters[c].is_empty())
+    });
+    let filled = filter != Some(true);
     let mut pick: Option<&str> = None;
     let r = egui::Area::new(Id::unique("field-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         crate::theme::menu_frame(&p, &app.m).show(ui, |ui| {
@@ -47,8 +55,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if Item::new(label).icon(icon).keys(keys).enabled(enabled).show(ui, &p).clicked() { pick = Some(label); }
             }
             sep(ui, &p);
-            if Item::new("Select all").keys("Ctrl+A").show(ui, &p).clicked() { pick = Some("Select all"); }
-            if Item::new("Clear").icon(Icon::Cross).show(ui, &p).clicked() { pick = Some("Clear"); }
+            if Item::new("Select all").keys("Ctrl+A").enabled(filled).show(ui, &p).clicked() { pick = Some("Select all"); }
+            if filter.is_some() && Item::new("Clear the filter").icon(Icon::Cross).enabled(filled).show(ui, &p).clicked() { pick = Some("Clear"); }
         });
     });
     let outside = ctx.input(|i| i.pointer.any_pressed()) && !r.response.contains_pointer() && !ctx.input(|i| i.pointer.secondary_pressed());

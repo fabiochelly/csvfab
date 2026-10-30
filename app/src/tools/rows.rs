@@ -32,7 +32,8 @@ pub fn commands() -> Vec<Command> {
         Command { name: "Write the sorted order to the file", group: "Rows", keys: None, enabled: |t| t.table.is_some() && !t.sort.is_empty(), run: |cx| cx.out.push(Cmd::Tool(Box::new(WriteSort::default()))) },
         Command { name: "Fill empty cells from above", group: "Rows", keys: None, enabled: has_table, run: fill_blanks },
         // Ctrl+D is the grid's own (it reads the selection there): these ask it for one.
-        Command { name: "Fill series down", group: "Rows", keys: Some("Ctrl+D"), enabled: |t| t.table.is_some() && t.grid.range().is_some_and(|(r, _)| r.end() > r.start()), run: |cx| cx.tab.grid.want_fill_down = true },
+        // Offered without a selection too: it then says what to select (as the web's).
+        Command { name: "Fill series down", group: "Rows", keys: Some("Ctrl+D"), enabled: |t| t.table.is_some(), run: |cx| cx.tab.grid.want_fill_down = true },
         Command { name: "Show or hide columns…", group: "Columns", keys: None, enabled: has_table, run: |cx| cx.tab.grid.open_manager = true },
         Command { name: "Freeze the first column", group: "Columns", keys: None, enabled: |t| t.table.is_some() && t.grid.frozen == 0, run: |cx| crate::grid::freeze_to(cx.tab, 0) },
         Command { name: "Unfreeze the columns", group: "Columns", keys: None, enabled: |t| t.table.is_some() && t.grid.frozen > 0, run: |cx| cx.tab.grid.frozen = 0 },
@@ -55,7 +56,7 @@ pub fn commands() -> Vec<Command> {
             keys: None,
             enabled: has_table,
             run: |cx| {
-                if let Some(st) = cx.tab.st().cloned() { cx.tab.grid.reset_widths(&st, cx.ctx, cx.m); }
+                if let Some(st) = cx.tab.st().cloned() { cx.tab.grid.reset_widths(&st, cx.ctx, cx.m); cx.toast("Column widths reset."); }
             },
         },
     ]
@@ -66,6 +67,8 @@ pub fn commands() -> Vec<Command> {
 /// selected columns (one selected cell: its whole column), in the order shown, each
 /// blank cell takes the nearest value above it — above the selection too; blanks before
 /// any value stay blank. One undo step.
+/// Fill empty cells from above, in a job (`series::fill_blanks`, in parallel; the cells made a
+/// patch there): the UI thread never walks a whole column.
 fn fill_blanks(cx: &mut Cx) {
     let Some((rows, cols)) = cx.tab.grid.range() else {
         cx.out.push(Cmd::Toast("Select the column to fill first: one cell selects its whole column, a range limits the fill to its rows.".into()));
@@ -74,31 +77,36 @@ fn fill_blanks(cx: &mut Cx) {
     let Some(st) = cx.tab.st().cloned() else { return };
     let n = cx.tab.shown();
     if n == 0 { return; }
-    let (r0, r1) = if rows.start() == rows.end() { (0, n - 1) } else { (*rows.start(), (*rows.end()).min(n - 1)) };
-    let ids = cx.tab.shown_ids();
-    let mut tmp = Vec::new();
-    let mut changes = Vec::new();
-    let blank = |st: &csvfab_engine::State, id: RowId, c: usize, tmp: &mut Vec<u8>| st.with_cell(id, c, tmp, |s| s.trim().is_empty());
-    for c in cols.filter(|c| !cx.tab.grid.hidden.contains(c)) {
-        // The value to copy: read once per run of blanks.
-        let mut last: Option<RowId> = (0..r0).rev().map(|r| ids[r]).find(|&id| !blank(&st, id, c, &mut tmp));
-        let mut value: Option<(RowId, String)> = None;
-        for &id in &ids[r0..=r1] {
-            if !blank(&st, id, c, &mut tmp) {
-                last = Some(id);
-            } else if let Some(from) = last {
-                if value.as_ref().is_none_or(|v| v.0 != from) { value = Some((from, st.cell(from, c))); }
-                changes.push((id, c, value.as_ref().unwrap().1.clone()));
+    let sel = Rect { r0: *rows.start(), r1: (*rows.end()).min(n - 1), c0: *cols.start(), c1: *cols.end() };
+    let vis = cx.tab.grid.shown_cols(st.ncols);
+    let view = cx.tab.view.clone();
+    let job = Job::spawn(cx.ctx, move |cancel, _| {
+        let ids: Vec<RowId> = match &view { Some(v) => v.to_vec(), None => (0..st.len()).map(|p| st.data_id(p)).collect() };
+        csvfab_engine::edit::series::fill_blanks(&st, &ids, &vis, sel, cancel).map(|r| r.map(|ch| (ch.len(), csvfab_engine::table::Patch::new(&ch))))
+    });
+    cx.out.push(Cmd::Tool(Box::new(FillBlanks { job, version: cx.tab.table.as_ref().map(|t| t.version()) })));
+}
+
+/// The fill under way: applied once ready, unless the table changed meanwhile.
+struct FillBlanks {
+    job: Job<Option<Result<(usize, csvfab_engine::table::Patch), &'static str>>>,
+    version: Option<u64>,
+}
+
+impl Tool for FillBlanks {
+    fn show(&mut self, cx: &mut Cx) -> bool {
+        let Some(r) = self.job.poll() else { return true };
+        match r {
+            Some(Ok((k, patch))) if k > 0 && cx.tab.table.as_ref().map(|t| t.version()) == self.version => {
+                cx.tab.apply_patch(patch, cx.ctx);
+                cx.toast(format!("Filled {} empty cell{} from above", crate::grid::fmt_int(k), if k > 1 { "s" } else { "" }));
             }
+            Some(Ok(_)) => cx.toast(csvfab_engine::edit::series::NO_BLANK_TO_FILL),
+            Some(Err(e)) => cx.toast(e),
+            None => {}
         }
+        false
     }
-    if changes.is_empty() {
-        cx.out.push(Cmd::Toast("No empty cell with a value above it.".into()));
-        return;
-    }
-    let k = changes.len();
-    cx.tab.apply_changes(&changes, cx.ctx);
-    cx.out.push(Cmd::Toast(format!("Filled {} empty cell{} from above", crate::grid::fmt_int(k), if k > 1 { "s" } else { "" })));
 }
 
 type Hidden = Result<HashSet<RowId>, &'static str>;
@@ -138,10 +146,17 @@ impl Tool for DeleteHidden {
                 Some(_) => {
                     let n = set.len();
                     let tab = &mut *cx.tab;
+                    // Undo brings the filters back with the rows (and Redo clears them again).
+                    let mut before = tab.col_view();
+                    before.rest = Some((tab.filter.global.clone(), tab.expr_mode, tab.restrict.clone()));
+                    if let Some(v) = tab.table.as_ref().map(|t| t.version()) { tab.keep_col_view(v, before); }
                     if let Some(t) = &mut tab.table {
                         t.delete_rows(set);
                     }
                     clear_filters(tab);
+                    let mut after = tab.col_view();
+                    after.rest = Some((String::new(), tab.expr_mode, None));
+                    if let Some(v) = tab.table.as_ref().map(|t| t.version()) { tab.keep_col_view(v, after); }
                     tab.after_edit(true, cx.ctx);
                     let kept = tab.st().map_or(0, |s| s.len());
                     cx.toast(hidden_done(n, kept));
@@ -207,6 +222,8 @@ impl Tool for WriteSort {
 pub(crate) fn clear_filters(tab: &mut Tab) {
     tab.filter.global.clear();
     tab.filter.hidden.clear();
+    tab.filter.picks.clear();
+    tab.spark.picks.clear();
     tab.col_filters.iter_mut().for_each(String::clear);
     tab.restrict = None;
     tab.grid.scroll = 0.0;

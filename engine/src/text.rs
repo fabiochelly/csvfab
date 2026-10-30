@@ -113,6 +113,47 @@ pub fn fold(s: &str) -> String {
     out
 }
 
+/// Marks a digit run in a sort key: after spaces and punctuation, before letters.
+const DIGITS: u8 = 0x41;
+
+/// The sort key of a folded, trimmed text, appended to `out`: byte order of keys is the order
+/// the web app's French numeric collator gave — accents and case ignored (the fold), digit runs
+/// compared as numbers ("lot 2" < "lot 10", leading zeros aside), spaces and punctuation before
+/// digits, digits before letters. A digit run is the marker, its length, its digits. No key
+/// byte is 0xFF (`radix::text_order` keeps that for the empty key).
+pub fn sort_key_into(f: &[u8], out: &mut Vec<u8>) {
+    let mut i = 0;
+    while i < f.len() {
+        let c = f[i];
+        if c.is_ascii_digit() {
+            let s = i;
+            while i < f.len() && f[i].is_ascii_digit() { i += 1; }
+            let mut d = &f[s..i];
+            while d.len() > 1 && d[0] == b'0' { d = &d[1..]; }
+            out.push(DIGITS);
+            out.push(d.len().min(0xFE) as u8);
+            out.extend_from_slice(d);
+            continue;
+        }
+        // The ASCII punctuation above the digits moved below them (the fold leaves no capital
+        // letter: 0x41-0x5A are free for the marker).
+        out.push(match c {
+            0x3A..=0x40 => c - 0x3A + 0x30,
+            0x5B..=0x60 => c - 0x5B + 0x37,
+            0x7B..=0x7E => c - 0x7B + 0x3D,
+            _ => c,
+        });
+        i += 1;
+    }
+}
+
+/// `sort_key_into` of a cell as written: trimmed and folded first.
+pub fn sort_key(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len() + 4);
+    sort_key_into(fold(s.trim()).as_bytes(), &mut out);
+    out
+}
+
 /// A number as people write it: `1234.5`, `1 234,50 €`, `-12,5 %`, `1,234,567`,
 /// `(42)` for -42. None if the text is not one.
 pub fn parse_number(s: &str) -> Option<f64> {
@@ -232,6 +273,16 @@ pub fn parse_date(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sort_keys_read_numbers_and_ignore_accents() {
+        let mut v = vec!["Lot 10", "lot 2", "Lot 1", "lot 02b", "Émile", "emma", "zoé", "Zoe", "lot", "#3", "_x", "10", "9", "a-b", "a b", "ab"];
+        v.sort_by_key(|s| sort_key(s));
+        assert_eq!(v, ["#3", "_x", "9", "10", "a b", "a-b", "ab", "Émile", "emma", "lot", "Lot 1", "lot 2", "lot 02b", "Lot 10", "zoé", "Zoe"]);
+        assert!(!sort_key(&"9".repeat(400)).contains(&0xFF));
+        assert_eq!(sort_key("007"), sort_key("7"));
+        assert!(sort_key("0") < sort_key("1") && sort_key("00") == sort_key("0"));
+    }
 
     #[test]
     fn folds() {

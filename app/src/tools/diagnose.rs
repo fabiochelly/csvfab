@@ -35,7 +35,7 @@ pub fn commands() -> Vec<Command> {
 
 /// The diagnosis of row `id` (the grid's row menu: `Action::Diagnose(id)`).
 pub fn open(tab: &Tab, id: RowId) -> Box<dyn Tool> {
-    Box::new(Diagnose { id, state: tab.st().cloned(), job: None, d: None, number: None })
+    Box::new(Diagnose { id, state: tab.st().cloned(), job: None, d: None, number: None, at: tab.grid.cursor.map(|c| c.row) })
 }
 
 struct Diagnose {
@@ -46,6 +46,9 @@ struct Diagnose {
     d: Option<Diagnosis>,
     /// The row's number as the gutter shows it.
     number: Option<usize>,
+    /// The cursor's row when last looked at: moved (the row card's ▲/▼, a click), the diagnosis
+    /// follows it, as the web's did inside the card.
+    at: Option<usize>,
 }
 
 impl Diagnose {
@@ -59,7 +62,19 @@ impl Diagnose {
 }
 
 impl Tool for Diagnose {
+    fn single(&self) -> Option<&'static str> {
+        Some("diagnose")
+    }
+
     fn show(&mut self, cx: &mut Cx) -> bool {
+        let at = cx.tab.grid.cursor.map(|c| c.row).filter(|&r| r < cx.tab.shown());
+        if at.is_some() && at != self.at {
+            self.at = at;
+            let id = cx.tab.shown_id(at.unwrap());
+            if id != self.id {
+                (self.id, self.job, self.d, self.number, self.state) = (id, None, None, None, None);
+            }
+        }
         if self.job.is_none() && self.d.is_none() { self.run(cx); }
         if let Some(d) = self.job.as_mut().and_then(|j| j.poll()) { self.job = None; self.d = Some(d); }
         if self.number.is_none() {
@@ -76,7 +91,7 @@ impl Tool for Diagnose {
         let mut apply = false;
         // Left of the row card when it is open.
         let card_w = ctx.data(|d| d.get_temp::<f32>(egui::Id::unique(crate::rowcard::WIDTH_KEY))).unwrap_or(0.0);
-        egui::Window::new("diagnose").id(egui::Id::unique(("diagnose", self.id))).title_bar(false).frame(frame).resizable(false).collapsible(false)
+        egui::Window::new("diagnose").id(egui::Id::unique(("diagnose", cx.tab.uid))).title_bar(false).frame(frame).resizable(false).collapsible(false)
             .default_width(w - 26.0).min_width(w - 26.0).max_width(w - 26.0).anchor(egui::Align2::RIGHT_TOP, vec2(-16.0 - card_w, 100.0)).show(&ctx, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 ui.set_width(w - 26.0);

@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "csvfab"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "csvfab-engine",
  "eframe",
@@ -885,17 +885,20 @@ dependencies = [
 
 [[package]]
 name = "csvfab-engine"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "aho-corasick",
  "blake2",
  "blake3",
  "calamine",
+ "crc32fast",
  "encoding_rs",
  "fancy-regex",
+ "flate2",
  "foldhash 0.2.0",
  "getrandom 0.4.3",
  "hashbrown 0.17.1",
+ "itoa",
  "libc",
  "md-5",
  "memchr",
@@ -913,6 +916,7 @@ dependencies = [
  "sha3",
  "unicode-normalization",
  "zip",
+ "zmij",
 ]
 
 [[package]]

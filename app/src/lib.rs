@@ -116,7 +116,7 @@ pub fn run() -> eframe::Result {
         viewport = viewport.with_icon(std::sync::Arc::new(icon));
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
-    let early = early::start(files);
+    let early = early::start(files, cfg);
     profile::mark("eframe starting");
     eframe::run_native_ext("csvfab", options, Some(early.ctx.clone()), Box::new(move |_cc| {
         profile::mark("window and GL ready");

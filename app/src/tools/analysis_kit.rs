@@ -225,7 +225,8 @@ pub fn progress(ui: &mut Ui, p: &Palette, frac: Option<f32>, text: &str) {
         }
     };
     pt.rect_filled(part, 1.5, p.prim);
-    ui.ctx().request_repaint();
+    // A busy bar: 30 frames a second move it smoothly (not every frame the screen can draw).
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
 }
 
 /// A clickable text in `accent_2` (`.dk-add`), underlined on hover.

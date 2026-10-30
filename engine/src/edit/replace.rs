@@ -65,7 +65,7 @@ impl Replace {
         }
         let build = |p: &str| RegexBuilder::new(p).case_insensitive(!spec.match_case).size_limit(SIZE_LIMIT).build();
         if spec.regex {
-            let re = build(f).map_err(|e| format!("This regular expression is not valid.\n\n{e}"))?;
+            let re = build(f).map_err(|e| format!("This regular expression is not valid: {}", crate::view::regex_error(&e)))?;
             let toks = js_template(&spec.replace, &re);
             return Ok(Some(Replace { how: How::Re(re, toks), rep: spec.replace.clone(), raw: None }));
         }
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(ch[0].2, "Marie [Marie |rie]rie");
         let ch = rep(&t, "o", "0", true, false, &[0]);
         assert_eq!(ch[0].2, "Jean Dup0nt");
-        assert!(Replace::new(&ReplaceSpec { find: "(".into(), regex: true, ..Default::default() }, &t.st).err().unwrap().starts_with("This regular expression is not valid."));
+        assert!(Replace::new(&ReplaceSpec { find: "(".into(), regex: true, ..Default::default() }, &t.st).err().unwrap().starts_with("This regular expression is not valid"));
         assert!(Replace::new(&ReplaceSpec::default(), &t.st).unwrap().is_none());
         // Ten groups: $10 is the tenth, $11 the first then "1".
         let t = table("a\nabcdefghij\n");

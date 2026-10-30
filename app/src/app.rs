@@ -179,7 +179,7 @@ pub mod edit_what {
 struct Saving {
     tab: u64,
     version: u64,
-    job: Job<Result<(csvfab_engine::Stamp, Option<crate::tab::Ready>), SaveFail>>,
+    job: Job<Result<Saved, SaveFail>>,
     path: PathBuf,
     same_file: bool,
     force: bool,
@@ -188,6 +188,14 @@ struct Saving {
 impl<X> crate::job::Failed for Result<X, SaveFail> {
     fn failed(msg: &str) -> Self { Err(SaveFail::Save(SaveError::Io(std::io::Error::other(msg.to_string())))) }
 }
+
+/// What a save wrote: the file's stamp and sample (`base::file_sample`), the file as read
+/// again (when the save could tell its index), the rows' new ids (`tab::renumbering`).
+type Saved = (csvfab_engine::Stamp, Option<u64>, Option<crate::tab::Ready>, Option<Arc<Vec<u32>>>);
+
+/// The stamps a tab's file is known to have from us: (its stamp as read, the one we wrote or
+/// found again on our content, the sample of that content).
+type Written = (Option<csvfab_engine::Stamp>, csvfab_engine::Stamp, Option<u64>);
 
 /// Why a save wrote nothing.
 enum SaveFail {
@@ -221,7 +229,7 @@ pub struct App {
     picking: Option<Job<Vec<PathBuf>>>,
     saving: Option<Saving>,
     /// A big selection being copied (its text built off the UI thread).
-    copying: Option<Job<Option<String>>>,
+    copying: Option<Job<Option<csvfab_engine::edit::clipboard::Copied>>>,
     pub card: crate::rowcard::Card,
     pub font_picker: Option<crate::fontpick::Picker>,
     pub toasts: Vec<Toast>,
@@ -230,7 +238,10 @@ pub struct App {
     seen: (u64, u64),
     /// Per tab (uid): the file's stamp before a save of ours and the one it wrote: while
     /// the table still stands on that older read, the file on disk is expected to be ours.
-    written: std::collections::HashMap<u64, (Option<csvfab_engine::Stamp>, csvfab_engine::Stamp)>,
+    written: std::collections::HashMap<u64, Written>,
+    /// A look at whether a file whose stamp changed still holds our content (`Stamp::holds`):
+    /// (tab, the stamp found, the job: the sample if it does).
+    disk_job: Option<(u64, csvfab_engine::Stamp, Job<Option<u64>>)>,
     /// Per tab: the change on disk already told about (not asked again for the same).
     told: std::collections::HashMap<u64, Option<csvfab_engine::Stamp>>,
     /// When the files were last looked at, and the cuts counted then (mapguard).
@@ -266,6 +277,10 @@ pub struct App {
     deferred: Vec<Box<dyn FnOnce(&mut Cx)>>,
     /// The window title last sent.
     title: String,
+    /// The recent files' sizes (None: missing) for the welcome screen, looked up off the UI
+    /// thread when the list changes or the window comes back to the front: (the list, sizes).
+    recent_meta: Option<(Vec<PathBuf>, Vec<Option<u64>>)>,
+    recent_job: Option<(Vec<PathBuf>, Job<Vec<Option<u64>>>)>,
 }
 
 impl App {
@@ -307,6 +322,7 @@ impl App {
             toasts: Vec::new(),
             seen: (0, 0),
             written: Default::default(),
+            disk_job: None,
             told: Default::default(),
             disk_at: 0.0,
             cuts_seen: 0,
@@ -328,11 +344,34 @@ impl App {
             status: None,
             deferred: Vec::new(),
             title: String::new(),
+            recent_meta: None,
+            recent_job: None,
         };
         for f in files {
             app.open(f, ctx);
         }
         app
+    }
+
+    /// The recent files with their size (None: no longer there), as last looked up; a look in
+    /// the background when the list changed or the window came back to the front.
+    pub fn recent_files(&mut self, ctx: &egui::Context) -> Vec<(PathBuf, Option<u64>)> {
+        if let Some(r) = self.recent_job.as_mut().and_then(|j| j.1.poll()) {
+            let (paths, _) = self.recent_job.take().unwrap();
+            self.recent_meta = Some((paths, r));
+        }
+        let back = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(true))));
+        let stale = self.recent_meta.as_ref().is_none_or(|m| m.0 != self.config.recent) || back;
+        if stale && self.recent_job.as_ref().is_none_or(|j| j.0 != self.config.recent || back) {
+            let paths = self.config.recent.clone();
+            let p2 = paths.clone();
+            self.recent_job = Some((paths, Job::spawn(ctx, move |_, _| p2.iter().map(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len())).collect())));
+        }
+        match &self.recent_meta {
+            Some((paths, sizes)) if *paths == self.config.recent => paths.iter().cloned().zip(sizes.iter().copied()).collect(),
+            // Until it answers: the list, sizes unknown (drawn as present).
+            _ => self.config.recent.iter().map(|p| (p.clone(), Some(u64::MAX))).collect(),
+        }
     }
 
     pub fn set_theme(&mut self, id: &str, ctx: &egui::Context) {
@@ -348,7 +387,7 @@ impl App {
         if path.is_dir() {
             let mut files: Vec<PathBuf> = std::fs::read_dir(&path).into_iter().flatten().flatten().map(|e| e.path())
                 .filter(|p| p.is_file() && (csvfab_engine::convert::import_format(p).is_some()
-                    || p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["csv", "tsv", "txt", "tab", "psv", "dat"].contains(&e.to_ascii_lowercase().as_str()))))
+                    || p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["csv", "tsv", "txt", "tab", "psv", "dat", "log"].contains(&e.to_ascii_lowercase().as_str()))))
                 .collect();
             files.sort();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -463,7 +502,7 @@ impl App {
             }
             // The saved file's index comes from the save itself: nothing is read again.
             save::save_indexed(&st, &p2, &SaveOptions::default(), expect, &mut backed)
-                .map(|(stamp, b)| (stamp, b.map(|b| crate::tab::Ready::new(b, Some(st.header)))))
+                .map(|(stamp, b)| (stamp, csvfab_engine::base::file_sample(&p2, stamp.len), b.map(|b| crate::tab::Ready::saved(&st, b)), crate::tab::renumbering(&st)))
                 .map_err(SaveFail::Save)
         });
         self.saving = Some(Saving { tab: tab.uid, version, job, path, same_file, force });
@@ -471,11 +510,11 @@ impl App {
 
     /// The stamp the tab's file should have on disk: the one it was read with, or the one
     /// our last save gave it while the table still stands on that read.
-    fn expected(written: &std::collections::HashMap<u64, (Option<csvfab_engine::Stamp>, csvfab_engine::Stamp)>, tab: &Tab) -> Option<csvfab_engine::Stamp> {
+    fn expected(written: &std::collections::HashMap<u64, Written>, tab: &Tab) -> Option<csvfab_engine::Expect> {
         let read = tab.st()?.base.stamp;
         match written.get(&tab.uid) {
-            Some((before, ours)) if *before == read => Some(*ours),
-            _ => read,
+            Some((before, ours, sample)) if *before == read => Some(csvfab_engine::Expect { stamp: *ours, sample: *sample }),
+            _ => read.map(Into::into),
         }
     }
 
@@ -508,13 +547,41 @@ impl App {
         if t.table.is_none() || t.busy() || tools::tail::state(t.uid).is_some() { return; }
         let Some(want) = Self::expected(&self.written, t) else { return };
         let on_disk = csvfab_engine::Stamp::of(path);
-        if on_disk == Some(want) {
+        if on_disk == Some(want.stamp) {
             self.told.remove(&t.uid);
             return;
         }
         if self.told.get(&t.uid).is_some_and(|s| *s == on_disk) { return; }
+        // Another stamp, the same size: a sync client rewriting our own save, perhaps — the
+        // content says (read in the background, as the web app's fingerprint).
+        if let Some(now) = on_disk.filter(|n| n.len == want.stamp.len) {
+            if self.disk_job.as_ref().is_some_and(|(u, s, _)| *u == t.uid && *s == now) { return; }
+            let (base, path) = (t.st().unwrap().base.clone(), path.clone());
+            self.disk_job = Some((t.uid, now, Job::spawn(ctx, move |_, _| {
+                let sample = want.sample.or_else(|| (base.stamp == Some(want.stamp)).then(|| base.sample()).flatten())?;
+                want.stamp.holds(&now, &path, || Some(sample)).then_some(sample)
+            })));
+            return;
+        }
         self.told.insert(t.uid, on_disk);
         self.dialog = Some(Dialog::OnDisk { tab: i, what: if on_disk.is_none() { OnDisk::Gone } else { OnDisk::Changed } });
+    }
+
+    /// The answer of `disk_job`: our content under another stamp is taken as ours (expected from
+    /// now on); another content is told, as any change.
+    fn poll_disk_job(&mut self) {
+        let Some(r) = self.disk_job.as_mut().and_then(|j| j.2.poll()) else { return };
+        let (uid, now, _) = self.disk_job.take().unwrap();
+        let Some(i) = self.tabs.iter().position(|t| t.uid == uid) else { return };
+        let read = self.tabs[i].st().and_then(|st| st.base.stamp);
+        match r {
+            Some(sample) => { self.written.insert(uid, (read, now, Some(sample))); }
+            None if self.dialog.is_none() => {
+                self.told.insert(uid, Some(now));
+                self.dialog = Some(Dialog::OnDisk { tab: i, what: OnDisk::Changed });
+            }
+            None => {}
+        }
     }
 
     /// Reads tab `i`'s file again, its edits dropped (filters and sort stay).
@@ -532,7 +599,7 @@ impl App {
         let s = self.saving.take().unwrap();
         let i = self.tabs.iter().position(|t| t.uid == s.tab);
         match r {
-            Ok((stamp, ready)) => {
+            Ok((stamp, sample, ready, renumber)) => {
                 let mut msg = format!("Saved {}", s.path.display());
                 if let Some(tab) = i.map(|i| &mut self.tabs[i]) {
                     // As the web's: in place, how many rows, and the backup the first save keeps.
@@ -544,14 +611,16 @@ impl App {
                     if let Some(t) = &mut tab.table { t.mark_saved_at(s.version); }
                     // The file is ours now, even while the table stands on the read before
                     // (edits made during the save keep it): no "changed on disk" for it.
-                    self.written.insert(tab.uid, (tab.st().and_then(|st| st.base.stamp), stamp));
+                    self.written.insert(tab.uid, (tab.st().and_then(|st| st.base.stamp), stamp, sample));
                     self.told.remove(&tab.uid);
                     // Its .bak is made: later saves this session overwrite without another.
                     if s.same_file { tab.backed_up = true; }
                     let renamed = tab.path.as_ref() != Some(&s.path);
                     tab.path = Some(s.path.clone());
                     tab.name = s.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    // The file on disk is the new reference: read it again (filters and sort stay).
+                    // The file on disk is the new reference: read it again (filters and sort stay);
+                    // the rows a tool showed or marked follow their new ids.
+                    if !tab.dirty() || renamed { tab.renumber = renumber; }
                     match ready {
                         Some(r) if !tab.dirty() => tab.adopt(r, ctx, &self.m),
                         _ if !tab.dirty() || renamed => tab.reload(ctx),
@@ -563,7 +632,7 @@ impl App {
                 self.toast(msg, ctx);
             }
             Err(SaveFail::Save(SaveError::Changed)) => self.dialog = Some(Dialog::ReplaceChanged(i.unwrap_or(self.active))),
-            Err(SaveFail::Save(e)) => self.dialog = Some(Dialog::Message(format!("Could not save: {e}"))),
+            Err(SaveFail::Save(e)) => self.dialog = Some(Dialog::Message(format!("Could not write \"{}\": {e}. The original file is untouched.", s.path.display()))),
             Err(SaveFail::Lossy(n, c)) => self.dialog = Some(Dialog::Lossy { tab: i.unwrap_or(self.active), n, c, force: s.force }),
         }
     }
@@ -621,12 +690,15 @@ impl App {
             }
             if n > 0 { self.toast(format!("Filter row hidden — its {} filter{} cleared", grid::fmt_int(n), if n == 1 { "" } else { "s" }), ctx); }
         }
+        if want.2 != now.2 { self.toast(if now.2 { "Totals row shown — click a total to change it." } else { "Totals row hidden." }, ctx); }
         (self.config.show_filters, self.config.show_charts, self.config.show_totals) = (Some(now.0), Some(now.1), Some(now.2));
         if !env_set(&SHOT, "CSVFAB_SHOT") { self.config.save(); }
     }
 
     pub fn open_tool(&mut self, tool: Box<dyn Tool>) {
-        if let Some(t) = self.tabs.get(self.active) { self.tools.push((t.uid, tool)); }
+        let Some(uid) = self.tabs.get(self.active).map(|t| t.uid) else { return };
+        if let Some(k) = tool.single() { self.tools.retain(|(u, t)| *u != uid || t.single() != Some(k)); }
+        self.tools.push((uid, tool));
     }
 
     /// Runs a command of the menu or the palette on the active tab.
@@ -691,7 +763,6 @@ impl App {
                     }
                     if let Some(c) = crate::tools::fill_example::typed(tab, &ch, ctx) { self.pending.push(c); }
                     tab.apply_changes(&ch, ctx);
-                    if tab.marks.dups.is_some() { deferred.push(Box::new(crate::tools::dupes::refresh) as Box<dyn FnOnce(&mut Cx)>); }
                 }
                 Action::Patch { patch, pasted } => {
                     let n = patch.cells();
@@ -705,17 +776,35 @@ impl App {
                     if let Some(m) = msg { self.pending.push(Cmd::Toast(m)); }
                     if !patch.is_empty() {
                         tab.apply_patch(patch, ctx);
-                        if tab.marks.dups.is_some() { deferred.push(Box::new(crate::tools::dupes::refresh) as Box<dyn FnOnce(&mut Cx)>); }
                     }
                 }
-                Action::Sort(s) => { tab.sort = s; tab.refresh(ctx); }
+                Action::Sort(s) => {
+                    // Said as the web's: by what, which way, read as what.
+                    let heads = table.st.headers();
+                    let kind = |c: usize| match tab.kinds.get(c) { Some(csvfab_engine::view::Kind::Number) => "numbers", Some(csvfab_engine::view::Kind::Date) => "dates", _ => "text" };
+                    let keys: Vec<String> = s.iter().map(|k| format!("{} {} ({})", heads.get(k.col).map_or("", |h| h.as_str()), if k.desc { "↓" } else { "↑" }, kind(k.col))).collect();
+                    let line = if keys.is_empty() { "Sort removed: the rows in the file's order.".to_string() } else { format!("Sorted by {} — the view only: Save keeps the file's order (Rows › Write the sorted order to the file).", keys.join(", then ")) };
+                    self.status = Some((tab.uid, line, ctx.input(|i| i.time)));
+                    tab.sort = s;
+                    tab.refresh(ctx);
+                }
                 Action::MoveRow { id, target, after } => {
+                    let before = tab.table.as_ref().map(|t| t.version());
+                    let view = tab.col_view();
                     let moved = tab.table.as_mut().and_then(|t| t.move_row(id, target, after));
                     if let Some((from, to)) = moved {
-                        // A sort would put it back: the order is now the file's.
+                        // A sort would put it back: the order is now the file's; Undo brings it back.
                         let sorted = !tab.sort.is_empty();
+                        if let Some(v) = before.filter(|_| sorted) { tab.keep_col_view(v, view); }
                         tab.sort.clear();
-                        tab.after_edit(true, ctx);
+                        if sorted {
+                            let after = tab.col_view();
+                            if let Some(v) = tab.table.as_ref().map(|t| t.version()) { tab.keep_col_view(v, after); }
+                        }
+                        // The same rows and columns: the kinds stand; the view follows the new
+                        // order (filtered or sorted), else it is the file's order already.
+                        tab.after_edit(false, ctx);
+                        if sorted || tab.narrowed() { tab.refresh(ctx); }
                         // The row selected where it landed (under a filter its place is the view's to say).
                         if !tab.filtered() {
                             let last = tab.table.as_ref().map_or(0, |t| t.st.ncols.saturating_sub(1));
@@ -783,14 +872,25 @@ impl App {
                     self.dialog = Some(Dialog::Rename { col, text });
                     return;
                 }
+                // A value filter on the exact text, as the web's (not the column box: Invert
+                // leaves it alone, case and accents count).
                 Action::FilterValue { col, value, keep } => {
-                    if col < tab.col_filters.len() {
-                        tab.col_filters[col] = if keep { format!("={value}") } else { format!("!={value}") };
-                        tab.show_filters = true;
-                        tab.refresh(ctx);
+                    let head = table.st.headers().get(col).cloned().unwrap_or_default();
+                    let shown = if value.is_empty() { "(empty)".to_string() } else { value.clone() };
+                    if keep {
+                        tab.keep_values(col, Some(csvfab_engine::view::Keeps::Values(Arc::new([value].into_iter().collect()))), ctx);
+                    } else {
+                        let mut set: std::collections::HashSet<String> = tab.filter.hidden.iter().find(|(hc, _)| *hc == col).map(|(_, s)| (**s).clone()).unwrap_or_default();
+                        set.insert(value);
+                        tab.hide_values(col, set, ctx);
                     }
+                    let line = format!("{head}: {} “{shown}” — the column's panel or Clear all filters brings them back.", if keep { "only" } else { "without" });
+                    self.status = Some((tab.uid, line, ctx.input(|i| i.time)));
                 }
-                Action::Copy => self.copying = copy_selection(tab, ctx),
+                Action::Copy => match copy_selection(tab, ctx) {
+                    Ok(c) => self.pending.push(Cmd::Toast(copied(&c))),
+                    Err(job) => self.copying = job,
+                },
                 Action::Paste(text) => {
                     if let Some(msg) = tools::rows::paste(tab, &text, ctx) { self.pending.push(Cmd::Toast(msg)); }
                 }
@@ -798,7 +898,8 @@ impl App {
                 Action::RowCard => self.card.toggle(),
                 Action::RowCardRaw => self.card.open_raw(),
                 Action::RenameTo(col, text) => {
-                    self.pending.push(Cmd::Toast(format!("Column renamed to \"{text}\"")));
+                    let old = table.st.headers().get(col).cloned().unwrap_or_default();
+                    self.pending.push(Cmd::Toast(format!("Column \"{old}\" renamed to \"{text}\"")));
                     tab.rename_column(col, text, ctx);
                 }
                 Action::RunCommand(name) => {
@@ -841,16 +942,13 @@ impl App {
     pub fn go_to_number(&mut self, n: usize, ctx: &egui::Context) {
         let Some(t) = self.tabs.get_mut(self.active) else { return };
         let Some(st) = t.st().cloned() else { return };
-        let records = st.base.n.saturating_sub(st.header as usize);
-        if n == 0 || n > records {
-            let msg = format!("No row {}: the file has {} rows", grid::fmt_int(n), grid::fmt_int(records));
+        let id = (n + st.header as usize).checked_sub(1).map_or(RowId::MAX, |i| i.min(RowId::MAX as usize) as RowId);
+        if n > 0 && Self::select_id(t, id) { return; }
+        // A row added here numbers past the file's records (as the gutter shows it).
+        let exists = n > 0 && match &st.order { None => (id as usize) < st.base.n, Some(o) => o.contains(&id) };
+        if !exists {
+            let msg = if n > 0 && (id as usize) < st.base.n { format!("Row {} was deleted", grid::fmt_int(n)) } else { format!("No row {}: the file has {} rows", grid::fmt_int(n), grid::fmt_int(st.len())) };
             self.toast(msg, ctx);
-            return;
-        }
-        let id = (n - 1 + st.header as usize) as RowId;
-        if Self::select_id(t, id) { return; }
-        if st.order.as_ref().is_some_and(|o| !o.contains(&id)) {
-            self.toast(format!("Row {} was deleted", grid::fmt_int(n)), ctx);
         } else {
             self.dialog = Some(Dialog::Confirm {
                 title: format!("Row {} is hidden by the filters", grid::fmt_int(n)),
@@ -863,15 +961,7 @@ impl App {
 
     /// Puts the cursor on row `id` if it is shown, scrolled into the middle.
     fn select_id(t: &mut Tab, id: RowId) -> bool {
-        let pos = match (&t.view, t.st()) {
-            (Some(v), _) => v.iter().position(|&x| x == id),
-            (None, Some(st)) => match &st.order {
-                None => (id as usize).checked_sub(st.header as usize).filter(|&p| p < st.len()),
-                Some(o) => o.iter().skip(st.header as usize).position(|&x| x == id),
-            },
-            _ => None,
-        };
-        let Some(row) = pos else { return false };
+        let Some(row) = t.position_of(id) else { return false };
         t.grid.select(grid::Cell { row, col: t.grid.cursor.map_or(0, |c| c.col) }, false);
         t.grid.set_top(row.saturating_sub(t.grid.page / 2));
         true
@@ -925,7 +1015,6 @@ impl App {
             let v = tab.table.as_ref().map_or(0, |t| t.version());
             if let Some(cv) = tab.col_views.get(&v).filter(|cv| structure && cv.filters.len() == ncols).cloned() { tab.set_col_view(cv); }
             tab.after_edit(structure, ctx);
-            if tab.marks.dups.is_some() { self.run_command(crate::tools::dupes::refresh, ctx); }
         }
     }
 
@@ -964,12 +1053,12 @@ impl App {
         for (i, k) in [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9].into_iter().enumerate() {
             if i < self.tabs.len() && sc(Modifiers::ALT, k) { self.active = i; }
         }
-        // Tool shortcuts (Ctrl+H…), from the registry.
-        for c in tools::commands() {
-            if let Some(k) = c.keys.and_then(parse_keys) {
-                if self.tabs.get(self.active).is_some_and(|t| (c.enabled)(t)) && sc(k.0, k.1) {
-                    self.run_command(c.run, ctx);
-                }
+        // Tool shortcuts (Ctrl+H…), from the registry: their keys read once.
+        static KEYS: OnceLock<Vec<(Modifiers, Key, &'static tools::Command)>> = OnceLock::new();
+        let keys = KEYS.get_or_init(|| tools::commands().iter().filter_map(|c| c.keys.and_then(parse_keys).map(|k| (k.0, k.1, c))).collect());
+        for &(m, k, c) in keys {
+            if self.tabs.get(self.active).is_some_and(|t| (c.enabled)(t)) && sc(m, k) {
+                self.run_command(c.run, ctx);
             }
         }
     }
@@ -1000,6 +1089,10 @@ impl App {
                     self.active = self.tabs.len() - 1;
                 }
                 Cmd::Toast(t) => self.toast(t, ctx),
+                Cmd::Wrote(uid, read, ours, sample) => {
+                    self.written.insert(uid, (read, ours, sample));
+                    self.told.remove(&uid);
+                }
                 Cmd::Tool(t) => self.open_tool(t),
             }
         }
@@ -1073,6 +1166,7 @@ impl App {
         for t in &mut self.tabs { t.poll(&ctx, &m); }
         lap("tab poll");
         self.poll_save(&ctx);
+        self.poll_disk_job();
         self.check_disk(&ctx);
         tools::import::NEXT_DELIM.store(self.next_opts.delim.filter(|&d| d != 0).unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
         if let Some(n) = self.tabs.get_mut(self.active).and_then(|t| t.grid.notice.take()) { self.toast(n, &ctx); }
@@ -1085,11 +1179,9 @@ impl App {
         }
         if let Some(r) = self.copying.as_mut().and_then(|j| j.poll()) {
             self.copying = None;
-            if let Some(text) = r {
-                let rows = text.lines().count().max(1);
-                let cols = text.lines().next().map_or(1, |l| l.matches('\t').count() + 1);
-                ctx.copy_text(text);
-                self.toast(if rows * cols == 1 { "Cell copied".to_string() } else { format!("{} × {} cells copied", grid::fmt_int(rows), grid::fmt_int(cols)) }, &ctx);
+            if let Some(mut c) = r {
+                ctx.copy_text(std::mem::take(&mut c.text));
+                self.toast(copied(&c), &ctx);
             }
         }
         if self.dialog.is_none() && self.palette.is_none() { self.shortcuts(&ctx); }
@@ -1195,6 +1287,8 @@ impl App {
         }
         lap("central panel (grid rest)");
         self.apply(actions, &ctx);
+        // What the grid said this frame (an edit's toast carries its Undo).
+        if let Some(n) = self.tabs.get_mut(self.active).and_then(|t| t.grid.notice.take()) { self.toast(n, &ctx); }
         for run in std::mem::take(&mut self.deferred) { self.run_with(run, &ctx); }
         lap("actions");
         self.show_tools(&ctx);
@@ -1262,14 +1356,20 @@ impl App {
             match d {
                 Dialog::GoTo(text) => {
                     head(ui, "Go to row");
-                    let records = self.tabs.get(self.active).and_then(|t| t.st()).map_or(0, |st| st.base.n.saturating_sub(st.header as usize));
+                    let records = self.tabs.get(self.active).and_then(|t| t.st()).map_or(0, |st| st.len());
                     let hint = format!("Its number in the file: 1 to {}", grid::fmt_int(records));
                     ui.add(egui::TextEdit::singleline(text).hint_text(hint).desired_width(f32::INFINITY)).request_focus();
                     let (ok, cancel) = buttons(ui, "Go", false);
                     if ok || ui.input(|i| i.key_pressed(Key::Enter)) {
-                        if let Ok(n) = text.trim().replace(['\u{202f}', ' ', '\u{a0}'], "").parse::<usize>() {
-                            let ctx = ctx.clone();
-                            after = Some(Box::new(move |app: &mut App| app.go_to_number(n, &ctx)));
+                        let ctx = ctx.clone();
+                        // Digits grouped as people write them: "1 234", "1,234", "1.234".
+                        match text.trim().replace(['\u{202f}', ' ', '\u{a0}', ',', '.', '\''], "").parse::<usize>() {
+                            Ok(n) => after = Some(Box::new(move |app: &mut App| app.go_to_number(n, &ctx))),
+                            Err(_) if text.trim().is_empty() => {}
+                            Err(_) => {
+                                let msg = format!("“{}” is not a row number: type its number in the file, 1 to {}.", text.trim(), grid::fmt_int(records));
+                                after = Some(Box::new(move |app: &mut App| app.toast(msg, &ctx)));
+                            }
                         }
                         close = true;
                     }
@@ -1311,7 +1411,9 @@ impl App {
                 }
                 Dialog::CloseDirty(i) => {
                     head(ui, "Close without saving?");
-                    ui.label(RichText::new("The changes to this file are not saved.").color(p.txt_mut));
+                    // As the web's: the file and how many edits go.
+                    let (name, n) = self.tabs.get(*i).map_or((String::new(), 0), |t| (t.name.clone(), t.table.as_ref().map_or(0, |x| x.pending_edits())));
+                    ui.label(RichText::new(format!("\"{name}\" has {} unsaved edit{}. Closing drops {}.", grid::fmt_int(n), if n == 1 { "" } else { "s" }, if n == 1 { "it" } else { "them" })).color(p.txt_mut));
                     let (ok, cancel) = buttons(ui, "Close without saving", true);
                     if ok { let i = *i; after = Some(Box::new(move |a: &mut App| a.close_tab(i, true))); close = true; }
                     close |= cancel;
@@ -1339,11 +1441,13 @@ impl App {
                             for l in &left {
                                 if restore {
                                     let Ok(bytes) = std::fs::read(&l.data) else { continue };
-                                    let mut t = Tab::memory(format!("{} (recovered)", l.name), bytes, &ctx, &a.m);
-                                    // Unsaved: closing or quitting asks, and a copy is kept again.
-                                    if let Some(x) = &mut t.table { x.mark_saved_at(u64::MAX); }
-                                    a.tabs.push(t);
-                                    a.active = a.tabs.len() - 1;
+                                    match crate::recovery::restore(l, bytes, &ctx, &a.m) {
+                                        Ok(t) => {
+                                            a.tabs.push(t);
+                                            a.active = a.tabs.len() - 1;
+                                        }
+                                        Err(e) => a.toast(format!("{} | {e}", l.name), &ctx),
+                                    }
                                 }
                                 crate::recovery::remove(l);
                             }
@@ -1354,7 +1458,12 @@ impl App {
                 }
                 Dialog::QuitDirty => {
                     head(ui, "Quit without saving?");
-                    ui.label(RichText::new("Some files have changes that are not saved.").color(p.txt_mut));
+                    let dirty: Vec<&Tab> = self.tabs.iter().filter(|t| t.dirty()).collect();
+                    let text = match dirty.as_slice() {
+                        [t] => { let n = t.table.as_ref().map_or(0, |x| x.pending_edits()); format!("\"{}\" has {} unsaved edit{}. Quitting drops {}.", t.name, grid::fmt_int(n), if n == 1 { "" } else { "s" }, if n == 1 { "it" } else { "them" }) }
+                        d => format!("{} files have unsaved edits ({}). Quitting drops them.", d.len(), d.iter().map(|t| t.name.as_str()).take(4).collect::<Vec<_>>().join(", ") + if d.len() > 4 { "…" } else { "" }),
+                    };
+                    ui.label(RichText::new(text).color(p.txt_mut));
                     let (ok, cancel) = buttons(ui, "Quit without saving", true);
                     if ok {
                         after = Some(Box::new(|a: &mut App| a.quit_ok = true));
@@ -1455,7 +1564,8 @@ impl App {
                     head(ui, title.as_str());
                     ui.label(RichText::new(sub.as_str()).color(p.txt_mut));
                     let (yes, cancel) = buttons(ui, ok.as_str(), true);
-                    if yes {
+                    // Enter confirms, as the web's dialogs.
+                    if yes || ui.input(|i| i.key_pressed(Key::Enter)) {
                         if let Some(act) = then.take() {
                             let ctx = ctx.clone();
                             after = Some(Box::new(move |a: &mut App| a.apply(vec![Action::Sure(Box::new(act))], &ctx)));
@@ -1467,7 +1577,7 @@ impl App {
                 Dialog::Message(msg) => {
                     head(ui, msg.as_str());
                     ui.add_space(12.0);
-                    if ui.button("OK").clicked() { close = true; }
+                    if ui.button("OK").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) { close = true; }
                 }
                 Dialog::Shortcuts => {
                     head(ui, "Keyboard shortcuts");
@@ -1549,8 +1659,14 @@ fn file_pos(tab: &Tab, id: RowId) -> usize {
 /// The selection as tab-separated values, as Excel and Google Sheets paste them. A big
 /// one (whole columns of a big file) is built in a job: the text goes to the clipboard
 /// when it is ready, the window never waits for it.
-fn copy_selection(tab: &Tab, ctx: &egui::Context) -> Option<Job<Option<String>>> {
-    let (Some(t), Some((rows, cols))) = (&tab.table, tab.grid.range()) else { return None };
+/// The copy's toast: the engine's rows and columns (a cell holding a line break is one cell).
+fn copied(c: &csvfab_engine::edit::clipboard::Copied) -> String {
+    if c.rows * c.cols == 1 { "Cell copied.".to_string() } else { format!("{} × {} cells copied.", grid::fmt_int(c.rows), grid::fmt_int(c.cols)) }
+}
+
+/// Ok: copied at once (a small selection); Err: being built in a job (None: nothing to copy).
+fn copy_selection(tab: &Tab, ctx: &egui::Context) -> Result<csvfab_engine::edit::clipboard::Copied, Option<Job<Option<csvfab_engine::edit::clipboard::Copied>>>> {
+    let (Some(t), Some((rows, cols))) = (&tab.table, tab.grid.range()) else { return Err(None) };
     let vis = tab.grid.shown_cols(t.st.ncols);
     let sel = csvfab_engine::edit::series::Rect { r0: *rows.start(), r1: *rows.end(), c0: *cols.start(), c1: *cols.end() };
     let (st, view) = (t.st.clone(), tab.view.clone());
@@ -1558,11 +1674,12 @@ fn copy_selection(tab: &Tab, ctx: &egui::Context) -> Option<Job<Option<String>>>
         // The rows of the selection only (not a copy of every id shown).
         let ids: Vec<RowId> = (sel.r0..=sel.r1).map(|p| view.as_ref().map_or_else(|| st.data_id(p), |v| v[p])).collect();
         let sel = csvfab_engine::edit::series::Rect { r0: 0, r1: sel.r1 - sel.r0, ..sel };
-        csvfab_engine::edit::clipboard::copy(&st, &ids, &vis, sel, cancel).map(|c| c.text)
+        csvfab_engine::edit::clipboard::copy(&st, &ids, &vis, sel, cancel)
     };
     if (sel.r1 - sel.r0 + 1) * (sel.c1 - sel.c0 + 1) <= 50_000 {
-        if let Some(text) = copy(&std::sync::atomic::AtomicBool::new(false)) { ctx.copy_text(text); }
-        return None;
+        let Some(mut c) = copy(&std::sync::atomic::AtomicBool::new(false)) else { return Err(None) };
+        ctx.copy_text(std::mem::take(&mut c.text));
+        return Ok(c);
     }
-    Some(Job::spawn(ctx, move |cancel, _| copy(cancel)))
+    Err(Some(Job::spawn(ctx, move |cancel, _| copy(cancel))))
 }

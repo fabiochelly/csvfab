@@ -16,6 +16,7 @@ pub mod fill_example;
 pub mod formula;
 pub mod group;
 pub mod insights;
+pub mod journal;
 pub mod kinds;
 pub mod look;
 pub mod mapguard;
@@ -34,6 +35,6 @@ pub mod tail;
 pub mod text;
 pub mod view;
 
-pub use base::{Base, OpenOptions, Stamp};
+pub use base::{Base, Expect, OpenOptions, Stamp};
 pub use enc::Enc;
 pub use table::{RowId, State, Table};

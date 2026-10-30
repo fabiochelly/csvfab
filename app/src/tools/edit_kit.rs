@@ -618,6 +618,8 @@ pub fn remap_columns(tab: &mut Tab, old_n: usize, map: impl Fn(usize) -> Option<
         widths,
         sort: old.sort.iter().filter_map(|k| to(k.col).map(|col| csvfab_engine::view::SortKey { col, desc: k.desc })).collect(),
         hidden_vals: old.hidden_vals.iter().filter_map(|(c, v)| to(*c).map(|k| (k, v.clone()))).collect(),
+        // A chart's part keeps its test: the column's values, wherever it went.
+        picks: old.picks.iter().filter_map(|p| to(p.col).map(|col| csvfab_engine::view::ValuePick { col, ..p.clone() })).collect(),
         find_col: old.find_col.and_then(to),
         look: crate::grid::ColLook {
             hidden: l.hidden.iter().filter_map(|&c| to(c)).collect(),
@@ -626,6 +628,7 @@ pub fn remap_columns(tab: &mut Tab, old_n: usize, map: impl Fn(usize) -> Option<
             bars: l.bars.iter().filter_map(|(&c, b)| to(c).map(|k| (k, *b))).collect(),
         },
         totals: old.totals.iter().filter_map(|(&c, f)| to(c).map(|k| (k, *f))).collect(),
+        rest: None,
     };
     tab.set_col_view(new.clone());
     if let Some(v) = tab.table.as_ref().map(|t| t.version()) { tab.keep_col_view(v, new); }

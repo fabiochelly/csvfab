@@ -15,8 +15,6 @@ pub mod sqlite;
 pub mod xlsx_read;
 pub mod xlsx_write;
 
-use crate::enc;
-use crate::scan;
 use crate::table::{RowId, State};
 use std::fmt::Write as _;
 use std::fs::File;
@@ -242,29 +240,6 @@ impl Rows<'_> {
     #[inline]
     fn id(&self, k: usize) -> RowId {
         self.ids.map_or_else(|| self.st.data_id(k), |r| r[k])
-    }
-}
-
-/// Calls `f(column, text)` for each field of row `id`. An untouched row is
-/// read straight from the file's bytes, without building its fields.
-fn visit_row(st: &State, id: RowId, tmp: &mut Vec<u8>, buf: &mut Vec<String>, mut f: impl FnMut(usize, &str)) {
-    if st.pristine(id) {
-        let b = &st.base;
-        let rec = b.record(id as usize);
-        let e = b.enc;
-        if b.dialect.lines {
-            f(0, &enc::decode(e, rec));
-        } else {
-            scan::visit_fields(rec, b.dialect.delim, tmp, |i, v| {
-                f(i, &enc::decode(e, v));
-                true
-            });
-        }
-    } else {
-        st.row(id, buf);
-        for (i, s) in buf.iter().enumerate() {
-            f(i, s);
-        }
     }
 }
 
@@ -738,10 +713,9 @@ mod tests {
             let h = t.st.headers();
             let mut w = std::io::BufWriter::new(File::create(&json).unwrap());
             w.write_all(b"[").unwrap();
-            let (mut tmp, mut buf) = (Vec::new(), Vec::new());
             for k in 0..t.st.len() {
                 let mut rec = String::from(if k > 0 { ",\n{" } else { "{" });
-                visit_row(&t.st, t.st.data_id(k), &mut tmp, &mut buf, |c, v| {
+                t.st.visit(t.st.data_id(k), |c, v| {
                     if c > 0 { rec.push(','); }
                     let key = if (6..=9).contains(&c) { format!("address.{}", h[c]) } else { h[c].clone() };
                     let num = !v.is_empty() && !v.starts_with('0') && v.parse::<f64>().is_ok();

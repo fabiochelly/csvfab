@@ -29,14 +29,76 @@ pub struct FilterSpec {
     /// `=x` exactly x (`=` alone: empty), `!x` not containing x (`!` alone:
     /// not empty), `!=x`, `>n`, `>=n`, `<n`, `<=n` (numbers or dates).
     pub cols: Vec<(usize, String)>,
-    /// Per column, values hidden (from the column panel or a chart): a row whose
-    /// cell, trimmed, is one of them is out. Exact text, as written.
+    /// Per column, values hidden (from the column panel or a cell's menu): a row whose cell is
+    /// one of them is out. Exact text, as written ("Paris " is not "Paris").
     pub hidden: Vec<(usize, Arc<HashSet<String>>)>,
+    /// Values kept: a chart's part picked (a bar, a range of bars, a value, the empty cells),
+    /// a value from a cell's menu. With `hidden`, the value filters: Invert leaves them alone.
+    pub picks: Vec<ValuePick>,
+}
+
+/// A value filter that keeps rows: those whose cell in `col` passes `keep`.
+#[derive(Clone)]
+pub struct ValuePick {
+    pub col: usize,
+    pub keep: Keeps,
+}
+
+#[derive(Clone)]
+pub enum Keeps {
+    /// A chart's part: its test (`sparkline::Spark::keep`, the one its hover lights).
+    Part(Arc<crate::sparkline::Spark>, crate::sparkline::Pick),
+    /// These values exactly, as written (a cell's menu: "Only the rows with …").
+    Values(Arc<HashSet<String>>),
+}
+
+impl PartialEq for ValuePick {
+    fn eq(&self, o: &ValuePick) -> bool {
+        self.col == o.col && match (&self.keep, &o.keep) {
+            (Keeps::Part(a, x), Keeps::Part(b, y)) => x == y && Arc::ptr_eq(a, b),
+            (Keeps::Values(a), Keeps::Values(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for ValuePick {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self.keep {
+            Keeps::Part(_, p) => write!(f, "ValuePick({}, {p:?})", self.col),
+            Keeps::Values(v) => write!(f, "ValuePick({}, {v:?})", self.col),
+        }
+    }
+}
+
+impl ValuePick {
+    #[inline]
+    pub fn test(&self, v: &str) -> bool {
+        match &self.keep {
+            Keeps::Part(s, p) => s.keep(self.col, *p).test(v),
+            Keeps::Values(set) => set.contains(v),
+        }
+    }
 }
 
 impl FilterSpec {
     pub fn is_empty(&self) -> bool {
-        self.global.is_empty() && self.cols.iter().all(|(_, s)| s.is_empty()) && self.hidden.iter().all(|(_, h)| h.is_empty())
+        self.global.is_empty() && self.cols.iter().all(|(_, s)| s.is_empty()) && !self.has_values()
+    }
+
+    /// Whether value filters (values hidden, chart picks) are set.
+    pub fn has_values(&self) -> bool {
+        self.hidden.iter().any(|(_, h)| !h.is_empty()) || !self.picks.is_empty()
+    }
+
+    /// The value filters alone (`hidden`, `picks`).
+    pub fn values(&self) -> FilterSpec {
+        FilterSpec { hidden: self.hidden.clone(), picks: self.picks.clone(), ..Default::default() }
+    }
+
+    /// The text tests alone (the search, the column filters): what Invert flips.
+    pub fn texts(&self) -> FilterSpec {
+        FilterSpec { hidden: Vec::new(), picks: Vec::new(), ..self.clone() }
     }
 
     /// Whether every row this filter keeps, `prev` keeps too (on the same
@@ -71,7 +133,7 @@ impl FilterSpec {
             .iter()
             .filter(|(_, h)| !h.is_empty())
             .all(|(c, old)| self.hidden.iter().any(|(k, new)| k == c && (Arc::ptr_eq(new, old) || new.is_superset(old))));
-        cols_ok && hidden_ok
+        cols_ok && hidden_ok && prev.picks.iter().all(|p| self.picks.contains(p))
     }
 }
 
@@ -143,7 +205,7 @@ fn literals(pattern: &str, case_insensitive: bool) -> Option<Pre> {
 impl Pat {
     fn new(text: &str, regex: bool, case: bool) -> Result<Pat, String> {
         if regex {
-            let re = regex::RegexBuilder::new(text).case_insensitive(!case).size_limit(1 << 22).build().map_err(|e| e.to_string())?;
+            let re = regex::RegexBuilder::new(text).case_insensitive(!case).size_limit(1 << 22).build().map_err(|e| regex_error(&e))?;
             let local = regex_syntax::ParserBuilder::new().case_insensitive(!case).build().parse(text).is_ok_and(|h| h.properties().look_set().is_empty());
             return Ok(Pat::Re { re, pre: literals(text, !case), local });
         }
@@ -178,6 +240,18 @@ impl Pat {
             Pat::Sub { finder, needle, .. } => needle.is_empty() || finder.find(folded.as_bytes()).is_some(),
             Pat::Re { .. } => unreachable!(),
         }
+    }
+}
+
+/// A regex's error on one line (the regex crate draws a caret under the pattern), with what to
+/// do instead of look-around and back-references, which a filter cannot run in linear time.
+pub fn regex_error(e: &regex::Error) -> String {
+    let s = e.to_string();
+    let line = s.lines().rev().find_map(|l| l.strip_prefix("error: ")).unwrap_or(&s).to_string();
+    if line.contains("look-around") || line.contains("backreferences") {
+        format!("{line} — a formula (ƒx) runs them: test(/…/, {{Column}})")
+    } else {
+        line
     }
 }
 
@@ -293,6 +367,7 @@ pub struct Filter {
     case: bool,
     cols: Vec<(usize, ColTest)>,
     hidden: Vec<(usize, Arc<HashSet<String>>)>,
+    picks: Vec<ValuePick>,
 }
 
 impl Filter {
@@ -315,18 +390,18 @@ impl Filter {
             }
         }
         let hidden = spec.hidden.iter().filter(|(_, h)| !h.is_empty()).cloned().collect();
-        Ok(Filter { global, invert: spec.invert, case: spec.match_case, cols, hidden })
+        Ok(Filter { global, invert: spec.invert, case: spec.match_case, cols, hidden, picks: spec.picks.clone() })
     }
 
     pub fn is_empty(&self) -> bool {
-        self.global.is_empty() && self.cols.is_empty() && self.hidden.is_empty()
+        self.global.is_empty() && self.cols.is_empty() && self.hidden.is_empty() && self.picks.is_empty()
     }
 
     /// Builds in the background (`colcache::warm`) the column caches this
     /// filter would read: the next filter on these columns uses them.
     pub fn warm(&self, st: &State, kinds: &[Kind]) {
-        for (c, _) in &self.hidden {
-            colcache::warm(st, *c, Need::Dict);
+        for c in self.hidden.iter().map(|h| h.0).chain(self.picks.iter().map(|p| p.col)) {
+            colcache::warm(st, c, Need::Dict);
         }
         for (c, t) in &self.cols {
             match t {
@@ -364,6 +439,7 @@ struct Scratch {
 
 enum Test<'a> {
     Hidden(&'a HashSet<String>),
+    Pick(&'a ValuePick),
     Col(&'a ColTest),
 }
 
@@ -372,7 +448,8 @@ impl Test<'_> {
     #[inline]
     fn keep(&self, v: &str, case: bool, buf: &mut String) -> bool {
         match self {
-            Test::Hidden(h) => !h.contains(v.trim()),
+            Test::Hidden(h) => !h.contains(v),
+            Test::Pick(p) => p.test(v),
             Test::Col(t) => t.test(v, case, buf),
         }
     }
@@ -408,7 +485,7 @@ impl<'a> Prep<'a> {
         let mut cache = if field.is_some() { colcache::get(st, col) } else { Col::default() };
         if field.is_some() && !st.base.partial && rows * 2 >= st.len() && cache.dict.is_none() {
             let need = match &test {
-                Test::Hidden(_) => Some(Need::Dict),
+                Test::Hidden(_) | Test::Pick(_) => Some(Need::Dict),
                 Test::Col(ColTest::Num(..)) if cache.num.is_none() => Some(Need::Num),
                 Test::Col(t) if t.on_folded(case) && cache.folded.is_none() => Some(Need::Text),
                 Test::Col(ColTest::Num(..)) => None,
@@ -518,6 +595,7 @@ struct Plan<'a> {
 impl<'a> Plan<'a> {
     fn new(st: &State, f: &'a Filter, rows: usize, cancel: &AtomicBool) -> Plan<'a> {
         let mut tests: Vec<Prep> = f.hidden.iter().map(|(c, h)| Prep::new(st, *c, Test::Hidden(h), f.case, rows, cancel)).collect();
+        tests.extend(f.picks.iter().map(|p| Prep::new(st, p.col, Test::Pick(p), f.case, rows, cancel)));
         tests.extend(f.cols.iter().map(|(c, t)| Prep::new(st, *c, Test::Col(t), f.case, rows, cancel)));
         // All must pass: the cheapest first, the others see fewer rows.
         tests.sort_by_key(|p| p.cost());
@@ -563,7 +641,21 @@ impl<'a> Plan<'a> {
 
     fn global(&self, st: &State, f: &Filter, g: &Pat, invert: bool, ids: &mut Vec<RowId>, s: &mut Scratch) {
         let b = &*st.base;
-        let pristine = |id: RowId| st.cmap.is_none() && (id as usize) < b.n && !self.edited.as_ref().is_some_and(|e| e.has(id));
+        // A record's raw bytes are its row's cells — searched as such — when no column was
+        // removed (columns moved or added only: each field still a column, `fields` of them)
+        // and the pattern finds nothing in an empty cell (an added column, a short record's
+        // missing fields).
+        let fields = match &st.cmap {
+            None => Some(usize::MAX),
+            Some(m) => {
+                let mut mapped: Vec<i32> = m.iter().copied().filter(|&x| x >= 0).collect();
+                mapped.sort_unstable();
+                let whole = mapped.iter().enumerate().all(|(k, &x)| x == k as i32);
+                (whole && !g.test("", f.case, &mut s.buf)).then_some(mapped.len())
+            }
+        };
+        let width = |id: RowId| b.odd.binary_search_by_key(&id, |o| o.0).map_or(b.width, |k| b.odd[k].1 as usize);
+        let pristine = |id: RowId| fields.is_some_and(|k| (id as usize) < b.n && (k == usize::MAX || width(id) <= k)) && !self.edited.as_ref().is_some_and(|e| e.has(id));
         let block = match g {
             Pat::Sub { raw_ok, .. } => *raw_ok,
             Pat::Re { pre: Some(p), .. } => p.ascii || b.enc.mem_utf8(),
@@ -760,12 +852,12 @@ fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scrat
     }
     let enc = b.enc;
     if b.dialect.lines {
-        return g.test(&crate::enc::decode(enc, rec), case, &mut s.buf);
+        return g.test(&b.text(rec), case, &mut s.buf);
     }
     // Ruled out on the whole record at once, when it can be.
     match g {
         Pat::Sub { finder, rec_ok: true, needle, blank, .. } if !needle.is_empty() && !needle.as_bytes().contains(&b.dialect.delim) => {
-            let d = crate::enc::decode(enc, rec);
+            let d = b.text(rec);
             let found = if case {
                 finder.find(d.as_bytes()).is_some()
             } else {
@@ -783,7 +875,7 @@ fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scrat
                 if !p.ac.is_match(rec) { return false; }
             }
             // Without quotes the record is its cells end to end: one search for all.
-            if *local && memchr::memchr(b'"', rec).is_none() && !re.is_match(&crate::enc::decode(enc, rec)) {
+            if *local && memchr::memchr(b'"', rec).is_none() && !re.is_match(&b.text(rec)) {
                 return false;
             }
         }
@@ -792,7 +884,7 @@ fn record_matches(b: &crate::Base, id: usize, g: &Pat, case: bool, s: &mut Scrat
     let mut hit = false;
     let buf = &mut s.buf;
     crate::scan::visit_fields(rec, b.dialect.delim, &mut s.tmp, |_, f| {
-        hit = g.test(&crate::enc::decode(enc, f), case, buf);
+        hit = g.test(&b.text(f), case, buf);
         !hit
     });
     hit
@@ -901,18 +993,9 @@ fn rank_word(r: u32, nranks: u32, desc: bool) -> u64 {
     if r >= nranks { nranks as u64 } else if desc { (nranks - 1 - r) as u64 } else { r as u64 }
 }
 
-/// Text keys of a list of rows, in arenas of CH rows.
-struct TextKeys(Vec<(Vec<u8>, Vec<u32>)>);
-
-const CH: usize = 1 << 14;
-
-impl TextKeys {
-    #[inline]
-    fn get(&self, p: usize) -> &[u8] {
-        let (arena, offs) = &self.0[p / CH];
-        let k = p % CH;
-        &arena[offs[k] as usize..offs[k + 1] as usize]
-    }
+thread_local! {
+    /// A cell's bytes and its fold, while a sort key is made of it.
+    static FOLD: std::cell::RefCell<(Vec<u8>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
 }
 
 /// One sort key's word for each row of `ids`; None if cancelled.
@@ -957,24 +1040,18 @@ fn key_words(st: &State, ids: &[RowId], key: SortKey, kind: Kind, cancel: &Atomi
                 let nr = cache.nranks().unwrap();
                 ids.par_iter().with_min_len(4096).map(|&id| rank_word(cache.rank(id as usize).unwrap(), nr, desc)).collect()
             } else {
-                let keys = TextKeys(
-                    ids.par_chunks(CH)
-                        .map(|chunk| {
-                            let mut arena = String::with_capacity(chunk.len() * 12);
-                            let mut offs = Vec::with_capacity(chunk.len() + 1);
-                            offs.push(0u32);
-                            let mut tmp = Vec::new();
-                            for &id in chunk {
-                                match if live(id) { None } else { cache.folded(id as usize) } {
-                                    Some(f) => arena.push_str(f.trim()),
-                                    None => st.with_cell(id, col, &mut tmp, |v| fold_into(v.trim(), &mut arena)),
-                                }
-                                offs.push(arena.len() as u32);
-                            }
-                            (arena.into_bytes(), offs)
-                        })
-                        .collect(),
-                );
+                // Each row's sort key (`text::sort_key_into`) from its folded text.
+                let keys = crate::radix::Keys::build(ids.len(), |p, out| {
+                    let id = ids[p];
+                    match if live(id) { None } else { cache.folded(id as usize) } {
+                        Some(f) => crate::text::sort_key_into(f.trim().as_bytes(), out),
+                        None => FOLD.with_borrow_mut(|(tmp, buf)| {
+                            buf.clear();
+                            st.with_cell(id, col, tmp, |v| fold_into(v.trim(), buf));
+                            crate::text::sort_key_into(buf.as_bytes(), out);
+                        }),
+                    }
+                });
                 if cancel.load(Ordering::Relaxed) { return None; }
                 let (_, rank, nr) = crate::radix::text_order(ids.len(), |p| keys.get(p));
                 rank.par_iter().with_min_len(4096).map(|&r| rank_word(r, nr, desc)).collect()

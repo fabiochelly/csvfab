@@ -39,7 +39,12 @@ struct Preview {
     rows: usize,
 }
 
+/// The choices made last on each tab (its uid; the column count they were for): the dialog
+/// opens with them again, as the web's kept its settings.
+static LAST: std::sync::Mutex<Option<std::collections::HashMap<u64, (usize, Vec<usize>, Vec<Aggs>, Match)>>> = std::sync::Mutex::new(None);
+
 struct GroupBy {
+    uid: u64,
     st: Option<State>,
     headers: Vec<String>,
     kinds: Vec<Kind>,
@@ -63,18 +68,27 @@ impl GroupBy {
         let st = tab.st().cloned();
         let headers = st.as_ref().map(|s| s.headers()).unwrap_or_default();
         let kinds = tab.kinds.clone();
-        let aggs = (0..headers.len())
+        let mut aggs: Vec<Aggs> = (0..headers.len())
             .map(|c| if Some(c) != col && st.as_ref().is_some_and(|s| group::sum_by_default(s, &headers, &kinds, c)) { Aggs::SUM } else { Aggs::default() })
             .collect();
+        let (mut order, mut how): (Vec<usize>, Match) = (col.into_iter().collect(), Match::Loose);
+        if let Some((_, o, a, h)) = LAST.lock().ok().and_then(|m| m.as_ref()?.get(&tab.uid).cloned()).filter(|l| l.0 == headers.len()) {
+            how = h;
+            aggs = a;
+            // A column asked for (its panel's "Group by") goes first; else the last grouping.
+            order = match col { Some(c) => { let mut v = vec![c]; v.extend(o.into_iter().filter(|&k| k != c)); v } None => o };
+            if let Some(c) = col { aggs[c] = Aggs::default(); }
+        }
         GroupBy {
+            uid: tab.uid,
             st,
             headers,
             kinds,
             ids: tab.shown_ids(),
             filtered: tab.filtered(),
-            order: col.into_iter().collect(),
+            order,
             aggs,
-            how: Match::Loose,
+            how,
             preview: None,
             pjob: None,
             stale: true,
@@ -408,5 +422,14 @@ mod tests {
         let mut a = Aggs::default();
         for k in 0..5 { *fn_flag(&mut a, k) = true; }
         assert_eq!(a, Aggs { sum: true, avg: true, min: true, max: true, distinct: true });
+    }
+}
+
+impl Drop for GroupBy {
+    /// Its choices kept for the next opening on this tab.
+    fn drop(&mut self) {
+        if let Ok(mut m) = LAST.lock() {
+            m.get_or_insert_with(Default::default).insert(self.uid, (self.headers.len(), self.order.clone(), self.aggs.clone(), self.how));
+        }
     }
 }

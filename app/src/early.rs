@@ -32,21 +32,21 @@ impl Early {
 }
 
 /// Starts everything that does not need the window.
-pub fn start(files: Vec<PathBuf>) -> Early {
+/// `config`: the settings, read once by the caller (the window's size came from them).
+pub fn start(files: Vec<PathBuf>, config: Config) -> Early {
     let ctx = context();
-    let config = Config::load();
     crate::app::expect_scale(config.scale);
+    // The chrome's icons for the scale the window last had, on their own thread (they need no
+    // font): the first frame drawn then finds them ready.
+    if let Some(s) = config.scale {
+        let _ = std::thread::Builder::new().name("csvfab-icons".into()).spawn(move || crate::icons::rasterize_ahead(s));
+    }
     let style = {
         let (ctx, mono) = (ctx.clone(), config.mono_font.clone());
-        let (theme, scale) = (config.theme.clone(), config.scale);
+        let theme = config.theme.clone();
         std::thread::Builder::new()
             .name("csvfab-style".into())
-            .spawn(move || {
-                App::style(&ctx, theme.as_deref(), mono.as_deref());
-                // The chrome's icons for the scale the window last had: the first frame
-                // drawn then finds them ready.
-                if let Some(s) = scale { crate::icons::rasterize_ahead(s); }
-            })
+            .spawn(move || App::style(&ctx, theme.as_deref(), mono.as_deref()))
             .expect("thread")
     };
     let app = App::build(&ctx, config, files);

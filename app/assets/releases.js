@@ -3,6 +3,12 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.0.3', date: '2026-10-30', items: [
+        ['Natural sort', 'Text sorts as people read it: accents and case ignored, numbers in order ("Lot 2" before "Lot 10").'],
+        ['Chart clicks filter', 'A click on a chart value keeps its rows, stacks with the other filters and has its own chip.'],
+        ['Many tabs', 'With many files open, the tab bar scrolls and a ▾ button lists every tab.'],
+        ['Settings from 1.x', 'At the first start, the theme, options and recent files of csvfab 1.x are brought over.'],
+    ] },
     { v: '2.0.1', date: '2026-10-30', items: [
         ['Select rows by dragging', 'Drag over the row numbers to select several rows; drag a row already selected to move it, as in Excel.'],
     ] },

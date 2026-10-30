@@ -497,18 +497,7 @@ fn whole_row(st: &State, id: RowId, s: &mut Scratch) -> bool {
         *n += 1;
     }
     let (buf, mut n) = (&mut s.buf, 0);
-    if st.pristine(id) {
-        let b = &st.base;
-        let rec = b.record(id as usize);
-        if b.dialect.lines {
-            add(buf, &mut n, &crate::enc::decode(b.enc, rec));
-        } else {
-            crate::scan::visit_fields(rec, b.dialect.delim, &mut s.tmp, |_, f| { add(buf, &mut n, &crate::enc::decode(b.enc, f)); true });
-        }
-    } else {
-        st.row(id, &mut s.row);
-        s.row.iter().for_each(|v| add(buf, &mut n, v));
-    }
+    st.visit(id, |_, v| add(buf, &mut n, v));
     // A short record and the same one padded with empty fields are one row.
     while n < st.ncols { add(buf, &mut n, "") }
     buf.bytes().any(|b| b != 1)

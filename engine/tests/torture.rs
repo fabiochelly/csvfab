@@ -259,6 +259,21 @@ fn cells_agree(t: &Table, ctx: &str) {
             st.with_cell(id, c, &mut tmp, |s| assert_eq!(s, v, "{ctx}: with_cell"));
             assert_eq!(row.get(c).map_or("", |s| s.as_str()), v, "{ctx}: row {p} col {c}");
         }
+        // The one-scan visitors: the very fields `row` gives, the very cells `with_cell` gives.
+        let mut seen: Vec<String> = Vec::new();
+        st.visit(id, |c, v| {
+            assert_eq!(c, seen.len(), "{ctx}: visit, row {p}: columns in order");
+            seen.push(v.to_string());
+        });
+        assert_eq!(seen, row, "{ctx}: visit, row {p}");
+        for cols in [(0..st.ncols + 2).step_by(2).collect::<Vec<_>>(), (0..st.ncols + 1).rev().chain([0, 1, 0]).collect()] {
+            let mut n = 0;
+            st.visit_cols(id, &cols, |k, v| {
+                assert_eq!(v, st.cell(id, cols[k]), "{ctx}: visit_cols, row {p} col {}", cols[k]);
+                n += 1;
+            });
+            assert_eq!(n, cols.len(), "{ctx}: visit_cols, row {p}");
+        }
     }
     let _ = st.headers();
 }
@@ -669,7 +684,7 @@ fn edits_follow_the_model() {
         td.st.ncols = t.st.ncols;
         td.st.header = t.st.header;
         td.st.eol = t.st.eol;
-        let (_, ix) = save::save_indexed(&td.st, &p, &SaveOptions { backup: false, ..Default::default() }, td.st.base.stamp, &mut false).unwrap();
+        let (_, ix) = save::save_indexed(&td.st, &p, &SaveOptions { backup: false, ..Default::default() }, td.st.base.stamp.map(Into::into), &mut false).unwrap();
         let written = std::fs::read(&p).unwrap();
         assert!(written == out, "{ctx}: the file saved differs from the bytes written");
         if let Some(g) = ix {
@@ -797,7 +812,7 @@ fn plain_filter(t: &Table, sp: &FilterSpec, ids: &[RowId]) -> Option<Vec<RowId>>
     let st = &t.st;
     let mut row = Vec::new();
     Some(ids.iter().copied().filter(|&id| {
-        sp.hidden.iter().all(|(c, h)| h.is_empty() || !h.contains(st.cell(id, *c).trim()))
+        sp.hidden.iter().all(|(c, h)| h.is_empty() || !h.contains(&st.cell(id, *c)))
             && tests.iter().all(|(c, f)| f(&st.cell(id, *c)))
             && (global.is_empty() || { st.row(id, &mut row); global.iter().all(|g| row.iter().any(|v| g(v))) != sp.invert })
     }).collect())
@@ -812,7 +827,7 @@ fn plain_sort(t: &Table, ids: &[RowId], keys: &[SortKey], kinds: &[Kind]) -> Vec
         let v = st.cell(id, k.col);
         let v = v.trim();
         match kinds.get(k.col).copied().unwrap_or(Kind::Text) {
-            Kind::Text => if v.is_empty() { K::None } else { K::Text(fold(v).trim().as_bytes().to_vec()) },
+            Kind::Text => if v.is_empty() { K::None } else { K::Text(csvfab_engine::text::sort_key(v)) },
             Kind::Number => parse_number(v).map_or(K::None, |x| K::Num(if x == 0.0 { 0.0 } else { x })),
             Kind::Date => parse_date(v).map_or(K::None, |x| K::Num(if x == 0.0 { 0.0 } else { x })),
         }

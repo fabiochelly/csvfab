@@ -296,11 +296,10 @@ fn read_sample(st: &State, ncols: usize, cancel: &AtomicBool) -> Option<Sample> 
         .map(|chunk| {
             let mut cols: Vec<Vals> = (0..ncols).map(|_| Vals::default()).collect();
             let mut raw = vec![0usize; ncols];
-            let (mut tmp, mut row) = (Vec::new(), Vec::new());
             for &id in chunk {
                 if cancel.load(Ordering::Relaxed) { break; }
                 let mut upto = 0;
-                kinds::visit_row(st, id, &mut tmp, &mut row, |c, v| {
+                st.visit(id, |c, v| {
                     if c >= ncols { return; }
                     let s = js_trim(v);
                     cols[c].push(s);
@@ -385,21 +384,24 @@ fn hash_of(b: &[u8], tag: u8) -> u64 {
 /// (joined by U+001F). Blank rows are Clean up's business, not copies.
 fn copies(st: &State, cancel: &AtomicBool) -> Option<Vec<RowId>> {
     const BLANK: &[u8] = b" \t\r\n\";,|";
-    let key = |id: RowId, row: &mut Vec<String>| -> Option<(u64, Option<String>)> {
+    let key = |id: RowId| -> Option<(u64, Option<String>)> {
         if st.pristine(id) {
             let rec = st.base.record(id as usize);
             if rec.iter().all(|b| BLANK.contains(b)) { return None; }
             return Some((hash_of(rec, 0), None));
         }
-        st.row(id, row);
-        let k = row.join("\u{1f}");
+        let mut k = String::new();
+        st.visit(id, |c, v| {
+            if c > 0 { k.push('\u{1f}'); }
+            k.push_str(v);
+        });
         if k.chars().all(|c| c == '\u{1f}' || kinds::is_js_space(c)) { return None; }
         Some((hash_of(k.as_bytes(), 1), Some(k)))
     };
-    let parts = every(st, cancel, || (Vec::new(), Vec::new()), |(out, row): &mut (Vec<(u64, u32)>, Vec<String>), p, id| {
-        if let Some((h, _)) = key(id, row) { out.push((h, p as u32)); }
+    let parts = every(st, cancel, Vec::new, |out: &mut Vec<(u64, u32)>, p, id| {
+        if let Some((h, _)) = key(id) { out.push((h, p as u32)); }
     })?;
-    let mut hs: Vec<(u64, u32)> = parts.into_iter().flat_map(|p| p.0).collect();
+    let mut hs: Vec<(u64, u32)> = parts.into_iter().flatten().collect();
     hs.par_sort_unstable();
     if cancel.load(Ordering::Relaxed) { return None; }
     // Runs of one hash: each member against the distinct ones before it.
@@ -407,12 +409,11 @@ fn copies(st: &State, cancel: &AtomicBool) -> Option<Vec<RowId>> {
     let mut out: Vec<u32> = runs
         .par_iter()
         .flat_map_iter(|g| {
-            let mut row = Vec::new();
             let mut firsts: Vec<(u32, Option<String>)> = Vec::new();
             let mut cp = Vec::new();
             for &(_, p) in g.iter() {
                 let id = st.data_id(p as usize);
-                let k = key(id, &mut row).unwrap().1;
+                let k = key(id).unwrap().1;
                 let same = |&(q, ref kq): &(u32, Option<String>)| match (&k, kq) {
                     (None, None) => st.base.record(st.data_id(q as usize) as usize) == st.base.record(id as usize),
                     (Some(a), Some(b)) => a == b,
@@ -1178,13 +1179,10 @@ pub fn marks(st: &State, show: &Show, cancel: &AtomicBool) -> Option<Marks> {
                     }
                 }
             };
-            type Acc = (Vec<(RowId, String)>, Vec<u8>, Vec<String>, Vec<String>);
-            let parts = every(st, cancel, || (Vec::new(), Vec::new(), Vec::new(), Vec::new()), |(out, tmp, row, v): &mut Acc, _, id| {
+            let parts = every(st, cancel, || (Vec::new(), Vec::new()), |(out, v): &mut (Vec<(RowId, String)>, Vec<String>), _, id| {
                 v.clear();
                 v.resize(cols.len(), String::new());
-                kinds::visit_row(st, id, tmp, row, |c, s| {
-                    for (k, _) in cols.iter().enumerate().filter(|e| *e.1 == c) { v[k] = js_trim(s).to_string(); }
-                });
+                st.visit_cols(id, &cols, |k, s| v[k] = js_trim(s).to_string());
                 if let Some(w) = want(v) { out.push((id, kinds::fmt_frac(w, 4))); }
             })?;
             cells(*target, parts.into_iter().flat_map(|p| p.0).collect(), &mut m);

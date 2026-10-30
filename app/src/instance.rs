@@ -23,10 +23,12 @@ extern "C" {
 
 /// Sends the paths to a running window. True if one took them.
 pub fn hand_over(paths: &[PathBuf]) -> bool {
-    let msg: String = paths.iter().map(|p| format!("{}\n", std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()).display())).collect();
+    // Made once a window answers (alone, the paths are made absolute by `App::open`).
+    let msg = || -> String { paths.iter().map(|p| format!("{}\n", std::fs::canonicalize(p).unwrap_or_else(|_| p.clone()).display())).collect() };
     #[cfg(unix)]
     {
         let Ok(mut s) = std::os::unix::net::UnixStream::connect(socket_path()) else { return false };
+        let msg = msg();
         let _ = s.set_write_timeout(Some(ACK_WAIT));
         let _ = s.set_read_timeout(Some(ACK_WAIT));
         // An empty message still raises the window.
@@ -36,6 +38,7 @@ pub fn hand_over(paths: &[PathBuf]) -> bool {
     {
         let Some(port) = std::fs::read_to_string(port_file()).ok().and_then(|s| s.trim().parse::<u16>().ok()) else { return false };
         let Ok(mut s) = std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), std::time::Duration::from_millis(300)) else { return false };
+        let msg = msg();
         let _ = s.set_read_timeout(Some(ACK_WAIT));
         s.write_all(format!("csvfab\n{msg}\n").as_bytes()).is_ok() && acked(&mut s)
     }

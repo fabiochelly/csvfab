@@ -117,6 +117,35 @@ pub fn prefix(k: &[u8]) -> u64 {
     u64::from_be_bytes(b)
 }
 
+/// Byte keys end to end, in arenas of `KEYS_CH` keys (no allocation per key).
+pub struct Keys(Vec<(Vec<u8>, Vec<u32>)>);
+
+const KEYS_CH: usize = 1 << 14;
+
+impl Keys {
+    /// Key `i` of `n`, each written by `put(i, out)` (in parallel, by arena).
+    pub fn build(n: usize, put: impl Fn(usize, &mut Vec<u8>) + Sync) -> Keys {
+        Keys((0..n.div_ceil(KEYS_CH)).into_par_iter().map(|c| {
+            let r = c * KEYS_CH..((c + 1) * KEYS_CH).min(n);
+            let mut arena = Vec::with_capacity(r.len() * 12);
+            let mut offs = Vec::with_capacity(r.len() + 1);
+            offs.push(0u32);
+            for i in r {
+                put(i, &mut arena);
+                offs.push(arena.len() as u32);
+            }
+            (arena, offs)
+        }).collect())
+    }
+
+    #[inline]
+    pub fn get(&self, i: usize) -> &[u8] {
+        let (a, o) = &self.0[i / KEYS_CH];
+        let k = i % KEYS_CH;
+        &a[o[k] as usize..o[k + 1] as usize]
+    }
+}
+
 /// The order of n text keys (byte order, empty keys last, ties in position
 /// order) and each one's dense rank in it (equal keys share a rank; empty:
 /// the number of distinct non-empty keys).

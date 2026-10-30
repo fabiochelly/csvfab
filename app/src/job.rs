@@ -79,11 +79,16 @@ impl<T: Send + Failed + 'static> Job<T> {
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicUsize::new(0));
         let (c, p, ctx) = (cancel.clone(), progress.clone(), ctx.clone());
-        std::thread::spawn(move || {
+        let run = move || {
+            // A notch below the UI thread, as the compute pool (lib.rs): the window gets the CPU first.
+            // SAFETY: on Linux, setpriority(PRIO_PROCESS, 0, …) sets the calling thread's nice value.
+            #[cfg(target_os = "linux")]
+            unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 4) };
             let r = guarded(|| f(&c, &p)).unwrap_or_else(|m| T::failed(&format!("internal error: {m}")));
             let _ = tx.send(r);
             ctx.request_repaint();
-        });
+        };
+        std::thread::Builder::new().name("csvfab-job".into()).spawn(run).expect("thread");
         Job { rx, cancel, progress, started: Instant::now() }
     }
 }

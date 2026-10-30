@@ -17,6 +17,12 @@ hashbrown = { version = "0.17", default-features = false, features = ["inline-mo
 foldhash = "0.2"
 calamine = "0.37"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+# The workbook's sheet written by hand, in parallel (convert/xlsx_write.rs): all four already
+# built for zip, rust_xlsxwriter and serde_json — no new crate.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+crc32fast = "1.5"
+itoa = "1"
+zmij = "1"
 rust_xlsxwriter = { version = "0.101", features = ["constant_memory"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

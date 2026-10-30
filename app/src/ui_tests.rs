@@ -282,8 +282,10 @@ fn own_save_not_told_as_changed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Unsaved edits are copied aside a few seconds after the last one; a run that stopped
-/// without asking leaves the copy, offered back at the next start; a save removes it.
+/// Unsaved edits are kept aside a few seconds after the last one — a journal of them while
+/// the file on disk is the one read, a copy of the table once it changed; a run that stopped
+/// without asking leaves them, offered back at the next start (the journal replayed over the
+/// file, refused if the file changed since); a save removes them.
 #[test]
 fn unsaved_edits_kept_aside() {
     use crate::app::Dialog;
@@ -291,27 +293,31 @@ fn unsaved_edits_kept_aside() {
     let rdir = dir.join("recovery");
     h.state_mut().recovery = crate::recovery::Recovery::at(rdir.clone());
     let ctx = h.ctx.clone();
-    {
+    let edit = |h: &mut egui_kittest::Harness<'static, App>, row: usize, v: &str| {
         let t = &mut h.state_mut().tabs[0];
-        let id = t.shown_id(1);
-        t.table.as_mut().unwrap().set_cells(&[(id, 1, "edited".into())]);
+        let id = t.shown_id(row);
+        t.table.as_mut().unwrap().set_cells(&[(id, 1, v.into())]);
         t.after_edit(false, &ctx);
-    }
+    };
+    let kept = |ext: &str| std::fs::read_dir(&rdir).ok().into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == ext) && p.with_extension("meta").exists());
+    let wait = |h: &mut egui_kittest::Harness<'static, App>, ext: &str| {
+        for _ in 0..600 {
+            h.run_steps(5);
+            if kept(ext).is_some() { break; }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        kept(ext).unwrap_or_else(|| panic!("no .{ext} kept"))
+    };
+    edit(&mut h, 1, "edited");
     // Not at once: after the quiet time (the harness's clock runs a frame at a time).
     h.run_steps(5);
     assert!(crate::recovery::left_in(&rdir).is_empty());
-    let copy = || std::fs::read_dir(&rdir).ok().into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "csv"));
-    for _ in 0..600 {
-        h.run_steps(5);
-        if copy().is_some_and(|p| p.with_extension("meta").exists()) { break; }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    let data = copy().expect("copy written");
-    assert_eq!(std::fs::read_to_string(&data).unwrap(), "n,v\n1,a\n2,edited\n");
+    let data = wait(&mut h, "journal");
+    assert!(kept("csv").is_none(), "a journal, not a copy, for a file unchanged on disk");
     // As if left by a run no longer there: offered at start.
     let stem = data.file_stem().unwrap().to_str().unwrap().to_string();
     let other = stem.replacen(&std::process::id().to_string(), "999999999", 1);
-    std::fs::rename(&data, rdir.join(format!("{other}.csv"))).unwrap();
+    std::fs::rename(&data, rdir.join(format!("{other}.journal"))).unwrap();
     std::fs::rename(data.with_extension("meta"), rdir.join(format!("{other}.meta"))).unwrap();
     let left = crate::recovery::left_in(&rdir);
     assert_eq!(left.len(), 1);
@@ -321,20 +327,20 @@ fn unsaved_edits_kept_aside() {
     h.run_steps(2);
     assert!(matches!(&h.state().dialog, Some(Dialog::Recover(l)) if l.len() == 1));
     h.state_mut().dialog = None;
+    // Restored: the file read, the edits replayed over it, unsaved.
+    let bytes = std::fs::read(&left[0].data).unwrap();
+    let mut t = crate::recovery::restore(&left[0], bytes.clone(), &ctx, &h.state().m).unwrap();
+    for _ in 0..300 {
+        t.poll(&ctx, &h.state().m);
+        if t.table.is_some() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let st = t.st().unwrap();
+    assert_eq!((st.cell(st.data_id(1), 1), t.dirty(), t.path.as_deref()), ("edited".into(), true, Some(dir.join("t.csv").as_path())));
     crate::recovery::remove(&left[0]);
-    // Another edit: copied again; then saved, the copy goes.
-    {
-        let t = &mut h.state_mut().tabs[0];
-        let id = t.shown_id(0);
-        t.table.as_mut().unwrap().set_cells(&[(id, 1, "again".into())]);
-        t.after_edit(false, &ctx);
-    }
-    for _ in 0..600 {
-        h.run_steps(5);
-        if copy().is_some() { break; }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    assert!(copy().is_some());
+    // Another edit: kept again; then saved, it goes.
+    edit(&mut h, 0, "again");
+    wait(&mut h, "journal");
     h.state_mut().save(None, false, &ctx);
     for _ in 0..200 {
         h.run_steps(1);
@@ -342,7 +348,18 @@ fn unsaved_edits_kept_aside() {
         std::thread::sleep(Duration::from_millis(5));
     }
     h.run_steps(3);
-    assert!(copy().is_none(), "the copy stays after the save");
+    assert!(kept("journal").is_none() && kept("csv").is_none(), "kept after the save");
+    // The file changed on disk under the table (another program): a journal could not be
+    // replayed on it, the whole table is copied instead; the old journal is refused.
+    let path = dir.join("t.csv");
+    std::fs::write(dir.join("other.csv"), "n,v\nx,y\n").unwrap();
+    std::fs::rename(dir.join("other.csv"), &path).unwrap();
+    edit(&mut h, 1, "late");
+    let copy = wait(&mut h, "csv");
+    assert!(kept("journal").is_none());
+    assert_eq!(std::fs::read_to_string(&copy).unwrap(), "n,v\n1,again\n2,late\n");
+    let e = crate::recovery::restore(&left[0], bytes, &ctx, &h.state().m).err().unwrap();
+    assert!(e.contains("changed on disk"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -612,5 +629,227 @@ fn moved_column_keeps_its_analysis() {
     let st = h.state().tabs[0].st().unwrap().clone();
     let t = &h.state().tabs[0];
     assert_eq!((0..3).map(|p| st.cell(t.shown_id(p), 2)).collect::<Vec<_>>(), ["1", "2", "3"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A save in place of rows that keep their place: the table now stands on the saved file and
+/// the rows shown are kept as they were (not filtered and sorted again); the cells are the
+/// file's. Then a sort and a filter on it see the saved values.
+#[test]
+fn save_keeps_the_view() {
+    let mut csv = String::from("city,n\n");
+    for i in 0..400 { csv.push_str(&format!("{},{}\n", ["Lyon", "Paris", "Lyonnais"][i % 3], (i * 37) % 101)); }
+    let (mut h, dir) = app_on(&csv, "keepview");
+    let ctx = h.ctx.clone();
+    let wait = |h: &mut egui_kittest::Harness<'static, App>| for _ in 0..400 {
+        h.run_steps(1);
+        if !h.state().tabs[0].busy() && !h.state().saving() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    {
+        let t = &mut h.state_mut().tabs[0];
+        t.filter.global = "lyon".into();
+        t.sort = vec![csvfab_engine::view::SortKey { col: 1, desc: true }];
+        t.refresh(&ctx);
+    }
+    wait(&mut h);
+    {
+        let t = &mut h.state_mut().tabs[0];
+        let id = t.shown_id(3);
+        t.table.as_mut().unwrap().set_cells(&[(id, 0, "Lyon-Est".into())]);
+        t.after_edit(false, &ctx);
+    }
+    wait(&mut h);
+    let before = h.state().tabs[0].view.clone().unwrap();
+    let base = h.state().tabs[0].st().unwrap().base.clone();
+    h.state_mut().save(None, false, &ctx);
+    wait(&mut h);
+    h.run_steps(3);
+    let t = &h.state().tabs[0];
+    assert!(!t.dirty() && !std::sync::Arc::ptr_eq(&t.st().unwrap().base, &base), "the saved file adopted");
+    assert!(std::sync::Arc::ptr_eq(t.view.as_ref().unwrap(), &before), "the view kept, not computed again");
+    let st = t.st().unwrap();
+    assert_eq!(st.cell(t.shown_id(3), 0), "Lyon-Est");
+    assert!(st.cmap.is_none() && st.cols.iter().all(|l| l.is_empty()));
+    // A filter typed after it: computed on the saved file.
+    h.state_mut().tabs[0].filter.global = "lyon-est".into();
+    h.state_mut().tabs[0].refresh(&ctx);
+    wait(&mut h);
+    assert_eq!(h.state().tabs[0].shown(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Waits until the active tab's jobs and the save are done.
+fn settle(h: &mut egui_kittest::Harness<'static, App>) {
+    for _ in 0..400 {
+        h.run_steps(1);
+        if !h.state().tabs[0].busy() && !h.state().saving() && h.state().tabs[0].dups_job.is_none() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.run_steps(2);
+}
+
+/// After a save that renumbered the rows (one deleted above), the marks and the rows a tool
+/// showed are still those rows, not the ones now at their old ids.
+#[test]
+fn marks_follow_their_rows_through_a_save() {
+    use crate::grid::Action;
+    let (mut h, dir) = app_on("n,v\n1,a\n2,b\n3,c\n4,d\n", "renumber");
+    let ctx = h.ctx.clone();
+    let id3 = h.state().tabs[0].shown_id(2);
+    {
+        let t = &mut h.state_mut().tabs[0];
+        let mut m = crate::tab::Marks::default();
+        m.rows.insert(id3);
+        m.cells.insert((id3, 1), "was c".into());
+        t.marks = std::sync::Arc::new(m);
+        t.restrict_to("marked rows", vec![id3], &ctx);
+    }
+    settle(&mut h);
+    assert_eq!(values(&h), "3");
+    // The first row deleted (outside the restriction: by its id), then saved.
+    let id1 = h.state().tabs[0].st().unwrap().data_id(0);
+    h.state_mut().apply(vec![Action::Sure(Box::new(Action::DeleteRows(vec![id1])))], &ctx);
+    h.state_mut().save(None, false, &ctx);
+    settle(&mut h);
+    let t = &h.state().tabs[0];
+    assert!(!t.dirty());
+    assert_eq!(std::fs::read_to_string(dir.join("t.csv")).unwrap(), "n,v\n2,b\n3,c\n4,d\n");
+    assert_eq!(values(&h), "3", "the restriction followed its row");
+    let st = t.st().unwrap();
+    let marked: Vec<String> = t.marks.rows.iter().map(|&id| st.cell(id, 0)).collect();
+    assert_eq!(marked, ["3"]);
+    assert!(t.marks.cells.keys().all(|&(id, _)| st.cell(id, 0) == "3"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A sync client writing our file back (same bytes, another inode and time) is not "changed on
+/// disk"; another program's edit of the same size is.
+#[test]
+fn same_content_rewritten_is_not_a_change() {
+    use crate::app::{Dialog, OnDisk};
+    let (mut h, dir) = app_on("n,v\n1,a\n2,b\n", "sync");
+    let path = dir.join("t.csv");
+    let tmp = dir.join("t.tmp");
+    std::thread::sleep(Duration::from_millis(20));
+    std::fs::write(&tmp, "n,v\n1,a\n2,b\n").unwrap();
+    std::fs::rename(&tmp, &path).unwrap();
+    for _ in 0..20 {
+        h.event(Event::WindowFocused(true));
+        h.run_steps(2);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(h.state().dialog.is_none(), "our own content told as changed");
+    std::fs::write(&tmp, "n,v\n1,a\n2,X\n").unwrap();
+    std::fs::rename(&tmp, &path).unwrap();
+    for _ in 0..40 {
+        h.event(Event::WindowFocused(true));
+        h.run_steps(2);
+        if h.state().dialog.is_some() { break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(matches!(h.state().dialog, Some(Dialog::OnDisk { what: OnDisk::Changed, .. })), "another program's edit of the same size");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// "Only the rows with …" is an exact value filter (case and spaces count), kept apart from
+/// the column's box, and Invert leaves it alone.
+#[test]
+fn only_rows_with_a_value_is_exact() {
+    use crate::grid::Action;
+    let (mut h, dir) = app_on("n,city\n1,Paris\n2,paris\n3,Paris \n4,Lyon\n", "onlyval");
+    let ctx = h.ctx.clone();
+    h.state_mut().tabs[0].col_filters[0] = "!4".into();
+    h.state_mut().apply(vec![Action::FilterValue { col: 1, value: "Paris".into(), keep: true }], &ctx);
+    settle(&mut h);
+    assert_eq!(values(&h), "1");
+    assert_eq!(h.state().tabs[0].col_filters[1], "", "the column's box is left as typed");
+    h.state_mut().tabs[0].filter.invert = true;
+    h.state_mut().tabs[0].refresh(&ctx);
+    settle(&mut h);
+    assert_eq!(values(&h), "", "Invert flips the box (!4), not the value kept");
+    h.state_mut().tabs[0].filter.invert = false;
+    h.state_mut().tabs[0].col_filters[0].clear();
+    h.state_mut().apply(vec![Action::FilterValue { col: 1, value: "Paris".into(), keep: false }], &ctx);
+    settle(&mut h);
+    assert_eq!(values(&h), "2,3,4", "hidden: \"Paris\" only, not \"paris\" nor \"Paris \"");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A key typed over a block keeps the block: Enter then writes the value in every cell.
+#[test]
+fn typing_over_a_block_fills_it() {
+    let (mut h, dir) = app_on("a,b\n1,x\n2,y\n3,z\n", "typeblock");
+    click_grid(&mut h);
+    {
+        let g = &mut h.state_mut().tabs[0].grid;
+        g.anchor = Some(crate::grid::Cell { row: 0, col: 1 });
+        g.cursor = Some(crate::grid::Cell { row: 2, col: 1 });
+    }
+    h.run_steps(1);
+    h.event(Event::Text("q".into()));
+    h.run_steps(2);
+    assert!(h.state().tabs[0].grid.editing.is_some());
+    key(&mut h, egui::Key::Enter, egui::Modifiers::NONE);
+    settle(&mut h);
+    let t = &h.state().tabs[0];
+    let st = t.st().unwrap();
+    assert_eq!((0..3).map(|p| st.cell(t.shown_id(p), 1)).collect::<Vec<_>>(), ["q", "q", "q"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Text sorts read numbers in it ("Lot 2" before "Lot 10"), accents and case aside, as 1.x's
+/// collator; the status line says what the sort did.
+#[test]
+fn text_sort_is_natural() {
+    use crate::grid::Action;
+    let (mut h, dir) = app_on("name\nLot 10\nlot 2\nÉmile\nLot 1\nemma\n", "natsort");
+    let ctx = h.ctx.clone();
+    h.state_mut().apply(vec![Action::Sort(vec![csvfab_engine::view::SortKey { col: 0, desc: false }])], &ctx);
+    settle(&mut h);
+    assert_eq!(values(&h), "Émile,emma,Lot 1,lot 2,Lot 10");
+    assert!(h.state().status.as_ref().is_some_and(|s| s.1.starts_with("Sorted by name ↑ (text)")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A filter that does not compile: the box it is in is marked, the reason is in the status
+/// line, and the rows shown are not said to be filtered.
+#[test]
+fn bad_column_filter_is_told() {
+    let (mut h, dir) = app_on("n,total\n1,5\n2,2000\n", "badfilter");
+    let ctx = h.ctx.clone();
+    h.state_mut().tabs[0].col_filters[1] = ">abc".into();
+    h.state_mut().tabs[0].refresh(&ctx);
+    settle(&mut h);
+    let t = &h.state().tabs[0];
+    assert_eq!(t.filter_error_col, Some(1));
+    assert!(t.filter_error.as_deref().is_some_and(|e| e.contains("total") && e.contains("not a number")), "{:?}", t.filter_error);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The duplicate marks are counted again after any edit, once, a moment after the last.
+#[test]
+fn duplicate_marks_follow_edits() {
+    let (mut h, dir) = app_on("name,city\nAnn,Lyon\nAnn,Lyon\nBob,Nice\nCid,Nice\n", "dupmarks");
+    let ctx = h.ctx.clone();
+    let st = h.state().tabs[0].st().unwrap().clone();
+    let keys = vec![crate::tools::dupes::KeyDraft::column("name")];
+    let rules = crate::tools::dupes::compile(&st.headers(), &keys).unwrap().unwrap();
+    let ids: Vec<csvfab_engine::RowId> = (0..st.len()).map(|p| st.data_id(p)).collect();
+    let d = csvfab_engine::dupes::find_rules(&st, &ids, &rules, &[], &std::sync::atomic::AtomicBool::new(false), None).unwrap();
+    assert_eq!(d.groups(), 1);
+    h.state_mut().tabs[0].marks_mut_dups(Some(std::sync::Arc::new(crate::tools::dupes::DupMarks::new(keys, rules, d))));
+    // Bob renamed Ann: a group of three; typed twice quickly, counted once.
+    for v in ["An", "Ann"] {
+        let t = &mut h.state_mut().tabs[0];
+        let id = t.shown_id(2);
+        t.apply_changes(&[(id, 0, v.into())], &ctx);
+        h.run_steps(1);
+    }
+    std::thread::sleep(Duration::from_millis(350));
+    settle(&mut h);
+    let t = &h.state().tabs[0];
+    let m = t.marks.dups.as_ref().expect("still marked");
+    assert_eq!(m.group(t.shown_id(2)), m.group(t.shown_id(0)), "the renamed row joined the group");
     let _ = std::fs::remove_dir_all(&dir);
 }

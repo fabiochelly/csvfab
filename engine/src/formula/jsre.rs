@@ -9,8 +9,10 @@
 //! compiled pattern (a{1000}{1000} would take gigabytes), with a message the
 //! user can act on. Patterns are translated to keep JavaScript's meaning where
 //! the syntaxes differ (\d and \w are ASCII, `{` stands for itself when it is
-//! not a repetition, [^] is any character…); look-around and back-references,
-//! which need backtracking, are refused with a message saying so.
+//! not a repetition, [^] is any character…). Look-around and back-references,
+//! which need backtracking, run on fancy-regex instead (formulas from the web app
+//! use them), with a bound on its backtracking: a pattern that would take
+//! minutes on a cell stops there, the cell counted as not matching.
 
 use super::value::Val;
 use regex::{Regex, RegexBuilder};
@@ -23,9 +25,61 @@ const MAX_SOURCE: usize = 10_000;
 
 pub const TOO_BIG: &str = "this regular expression is too large to run on every row — use smaller counted repeats such as {100} rather than {10000}";
 
+/// The engine a pattern runs on: `regex` (linear time), or fancy-regex for look-around and
+/// back-references (bounded backtracking).
+#[derive(Debug)]
+pub enum Engine {
+    Fast(Regex),
+    Fancy(fancy_regex::Regex),
+}
+
+/// Steps fancy-regex may backtrack on one search before giving up (as the schemas' patterns).
+const BACKTRACK_LIMIT: usize = 1_000_000;
+
+/// A match's groups: (start, end) of each, None for one not taken; group 0 the whole match.
+type Spans = Vec<Option<(usize, usize)>>;
+
+impl Engine {
+    fn find_at(&self, s: &str, i: usize) -> Option<(usize, usize)> {
+        match self {
+            Engine::Fast(r) => r.find_at(s, i).map(|m| (m.start(), m.end())),
+            Engine::Fancy(r) => r.find_from_pos(s, i).ok().flatten().map(|m| (m.start(), m.end())),
+        }
+    }
+
+    fn is_match(&self, s: &str) -> bool {
+        match self {
+            Engine::Fast(r) => r.is_match(s),
+            Engine::Fancy(r) => r.is_match(s).unwrap_or(false),
+        }
+    }
+
+    fn captures_at(&self, s: &str, i: usize) -> Option<Spans> {
+        match self {
+            Engine::Fast(r) => r.captures_at(s, i).map(|c| c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect()),
+            Engine::Fancy(r) => r.captures_from_pos(s, i).ok().flatten().map(|c| c.iter().map(|m| m.map(|m| (m.start(), m.end()))).collect()),
+        }
+    }
+
+    /// The group named `name`'s index.
+    fn group(&self, name: &str) -> Option<usize> {
+        match self {
+            Engine::Fast(r) => r.capture_names().position(|n| n == Some(name)),
+            Engine::Fancy(r) => r.capture_names().position(|n| n == Some(name)),
+        }
+    }
+
+    fn named(&self) -> bool {
+        match self {
+            Engine::Fast(r) => r.capture_names().flatten().next().is_some(),
+            Engine::Fancy(r) => r.capture_names().flatten().next().is_some(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Rx {
-    pub re: Regex,
+    pub re: Engine,
     pub src: Box<str>,
     pub flags: Box<str>,
     pub global: bool,
@@ -49,7 +103,7 @@ pub fn build(src: &str, flags: &str) -> Result<Rx, String> {
         return Err(TOO_BIG.into());
     }
     let unicode = seen.contains('u') || seen.contains('v');
-    let body = translate(src, unicode, seen.contains('s')).map_err(|m| bad(&m))?;
+    let (body, fancy) = translate(src, unicode, seen.contains('s')).map_err(|m| bad(&m))?;
     let mut pat = String::with_capacity(body.len() + 8);
     if seen.contains('i') || seen.contains('m') {
         pat.push_str("(?");
@@ -58,13 +112,20 @@ pub fn build(src: &str, flags: &str) -> Result<Rx, String> {
         pat.push(')');
     }
     pat.push_str(&body);
-    let re = RegexBuilder::new(&pat).size_limit(SIZE_LIMIT).dfa_size_limit(DFA_LIMIT).build().map_err(|e| match e {
-        regex::Error::CompiledTooBig(_) => TOO_BIG.to_string(),
-        e => {
-            let s = e.to_string();
-            bad(s.lines().rev().find_map(|l| l.strip_prefix("error: ")).unwrap_or(&s))
-        }
-    })?;
+    let re = if fancy {
+        Engine::Fancy(fancy_regex::RegexBuilder::new(&pat).backtrack_limit(BACKTRACK_LIMIT).delegate_size_limit(SIZE_LIMIT).delegate_dfa_size_limit(DFA_LIMIT).build().map_err(|e| {
+            let m = e.to_string();
+            if m.contains("size limit") || m.contains("too big") { TOO_BIG.to_string() } else { bad(&m) }
+        })?)
+    } else {
+        Engine::Fast(RegexBuilder::new(&pat).size_limit(SIZE_LIMIT).dfa_size_limit(DFA_LIMIT).build().map_err(|e| match e {
+            regex::Error::CompiledTooBig(_) => TOO_BIG.to_string(),
+            e => {
+                let s = e.to_string();
+                bad(s.lines().rev().find_map(|l| l.strip_prefix("error: ")).unwrap_or(&s))
+            }
+        })?)
+    };
     Ok(Rx { re, src: src.into(), flags: flags.into(), global: seen.contains('g'), sticky: seen.contains('y') })
 }
 
@@ -97,8 +158,13 @@ fn lit(c: char, out: &mut String) {
 }
 
 /// JavaScript pattern → `regex` crate pattern.
-fn translate(src: &str, unicode: bool, dotall: bool) -> Result<String, String> {
+/// The pattern in the `regex` crate's syntax, and whether it needs fancy-regex (look-around,
+/// back-references; fancy-regex reads the same syntax).
+fn translate(src: &str, unicode: bool, dotall: bool) -> Result<(String, bool), String> {
     let s: Vec<char> = src.chars().collect();
+    let fancy = s.windows(3).any(|w| w[0] == '(' && w[1] == '?' && (w[2] == '=' || w[2] == '!'))
+        || s.windows(4).any(|w| w[..3] == ['(', '?', '<'] && (w[3] == '=' || w[3] == '!'))
+        || s.windows(2).enumerate().any(|(k, w)| w[0] == '\\' && (w[1].is_ascii_digit() && w[1] != '0' || w[1] == 'k') && s[..k].iter().rev().take_while(|&&c| c == '\\').count() % 2 == 0);
     let mut out = String::with_capacity(src.len() + 16);
     let mut i = 0;
     let mut class = false;
@@ -114,17 +180,30 @@ fn translate(src: &str, unicode: bool, dotall: bool) -> Result<String, String> {
                 'W' => out.push_str("[^0-9A-Za-z_]"),
                 's' | 'S' | 'n' | 'r' | 't' | 'f' | 'v' => { out.push('\\'); out.push(e) }
                 'b' if class => out.push_str("\\x08"),
+                'b' if fancy => out.push_str("\\b"),
+                'B' if fancy => out.push_str("\\B"),
                 'b' => out.push_str("(?-u:\\b)"),
                 'B' => out.push_str("(?-u:\\B)"),
                 '0' if !s.get(i).is_some_and(|c| c.is_ascii_digit()) => out.push_str("\\x00"),
-                '1'..='9' if !class => return Err("back-references (\\1) are not supported".into()),
+                '1'..='9' if !class => {
+                    // A back-reference: its number, as many digits as follow.
+                    out.push('\\');
+                    out.push(e);
+                    while i < s.len() && s[i].is_ascii_digit() { out.push(s[i]); i += 1 }
+                }
                 '0'..='9' => {
                     // an octal escape, in a class or after \0
                     let mut v = e.to_digit(8).ok_or("invalid escape")?;
                     while i < s.len() && v * 8 < 256 && s[i].is_digit(8) { v = v * 8 + s[i].to_digit(8).unwrap(); i += 1 }
                     out.push_str(&format!("\\x{{{v:x}}}"));
                 }
-                'k' if s.get(i) == Some(&'<') => return Err("back-references (\\k<name>) are not supported".into()),
+                'k' if s.get(i) == Some(&'<') => {
+                    let end = s[i..].iter().position(|&c| c == '>').ok_or("invalid named reference")? + i;
+                    out.push_str("\\k<");
+                    out.extend(&s[i + 1..end]);
+                    out.push('>');
+                    i = end + 1;
+                }
                 'x' => match hex(&s, i, 2) {
                     Some(v) => { out.push_str(&format!("\\x{{{v:x}}}")); i += 2 }
                     None => out.push('x'),
@@ -176,10 +255,9 @@ fn translate(src: &str, unicode: bool, dotall: bool) -> Result<String, String> {
             }
             '(' if s.get(i + 1) == Some(&'?') => {
                 let next: String = s[i + 2..].iter().take(2).collect();
-                if next.starts_with('=') || next.starts_with('!') || next == "<=" || next == "<!" {
-                    return Err("look-ahead and look-behind — (?= (?! (?<= (?<! — are not supported".into());
-                }
-                if !(next.starts_with(':') || next.starts_with('<')) {
+                // Look-around (fancy-regex's syntax is JavaScript's), a group, a named group.
+                let look = next.starts_with('=') || next.starts_with('!') || next == "<=" || next == "<!";
+                if !look && !(next.starts_with(':') || next.starts_with('<')) {
                     return Err("invalid group".into());
                 }
                 out.push_str("(?");
@@ -200,7 +278,7 @@ fn translate(src: &str, unicode: bool, dotall: bool) -> Result<String, String> {
     if class {
         return Err("Unterminated character class".into());
     }
-    Ok(out)
+    Ok((out, fancy))
 }
 
 /// UTF-16 length of the text before byte `b` (JavaScript indexes in code units).
@@ -215,14 +293,14 @@ fn step(s: &str, i: usize) -> usize {
 }
 
 /// A match and its groups as a list (exec): [whole, group 1, …], undefined for a group not taken.
-fn groups<'a>(caps: &regex::Captures<'a>) -> Vec<Val<'a>> {
-    caps.iter().map(|m| m.map_or(Val::Undef, |m| Val::str(m.as_str()))).collect()
+fn groups<'a>(s: &'a str, caps: &Spans) -> Vec<Val<'a>> {
+    caps.iter().map(|m| m.map_or(Val::Undef, |(a, b)| Val::str(&s[a..b]))).collect()
 }
 
 impl Rx {
-    fn find_at<'h>(&self, s: &'h str, i: usize) -> Option<regex::Match<'h>> {
+    fn find_at(&self, s: &str, i: usize) -> Option<(usize, usize)> {
         let m = self.re.find_at(s, i)?;
-        (!self.sticky || m.start() == i).then_some(m)
+        (!self.sticky || m.0 == i).then_some(m)
     }
 
     pub fn test(&self, s: &str) -> bool {
@@ -231,12 +309,12 @@ impl Rx {
 
     /// Every match from the start, as `match` with /g and `replace` with /g walk them:
     /// an empty match moves on one character.
-    fn each<'h>(&self, s: &'h str, mut f: impl FnMut(regex::Match<'h>)) {
+    fn each(&self, s: &str, mut f: impl FnMut((usize, usize))) {
         let mut i = 0;
         while i <= s.len() {
             let Some(m) = self.find_at(s, i) else { break };
             f(m);
-            i = if m.end() == m.start() { step(s, m.end()) } else { m.end() };
+            i = if m.1 == m.0 { step(s, m.1) } else { m.1 };
         }
     }
 
@@ -252,21 +330,21 @@ impl Rx {
     fn matches_of<'h>(&self, s: &'h str) -> Vec<Val<'h>> {
         if self.global {
             let mut out = Vec::new();
-            self.each(s, |m| out.push(Val::str(m.as_str())));
+            self.each(s, |(a, b)| out.push(Val::str(&s[a..b])));
             return out;
         }
         if self.sticky {
             return match self.re.captures_at(s, 0) {
-                Some(c) if c.get(0).unwrap().start() == 0 => groups(&c),
+                Some(c) if c[0].is_some_and(|m| m.0 == 0) => groups(s, &c),
                 _ => Vec::new(),
             };
         }
-        self.re.captures(s).map(|c| groups(&c)).unwrap_or_default()
+        self.re.captures_at(s, 0).map(|c| groups(s, &c)).unwrap_or_default()
     }
 
     /// String::search: the UTF-16 index of the first match, -1 when none.
     pub fn search(&self, s: &str) -> f64 {
-        self.find_at(s, 0).map_or(-1.0, |m| u16_index(s, m.start()) as f64)
+        self.find_at(s, 0).map_or(-1.0, |m| u16_index(s, m.0) as f64)
     }
 
     /// String::replace with this pattern (every match with /g), `$1 $& $<name>…` expanded.
@@ -287,10 +365,10 @@ impl Rx {
         };
         if self.global {
             let mut spans = Vec::new();
-            self.each(&s, |m| spans.push((m.start(), m.end())));
+            self.each(&s, |m| spans.push(m));
             for (a, b) in spans { one(a, b, &mut out) }
         } else if let Some(m) = self.find_at(&s, 0) {
-            one(m.start(), m.end(), &mut out);
+            one(m.0, m.1, &mut out);
         }
         if !any {
             return s;
@@ -312,20 +390,20 @@ impl Rx {
         let (mut p, mut q) = (0, 0);
         while q < s.len() {
             let Some(c) = self.re.captures_at(s, q) else { break };
-            let m = c.get(0).unwrap();
-            if m.end() == p || m.start() >= s.len() {
+            let (m0, m1) = c[0].unwrap();
+            if m1 == p || m0 >= s.len() {
                 // an empty match where the last piece ends: move on
-                q = step(s, m.start().max(q));
+                q = step(s, m0.max(q));
                 continue;
             }
-            out.push(Val::str(&s[p..m.start()]));
+            out.push(Val::str(&s[p..m0]));
             if out.len() == limit { return out }
             for g in c.iter().skip(1) {
-                out.push(g.map_or(Val::Undef, |g| Val::str(g.as_str())));
+                out.push(g.map_or(Val::Undef, |(a, b)| Val::str(&s[a..b])));
                 if out.len() == limit { return out }
             }
-            p = m.end();
-            q = if m.end() == m.start() { step(s, p) } else { p };
+            p = m1;
+            q = if m1 == m0 { step(s, p) } else { p };
         }
         out.push(Val::str(&s[p..]));
         out
@@ -333,7 +411,7 @@ impl Rx {
 }
 
 /// GetSubstitution: $$ $& $` $' $n $nn $<name> in a replacement text.
-pub fn expand(by: &str, s: &str, start: usize, end: usize, caps: Option<(&regex::Captures, &Regex)>, out: &mut String) {
+pub fn expand(by: &str, s: &str, start: usize, end: usize, caps: Option<(&Spans, &Engine)>, out: &mut String) {
     let b = by.as_bytes();
     let n = caps.map_or(0, |(c, _)| c.len() - 1);
     let mut i = 0;
@@ -345,7 +423,7 @@ pub fn expand(by: &str, s: &str, start: usize, end: usize, caps: Option<(&regex:
             continue;
         }
         let group = |k: usize, out: &mut String| {
-            if let Some(m) = caps.and_then(|(c, _)| c.get(k)) { out.push_str(m.as_str()) }
+            if let Some((x, y)) = caps.and_then(|(c, _)| c.get(k).copied().flatten()) { out.push_str(&s[x..y]) }
         };
         match b[i + 1] {
             b'$' => { out.push('$'); i += 2 }
@@ -361,10 +439,10 @@ pub fn expand(by: &str, s: &str, start: usize, end: usize, caps: Option<(&regex:
                     _ => { out.push('$'); i += 1 }
                 }
             }
-            b'<' if caps.is_some_and(|(_, re)| re.capture_names().flatten().next().is_some()) => match by[i + 2..].find('>') {
+            b'<' if caps.is_some_and(|(_, re)| re.named()) => match by[i + 2..].find('>') {
                 Some(e) => {
                     let name = &by[i + 2..i + 2 + e];
-                    if let Some(m) = caps.and_then(|(c, _)| c.name(name)) { out.push_str(m.as_str()) }
+                    if let Some(k) = caps.and_then(|(_, re)| re.group(name)) { group(k, out) }
                     i += e + 3;
                 }
                 None => { out.push('$'); i += 1 }
@@ -416,8 +494,13 @@ mod tests {
         assert!(build(r"\u00e9", "").unwrap().test("é"));
         assert!(build("abc", "i").unwrap().test("ABC"));
         assert!(build("(?<y>\\d{4})", "").is_ok());
-        assert!(build(r"(a)\1", "").unwrap_err().contains("back-references"));
-        assert!(build(r"a(?=b)", "").unwrap_err().contains("look-ahead"));
+        // Back-references and look-around, as the web ran them (fancy-regex).
+        assert!(build(r"(a)\1", "").unwrap().test("xaa") && !build(r"(a)\1", "").unwrap().test("ab"));
+        assert!(build(r"a(?=b)", "").unwrap().test("ab") && !build(r"a(?=b)", "").unwrap().test("ac"));
+        assert!(build(r"(?<!\$)\b\d+", "").unwrap().test("x 12") && !build(r"(?<!\$)\b\d+", "").unwrap().test("$12"));
+        assert_eq!(rep(r"(?<y>\d{4})-(\d\d)(?=-)", "g", "2024-05-01", "$2/$<y>"), "05/2024-01");
+        assert_eq!(rep(r"(\w)\1", "g", "aabbc", "[$1]"), "[a][b]c");
+        assert!(build(r"\\1", "").unwrap().test("\\1"), "an escaped backslash then 1");
         assert!(build(r"(", "").unwrap_err().starts_with("Invalid regular expression: /(/"));
         assert!(build("a", "gg").is_err());
     }
@@ -433,6 +516,11 @@ mod tests {
         assert!(t.elapsed().as_millis() < 1000);
         assert!(build("(.*)*x", "").is_ok());
         assert_eq!(build("(a{1000}){1000}", "").unwrap_err(), TOO_BIG);
+        // Backtracking bounded: a catastrophic pattern on fancy-regex gives up (no match).
+        let r = build(r"^(a+)+(?=b)\1$", "").unwrap();
+        let t = std::time::Instant::now();
+        assert!(!r.test(&format!("{}c", "a".repeat(40))));
+        assert!(t.elapsed().as_millis() < 2000);
     }
 
     #[test]

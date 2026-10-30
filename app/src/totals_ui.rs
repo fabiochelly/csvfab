@@ -439,7 +439,7 @@ pub fn cells(ui: &mut Ui, tab: &mut Tab, painter: &Painter, r: Rect, clip: Rect,
                 if i == any_from && i > 0 { sep(ui, p); }
                 let val = t.and_then(|t| t.value(g)).map(|v| v.text).unwrap_or_default();
                 let on = f == Some(g);
-                let item = Item::new(g.labels(kind).1).keys(&val).checked(on && val.is_empty());
+                let item = Item::new(g.labels(kind).1).keys(&val).checked(on);
                 if item.show(ui, p).clicked() {
                     tab.totals.choice.insert(c, Some(g));
                     ui.close();
@@ -454,6 +454,8 @@ pub fn cells(ui: &mut Ui, tab: &mut Tab, painter: &Painter, r: Rect, clip: Rect,
                 sep(ui, p);
                 if Item::new("Copy the value").icon(crate::icons::Icon::Copy).keys(&v.raw).show(ui, p).clicked() {
                     ui.ctx().copy_text(v.raw.clone());
+                    let name = f.map(|f| f.labels(kind).1).unwrap_or_default();
+                    tab.grid.notice = Some(format!("{name} of \"{}\" copied: {}", heads.get(c).map_or("", |s| s.as_str()), v.raw));
                     ui.close();
                 }
             }

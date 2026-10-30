@@ -8,6 +8,7 @@ use csvfab_engine::look::{self, Pills, Rich};
 use csvfab_engine::view::{self, FilterSpec, Kind, SortKey};
 use csvfab_engine::{Base, Enc, RowId, State, Table};
 use eframe::egui;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -22,14 +23,30 @@ pub struct Ready {
     kinds: Vec<Kind>,
     rich: Vec<Option<Rich>>,
     pills: Vec<Option<Pills>>,
+    /// A save's file, its rows where the table had them (record k is row k): the rows shown
+    /// stay what they were.
+    same_rows: bool,
 }
 
 impl Ready {
     /// On a background thread: `header` is the table's when it is read again.
     pub fn new(base: Base, header: Option<bool>) -> Ready {
-        let table = Table::new(Arc::new(base), header);
+        Ready::of(Table::new(Arc::new(base), header))
+    }
+
+    fn of(table: Table) -> Ready {
         let (kinds, rich, pills) = looks(&table.st);
-        Ready { table, kinds, rich, pills }
+        Ready { table, kinds, rich, pills, same_rows: false }
+    }
+
+    /// The file a save of `st` wrote (`save::save_indexed`), on a background thread. When every
+    /// row kept its place, the column caches of the columns no edit touched carry over: the
+    /// filters, sorts and charts on them are not read from the file again.
+    pub fn saved(st: &State, base: Base) -> Ready {
+        let same_rows = st.order.is_none() && base.n == st.base.n;
+        let r = Ready { same_rows, ..Ready::new(base, Some(st.header)) };
+        if same_rows { csvfab_engine::colcache::carry(st, &r.table.st.base); }
+        r
     }
 }
 
@@ -62,8 +79,9 @@ struct Loader {
 impl Loader {
     /// Reads `path`. `from`: the bytes already held (a new encoding or delimiter:
     /// no re-read when possible); `header`: the table's, when it is read again;
-    /// `head`: send the first records first (nothing is shown yet).
-    fn spawn(path: PathBuf, opts: OpenOptions, from: Option<Arc<Base>>, header: Option<bool>, head: bool, ctx: &egui::Context) -> Loader {
+    /// `head`: send the first records first (nothing is shown yet); `journal`: edits to
+    /// replay over the file read (crash recovery: `csvfab_engine::journal`).
+    fn spawn(path: PathBuf, opts: OpenOptions, from: Option<Arc<Base>>, header: Option<bool>, head: bool, journal: Option<Vec<u8>>, ctx: &egui::Context) -> Loader {
         let (tx, rx) = channel();
         let progress = Arc::new(AtomicUsize::new(0));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -75,6 +93,11 @@ impl Loader {
                 ctx.request_repaint();
             };
             let read = || -> Result<Load, String> {
+                if let Some(j) = journal {
+                    let base = Arc::new(Base::open(&path, opts, Some(&p)).map_err(|e| e.to_string())?);
+                    let t = csvfab_engine::journal::replay(base, &j).map_err(|e| format!("The unsaved edits could not be restored: {e}."))?;
+                    return Ok(Load::Full(Box::new(Ready::of(t))));
+                }
                 if let Some(b) = from.and_then(|b| b.reopen(opts, Some(&p))) {
                     return Ok(Load::Full(Box::new(Ready::new(b, header))));
                 }
@@ -171,6 +194,56 @@ struct ViewMemo {
     filtered: Arc<std::sync::Mutex<Option<Arc<Vec<RowId>>>>>,
 }
 
+/// The filters of a tab, compiled (`Tab::query`).
+pub struct Query {
+    /// Inverted: the value filters, applied as they are, and the text tests, whose rows go.
+    /// Otherwise everything is in `texts` (the engine inverts a search alone).
+    pub values: view::Filter,
+    pub texts: view::Filter,
+    pub expr: Option<csvfab_engine::formula::Expr>,
+    expr_text: Option<String>,
+    pub whole: bool,
+    /// The rows a tool asked to show, the filters applying within them.
+    pub within: Option<Arc<Vec<RowId>>>,
+}
+
+impl Query {
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty() && self.texts.is_empty() && self.expr.is_none() && self.within.is_none()
+    }
+
+    /// The rows passing, in file order (or `within`'s), unsorted; None if cancelled. `errors`:
+    /// where the expression's errors are told (count, first message).
+    pub fn run(&self, st: &State, errors: Option<&std::sync::Mutex<Option<(usize, String)>>>, cancel: &AtomicBool) -> Option<Vec<RowId>> {
+        let all = || -> Vec<RowId> { (0..st.len()).map(|p| st.data_id(p)).collect() };
+        let over = |f: &view::Filter, rows: Option<&[RowId]>| -> Option<Vec<RowId>> {
+            match rows {
+                Some(r) => view::filter_ids(st, f, r, cancel),
+                None if f.is_empty() => Some(all()),
+                None => view::filter(st, f, cancel),
+            }
+        };
+        // The universe: the rows a tool showed, those of the value filters (inverted only).
+        let universe: Option<Arc<Vec<RowId>>> = if self.values.is_empty() { self.within.clone() } else { Some(Arc::new(over(&self.values, self.within.as_deref().map(|v| v.as_slice()))?)) };
+        let within = match &self.expr {
+            Some(e) => {
+                let o = csvfab_engine::formula::filter(st, e, universe.as_deref().map(|v| v.as_slice()), cancel)?;
+                if let (Some(m), true) = (errors, o.errors > 0) { *m.lock().unwrap() = Some((o.errors, o.first_error.unwrap_or_default())); }
+                Some(Arc::new(o.out))
+            }
+            None => universe.clone(),
+        };
+        let ids = over(&self.texts, within.as_deref().map(|v| v.as_slice()))?;
+        if !self.whole { return Some(ids); }
+        // The rows that fail the test, in their order.
+        let pass = csvfab_engine::table::RowMask::new(ids.iter().copied());
+        Some(match &universe {
+            Some(u) => u.iter().copied().filter(|&id| !pass.contains(id)).collect(),
+            None => (0..st.len()).map(|p| st.data_id(p)).filter(|&id| !pass.contains(id)).collect(),
+        })
+    }
+}
+
 /// A table's identity: rows and cells change only with a new value of one of these.
 fn state_key(st: &State) -> [usize; 6] {
     let ptr = |p: Option<*const u8>| p.map_or(0, |p| p as usize);
@@ -200,9 +273,13 @@ pub struct ColView {
     pub widths: Vec<f32>,
     pub sort: Vec<SortKey>,
     pub hidden_vals: Vec<(usize, Arc<HashSet<String>>)>,
+    pub picks: Vec<view::ValuePick>,
     pub find_col: Option<usize>,
     pub look: crate::grid::ColLook,
     pub totals: crate::totals_ui::Choices,
+    /// The rest of the view, kept by an edit that clears it ("Delete hidden rows"): the search
+    /// (text, expression mode) and the rows a tool showed. None: left as it is.
+    pub rest: Option<(String, bool, Option<Restrict>)>,
 }
 
 pub struct Tab {
@@ -247,6 +324,8 @@ pub struct Tab {
     pub expr_mode: bool,
     pub marks: Arc<Marks>,
     pub filter_error: Option<String>,
+    /// The column whose filter box holds the error (None: the search box).
+    pub filter_error_col: Option<usize>,
     /// The expression filter's rows that raised an error (hidden), with the first message:
     /// set by the view job, said in the status bar.
     pub expr_errors: Arc<std::sync::Mutex<Option<(usize, String)>>>,
@@ -269,6 +348,32 @@ pub struct Tab {
     pub totals: crate::totals_ui::State,
     pub find: Find,
     pub ghost: Option<Arc<Ghost>>,
+    /// The duplicate marks' count after the table changed (`tools::dupes::start_refresh`): the
+    /// job under way, the table the marks were counted on, when the next count starts (a
+    /// moment after the last change), and the marks held back while the rows were renumbered.
+    pub dups_job: Option<crate::tools::dupes::Refresh>,
+    pub dups_seen: (usize, u64),
+    dups_due: Option<Instant>,
+    pub dups_held: Option<Arc<crate::tools::dupes::DupMarks>>,
+    /// Set by a save that wrote the rows in another order (inserted, deleted, moved): each old
+    /// row id's record in the file written (`u32::MAX`: not written). The next table installed
+    /// is that file: the rows a tool showed or marked follow their new ids.
+    pub renumber: Option<Arc<Vec<u32>>>,
+    /// The column titles, for (`state_key`, version): read once, not at every frame's call.
+    heads: std::sync::Mutex<Option<(([usize; 6], u64), Arc<Vec<String>>)>>,
+    /// Every data row's id in file order, for (`state_key`): made once for the tools that take
+    /// the rows shown of an unfiltered tab, not at each opening.
+    all_ids: std::sync::Mutex<Option<([usize; 6], Arc<Vec<RowId>>)>>,
+}
+
+/// After a save of `st`: each row id's record in the file written, when the rows are no longer
+/// where they were (None: every row kept its id). On the save's thread.
+pub fn renumbering(st: &State) -> Option<Arc<Vec<u32>>> {
+    let order = st.order.as_ref()?;
+    let max = order.iter().copied().max().map_or(0, |m| m as usize + 1);
+    let mut map = vec![u32::MAX; max];
+    for (k, &id) in order.iter().enumerate() { map[id as usize] = k as u32; }
+    Some(Arc::new(map))
 }
 
 fn next_uid() -> u64 {
@@ -287,6 +392,15 @@ impl Tab {
         let mut t = Tab::empty(name, Some(path), opts);
         t.want_header = header;
         t.reload(ctx);
+        t
+    }
+
+    /// The file at `path` with the unsaved edits a journal kept (crash recovery), read as the
+    /// journal says: unsaved, Save writes them over it.
+    pub fn recover(path: PathBuf, opts: OpenOptions, journal: Vec<u8>, ctx: &egui::Context) -> Tab {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+        let mut t = Tab::empty(name, Some(path.clone()), opts);
+        t.loading = Some(Loader::spawn(path, opts, None, None, false, Some(journal), ctx));
         t
     }
 
@@ -318,7 +432,9 @@ impl Tab {
                 table.set_header_edit(true);
             }
         });
-        self.after_edit(true, ctx);
+        // A title changed: the rows and the columns' kinds are the same (no analysis, no
+        // filtering again), only what is drawn from the titles.
+        self.after_edit(false, ctx);
     }
 
     /// A tab with nothing in it (for tools bound to no file).
@@ -355,6 +471,7 @@ impl Tab {
             expr_mode: false,
             marks: Arc::default(),
             filter_error: None,
+            filter_error_col: None,
             expr_errors: Default::default(),
             job: None,
             memo: None,
@@ -371,6 +488,13 @@ impl Tab {
             totals: Default::default(),
             find: Find::default(),
             ghost: None,
+            dups_job: None,
+            dups_seen: (0, 0),
+            dups_due: None,
+            dups_held: None,
+            renumber: None,
+            heads: Default::default(),
+            all_ids: Default::default(),
         }
     }
 
@@ -380,7 +504,7 @@ impl Tab {
     pub fn reload(&mut self, ctx: &egui::Context) {
         let Some(path) = self.path.clone() else { return };
         let header = self.table.as_ref().map(|t| t.st.header).or(self.want_header);
-        self.loading = Some(Loader::spawn(path, self.open_opts, None, header, self.table.is_none(), ctx));
+        self.loading = Some(Loader::spawn(path, self.open_opts, None, header, self.table.is_none(), None, ctx));
     }
 
     /// While reading: the share done.
@@ -417,6 +541,23 @@ impl Tab {
             }
             None => {}
         }
+        // The duplicate marks follow every change of the table, counted a moment after the last.
+        if self.marks.dups.is_some() || self.dups_held.is_some() {
+            let key = self.table_key();
+            if key != self.dups_seen {
+                self.dups_seen = key;
+                let wait = if self.dups_held.is_some() { 0 } else { 300 };
+                self.dups_due = Some(Instant::now() + Duration::from_millis(wait));
+                ctx.request_repaint_after(Duration::from_millis(wait));
+            }
+            if self.dups_due.is_some_and(|d| Instant::now() >= d) && !self.busy() {
+                self.dups_due = None;
+                crate::tools::dupes::start_refresh(self, ctx);
+            } else if let Some(d) = self.dups_due {
+                ctx.request_repaint_after(d.saturating_duration_since(Instant::now()));
+            }
+        }
+        if self.dups_job.is_some() { crate::tools::dupes::poll_refresh(self, ctx); }
         if let Some(r) = self.job.as_mut().and_then(|j| j.poll()) {
             let job = self.job.take().unwrap();
             if let Some(ids) = r {
@@ -431,6 +572,7 @@ impl Tab {
     /// Shows a file read: a new table, or the whole file under the table its
     /// first records made (edits made meanwhile kept).
     fn install(&mut self, r: Ready, ctx: &egui::Context, m: &crate::theme::Metrics) {
+        let keep_view = r.same_rows && self.job.is_none();
         let base = &r.table.st.base;
         if base.partial { crate::profile::mark("first rows read"); }
         let first = self.table.is_none();
@@ -448,6 +590,7 @@ impl Tab {
             _ => {
                 // The table read before (a reload): freed off the UI thread.
                 crate::app::drop_later(self.table.replace(r.table));
+                if let Some(map) = self.renumber.take() { self.renumber_ids(&map); }
                 (self.kinds, self.rich, self.pills) = (r.kinds, r.rich, r.pills);
                 // A new table counts its versions from 0 again: the old ones' settings would mismatch.
                 self.col_views.clear();
@@ -460,6 +603,8 @@ impl Tab {
         if reread {
             self.col_filters.clear();
             self.filter.hidden.clear();
+            self.filter.picks.clear();
+            self.spark.picks.clear();
             self.sort.clear();
             self.restrict = None;
             self.find.col = None;
@@ -471,7 +616,50 @@ impl Tab {
         if first || reread || self.grid.widths.len() != n {
             if grows { self.grid.fit_count(n); } else { self.grid.reset_widths(&self.table.as_ref().unwrap().st, ctx, m); }
         }
+        if keep_view {
+            // A save of the rows shown, each where it was: the same rows, the same cells. The
+            // view stands; only what it was computed on is now the new table.
+            if let Some(mut p) = self.pending.take() {
+                p.view = self.view.clone();
+                if p.view.is_some() { self.memo = Some(p); }
+            }
+            if let Some(memo) = &mut self.memo { memo.state = state_key(&self.table.as_ref().unwrap().st); }
+            self.generation += 1;
+            return;
+        }
         self.refresh(ctx);
+    }
+
+    /// The column titles (`State::headers`), kept until the table changes.
+    pub fn heads(&self) -> Arc<Vec<String>> {
+        let Some(t) = &self.table else { return Arc::default() };
+        let key = (state_key(&t.st), t.version());
+        let mut h = self.heads.lock().unwrap();
+        if let Some((k, v)) = &*h { if *k == key { return v.clone(); } }
+        let v = Arc::new(t.st.headers());
+        *h = Some((key, v.clone()));
+        v
+    }
+
+    /// The table's identity for what is counted on it: its file and its version.
+    pub fn table_key(&self) -> (usize, u64) {
+        self.table.as_ref().map_or((0, 0), |t| (Arc::as_ptr(&t.st.base) as usize, t.version()))
+    }
+
+    /// The rows a tool showed or marked, on their ids in the file a save just wrote (`map`:
+    /// old id → new). The duplicate marks are held back until counted again on the new ids.
+    fn renumber_ids(&mut self, map: &[u32]) {
+        let to = |id: RowId| map.get(id as usize).copied().filter(|&n| n != u32::MAX);
+        if let Some(r) = &mut self.restrict {
+            r.ids = Arc::new(r.ids.iter().filter_map(|&id| to(id)).collect());
+        }
+        let m = Arc::make_mut(&mut self.marks);
+        m.rows = m.rows.iter().filter_map(|&id| to(id)).collect();
+        m.cells = std::mem::take(&mut m.cells).into_iter().filter_map(|((id, c), v)| Some(((to(id)?, c), v))).collect();
+        if let Some(d) = m.dups.take() { self.dups_held = Some(d); }
+        self.ghost = None;
+        self.find.matches = Arc::default();
+        self.find.current = None;
     }
 
     /// Column kinds and the grid's reading aids, from the first rows.
@@ -530,13 +718,18 @@ impl Tab {
                 return None;
             }
         }
-        let st = t.st.clone();
-        let ids: Vec<RowId> = rows.clone().take_while(|&p| p < self.shown()).map(|p| self.shown_id(p)).collect();
+        // A drag growing the selection: counted once it stops (not a job per frame).
+        if ctx.input(|i| i.pointer.primary_down()) { return None; }
+        let (st, view) = (t.st.clone(), self.view.clone());
+        // The columns shown only (as the web's), the rows' ids read in the job.
+        let cols: Vec<usize> = cols.filter(|c| !self.grid.hidden.contains(c)).collect();
         self.sel_job = Some((key, crate::job::Job::spawn(ctx, move |cancel, _| {
+            let shown = view.as_ref().map_or(st.len(), |v| v.len());
             let (mut sum, mut n, mut tmp) = (0.0, 0usize, Vec::new());
-            for (k, id) in ids.into_iter().enumerate() {
+            for (k, pos) in rows.take_while(|&p| p < shown).enumerate() {
                 if k % 4096 == 0 && cancel.load(Ordering::Relaxed) { return None; }
-                for c in cols.clone() {
+                let id = view.as_ref().map_or_else(|| st.data_id(pos), |v| v[pos]);
+                for &c in &cols {
                     st.with_cell(id, c, &mut tmp, |s| if let Some(x) = csvfab_engine::stats::num_cell(s) { sum += x; n += 1; });
                 }
             }
@@ -574,13 +767,38 @@ impl Tab {
         }
     }
 
+    /// Where row `id` is shown (None: not shown): no copy of the rows, found from its id when the
+    /// view is the file in its order.
+    pub fn position_of(&self, id: RowId) -> Option<usize> {
+        match (&self.view, self.st()) {
+            (Some(v), _) => v.iter().position(|&x| x == id),
+            (None, Some(st)) => match &st.order {
+                None => (id as usize).checked_sub(st.header as usize).filter(|&p| p < st.len()),
+                Some(o) => o.iter().skip(st.header as usize).position(|&x| x == id),
+            },
+            _ => None,
+        }
+    }
+
     /// Every row shown, in order (a copy when the view is the whole file).
     pub fn shown_ids(&self) -> Arc<Vec<RowId>> {
         match (&self.view, &self.table) {
             (Some(v), _) => v.clone(),
-            (None, Some(t)) => Arc::new((0..t.st.len()).map(|p| t.st.data_id(p)).collect()),
+            (None, Some(t)) => {
+                let key = state_key(&t.st);
+                let mut a = self.all_ids.lock().unwrap();
+                if let Some((k, v)) = &*a { if *k == key { return v.clone(); } }
+                let v: Arc<Vec<RowId>> = Arc::new((0..t.st.len()).into_par_iter().with_min_len(1 << 16).map(|p| t.st.data_id(p)).collect());
+                *a = Some((key, v.clone()));
+                v
+            }
             _ => Arc::default(),
         }
+    }
+
+    /// Whether filters or a tool's rows narrow the view (a sort aside).
+    pub fn narrowed(&self) -> bool {
+        !self.filter.is_empty() || self.col_filters.iter().any(|s| !s.is_empty()) || self.restrict.is_some()
     }
 
     /// Whether filters, a sort or a tool's rows narrow or reorder the view.
@@ -588,13 +806,30 @@ impl Tab {
         !self.filter.is_empty() || self.col_filters.iter().any(|s| !s.is_empty()) || !self.sort.is_empty() || self.restrict.is_some()
     }
 
-    /// Hides (or shows again) one value of a column, as the column panel and the charts do.
+    /// Hides (or shows again) values of a column, as the column panel and a cell's menu do: the
+    /// column's value filter becomes this one (a chart's pick on it goes).
     pub fn hide_values(&mut self, col: usize, values: impl Into<Arc<HashSet<String>>>, ctx: &egui::Context) {
         let values = values.into();
         self.filter.hidden.retain(|(c, _)| *c != col);
+        self.filter.picks.retain(|p| p.col != col);
         if !values.is_empty() { self.filter.hidden.push((col, values)); }
         self.grid.scroll = 0.0;
         self.refresh(ctx);
+    }
+
+    /// Keeps only the rows passing `keep` in its column (a chart's part, a cell's value): the
+    /// column's value filter becomes this one, the others stay. None: the column's goes.
+    pub fn keep_values(&mut self, col: usize, keep: Option<view::Keeps>, ctx: &egui::Context) {
+        self.filter.hidden.retain(|(c, _)| *c != col);
+        self.filter.picks.retain(|p| p.col != col);
+        if let Some(keep) = keep { self.filter.picks.push(view::ValuePick { col, keep }); }
+        self.grid.scroll = 0.0;
+        self.refresh(ctx);
+    }
+
+    /// Whether value filters (values hidden, kept) are set on column `col`.
+    pub fn has_values(&self, col: usize) -> bool {
+        self.filter.hidden.iter().any(|(c, h)| *c == col && !h.is_empty()) || self.filter.picks.iter().any(|p| p.col == col)
     }
 
     /// Recomputes the rows shown from the filters and sort, in the background.
@@ -616,29 +851,17 @@ impl Tab {
             p.view = self.view.clone();
             if p.view.is_some() { self.memo = Some(p); }
         }
-        let Some(t) = &self.table else { return };
+        if self.table.is_none() { return; }
         self.filter.cols = self.col_filters.iter().enumerate().filter(|(_, s)| !s.is_empty()).map(|(c, s)| (c, s.clone())).collect();
         self.generation += 1;
-        // In formula mode the search box is an expression, applied before the other filters.
-        let mut spec = self.filter.clone();
-        let expr = if self.expr_mode && !spec.global.trim().is_empty() {
-            match csvfab_engine::formula::compile(&spec.global, &t.st.headers()) {
-                Ok(mut e) => { e.set_decimal_comma(csvfab_engine::formula::decimal_comma(&t.st)); Some(e) }
-                Err(e) => { self.filter_error = Some(e.msg); return; }
-            }
-        } else { None };
-        let expr_text = expr.as_ref().map(|_| spec.global.clone());
-        if self.expr_mode { spec.global.clear(); }
-        // Invert flips the whole test, as the web's: column filters, values hidden and the
-        // expression with the search. With the search alone the engine inverts it itself.
-        let whole = spec.invert && (!spec.cols.is_empty() || spec.hidden.iter().any(|(_, h)| !h.is_empty()) || expr.is_some());
-        let fspec = if whole { FilterSpec { invert: false, ..spec.clone() } } else { spec.clone() };
         *self.expr_errors.lock().unwrap() = None;
-        let f = match view::Filter::compile(&fspec) {
-            Ok(f) => { self.filter_error = None; f }
-            Err(e) => { self.filter_error = Some(e); return; }
+        let q = match self.query(None) {
+            Ok(q) => { (self.filter_error, self.filter_error_col) = (None, None); q }
+            // The rows shown stay those of the last filter that compiled; the status bar says why.
+            Err((e, col)) => { (self.filter_error, self.filter_error_col) = (Some(e), col); return; }
         };
-        if f.is_empty() && expr.is_none() && self.sort.is_empty() && self.restrict.is_none() {
+        let t = self.table.as_ref().unwrap();
+        if q.is_empty() && self.sort.is_empty() {
             self.view = None;
             self.memo = None;
             self.view_time = None;
@@ -647,14 +870,16 @@ impl Tab {
         }
         let st = t.st.clone();
         // The column caches these read, built in the background for the next keystroke.
-        f.warm(&st, &self.kinds);
+        q.values.warm(&st, &self.kinds);
+        q.texts.warm(&st, &self.kinds);
         view::warm_sort(&st, &self.sort, &self.kinds);
         let (sort, kinds) = (self.sort.clone(), self.kinds.clone());
-        let within = self.restrict.as_ref().map(|r| r.ids.clone());
+        let mut spec = self.filter.clone();
+        if self.expr_mode { spec.global.clear(); }
         let memo = ViewMemo {
             spec: spec.clone(),
-            expr: expr_text,
-            restrict: within.clone(),
+            expr: q.expr_text.clone(),
+            restrict: q.within.clone(),
             sort: sort.clone(),
             kinds: kinds.clone(),
             state: state_key(&st),
@@ -664,11 +889,11 @@ impl Tab {
         // Where to start from: the rows shown (already in this sort's order), or
         // the same rows unsorted, when the new filter keeps no row they lack.
         let start = self.memo.as_ref().filter(|m| {
-            !whole
+            !q.whole
                 && m.view.is_some()
                 && m.view.as_ref().map(Arc::as_ptr) == self.view.as_ref().map(Arc::as_ptr)
                 && m.expr == memo.expr
-                && m.restrict.as_ref().map(Arc::as_ptr) == within.as_ref().map(Arc::as_ptr)
+                && m.restrict.as_ref().map(Arc::as_ptr) == q.within.as_ref().map(Arc::as_ptr)
                 && m.state == memo.state
                 && spec.refines(&m.spec)
         });
@@ -681,13 +906,13 @@ impl Tab {
             }
         });
         let slot = memo.filtered.clone();
-        let keep_filtered = !sort.is_empty() && (!f.is_empty() || expr.is_some() || within.is_some());
+        let keep_filtered = !sort.is_empty() && !q.is_empty();
         let errors = self.expr_errors.clone();
         self.pending = Some(memo);
         self.job = Some(Job::spawn(ctx, move |cancel, _| {
             let (mut ids, sorted) = match start {
                 Some((rows, sorted, prev_filtered, same)) => {
-                    let ids = if same { rows.to_vec() } else { view::filter_ids(&st, &f, &rows, cancel)? };
+                    let ids = if same { rows.to_vec() } else { view::filter_ids(&st, &q.texts, &rows, cancel)? };
                     if sorted && keep_filtered {
                         // The unsorted rows kept, for a later sort: the previous ones still shown.
                         if let Some(pf) = prev_filtered {
@@ -698,30 +923,7 @@ impl Tab {
                     }
                     (ids, sorted)
                 }
-                None => {
-                    let universe = within.clone();
-                    let within = match &expr {
-                        Some(e) => {
-                            let o = csvfab_engine::formula::filter(&st, e, within.as_deref().map(|v| v.as_slice()), cancel)?;
-                            if o.errors > 0 { *errors.lock().unwrap() = Some((o.errors, o.first_error.unwrap_or_default())); }
-                            Some(Arc::new(o.out))
-                        }
-                        None => within,
-                    };
-                    let mut ids = match &within {
-                        None => view::filter(&st, &f, cancel)?,
-                        Some(ids) => view::filter_ids(&st, &f, ids, cancel)?,
-                    };
-                    if whole {
-                        // The rows that fail the test, in their order.
-                        let pass = csvfab_engine::table::RowMask::new(ids.iter().copied());
-                        ids = match &universe {
-                            Some(u) => u.iter().copied().filter(|&id| !pass.contains(id)).collect(),
-                            None => (0..st.len()).map(|p| st.data_id(p)).filter(|&id| !pass.contains(id)).collect(),
-                        };
-                    }
-                    (ids, false)
-                }
+                None => (q.run(&st, Some(&errors), cancel)?, false),
             };
             if !sorted {
                 if keep_filtered { *slot.lock().unwrap() = Some(Arc::new(ids.clone())); }
@@ -731,7 +933,48 @@ impl Tab {
         }));
     }
 
-    /// Shows only these rows (in this order), filters applying within them.
+    /// The filters as they stand, ready to run (`Query::run`): `skip`, a column whose value
+    /// filters are left out (its panel counts what the others let through). Err: one does not
+    /// compile (the reason).
+    pub fn query(&self, skip: Option<usize>) -> Result<Query, (String, Option<usize>)> {
+        let t = self.table.as_ref().ok_or_else(|| (String::new(), None))?;
+        let mut spec = self.filter.clone();
+        spec.cols = self.col_filters.iter().enumerate().filter(|(_, s)| !s.is_empty()).map(|(c, s)| (c, s.clone())).collect();
+        if let Some(c) = skip {
+            spec.hidden.retain(|h| h.0 != c);
+            spec.picks.retain(|p| p.col != c);
+        }
+        // In formula mode the search box is an expression, applied before the other filters.
+        let expr = if self.expr_mode && !spec.global.trim().is_empty() {
+            match csvfab_engine::formula::compile(&spec.global, &t.st.headers()) {
+                Ok(mut e) => { e.set_decimal_comma(csvfab_engine::formula::decimal_comma(&t.st)); Some(e) }
+                Err(e) => return Err((format!("expression: {}", e.msg), None)),
+            }
+        } else { None };
+        let expr_text = expr.as_ref().map(|_| spec.global.clone());
+        if self.expr_mode { spec.global.clear(); }
+        // Invert flips the text tests, as the web's: the search, the column filters, the
+        // expression — never the value filters (ticked by hand). The search alone, the engine
+        // inverts it itself (the value filters apply as they are).
+        let whole = spec.invert && (!spec.cols.is_empty() || expr.is_some());
+        let compile = |s: &FilterSpec| view::Filter::compile(s).map_err(|e| {
+            // Said with the column it is in.
+            let bad = spec.cols.iter().find(|(_, t)| view::Filter::compile(&FilterSpec { cols: vec![(0, t.clone())], regex: spec.regex, match_case: spec.match_case, ..Default::default() }).is_err());
+            match bad {
+                Some((c, _)) => (format!("column \"{}\": {e}", t.st.headers().get(*c).map_or("", |h| h.as_str())), Some(*c)),
+                None if spec.regex => (format!("regex: {e}"), None),
+                None => (e, None),
+            }
+        });
+        let (values, texts) = if whole {
+            (compile(&spec.values())?, compile(&FilterSpec { invert: false, ..spec.texts() })?)
+        } else {
+            (compile(&FilterSpec::default())?, compile(&spec)?)
+        };
+        Ok(Query { values, texts, expr, expr_text, whole, within: self.restrict.as_ref().map(|r| r.ids.clone()) })
+    }
+
+    /// Shows only these rows (in this order), filters applying within them.    /// Shows only these rows (in this order), filters applying within them.
     pub fn restrict_to(&mut self, label: impl Into<String>, ids: Vec<RowId>, ctx: &egui::Context) {
         let label = label.into();
         // The rows a tool marked, shown alone: the marks' chip is named after them.
@@ -771,9 +1014,11 @@ impl Tab {
             widths: self.grid.widths.clone(),
             sort: self.sort.clone(),
             hidden_vals: self.filter.hidden.clone(),
+            picks: self.filter.picks.clone(),
             find_col: self.find.col,
             look: self.grid.col_look(),
             totals: self.totals.choices(),
+            rest: None,
         }
     }
 
@@ -784,9 +1029,13 @@ impl Tab {
         self.grid.widths = v.widths;
         self.sort = v.sort;
         self.filter.hidden = v.hidden_vals;
+        self.filter.picks = v.picks;
         self.find.col = v.find_col;
         self.grid.set_col_look(v.look, n);
         self.totals.set_choices(v.totals);
+        if let Some((global, expr, restrict)) = v.rest {
+            (self.filter.global, self.expr_mode, self.restrict) = (global, expr, restrict);
+        }
     }
 
     /// Keeps the column settings of table version `version`, for Undo / Redo to come back to.
@@ -858,9 +1107,11 @@ impl Tab {
         let Some(path) = self.path.clone() else { return };
         // The bytes held are read again with the new options: no trip to the disk.
         let from = self.table.as_ref().map(|t| t.st.base.clone());
-        let header = self.table.as_ref().map(|t| t.st.header);
+        // Line 1 as it was chosen; as it was detected (Auto), detected again in the new reading
+        // when the delimiter changes (as the web's: raw text's line 1 may be titles as a CSV).
+        let header = self.table.as_ref().map(|t| t.st.header).filter(|&h| delim.is_none() || self.table.as_ref().is_some_and(|t| h != csvfab_engine::table::detected_header(&t.st.base)));
         self.reread = true;
-        self.loading = Some(Loader::spawn(path, self.open_opts, from, header, false, ctx));
+        self.loading = Some(Loader::spawn(path, self.open_opts, from, header, false, None, ctx));
     }
 
     /// After a save that already knows the new file's index
@@ -894,21 +1145,49 @@ mod tests {
         let no = AtomicBool::new(false);
         let mut spec = t.filter.clone();
         spec.cols = t.col_filters.iter().enumerate().filter(|(_, s)| !s.is_empty()).map(|(c, s)| (c, s.clone())).collect();
-        // Invert flips the whole test once column filters or hidden values join the search.
-        let whole = spec.invert && (!spec.cols.is_empty() || spec.hidden.iter().any(|(_, h)| !h.is_empty()));
-        if whole { spec.invert = false; }
-        let f = view::Filter::compile(&spec).unwrap();
-        let mut ids = match &t.restrict {
-            Some(r) => view::filter_ids(st, &f, &r.ids, &no).unwrap(),
-            None => view::filter(st, &f, &no).unwrap(),
+        // Invert flips the text tests once column filters join the search; the values hidden
+        // apply as they are.
+        let whole = spec.invert && !spec.cols.is_empty();
+        let all: Vec<RowId> = match &t.restrict { Some(r) => r.ids.to_vec(), None => (0..st.len()).map(|p| st.data_id(p)).collect() };
+        let mut ids = if whole {
+            let base = view::filter_ids(st, &view::Filter::compile(&spec.values()).unwrap(), &all, &no).unwrap();
+            let pass: std::collections::HashSet<RowId> = view::filter_ids(st, &view::Filter::compile(&FilterSpec { invert: false, ..spec.texts() }).unwrap(), &base, &no).unwrap().into_iter().collect();
+            base.into_iter().filter(|id| !pass.contains(id)).collect()
+        } else {
+            view::filter_ids(st, &view::Filter::compile(&spec).unwrap(), &all, &no).unwrap()
         };
-        if whole {
-            let pass: std::collections::HashSet<RowId> = ids.into_iter().collect();
-            let all: Vec<RowId> = match &t.restrict { Some(r) => r.ids.to_vec(), None => (0..st.len()).map(|p| st.data_id(p)).collect() };
-            ids = all.into_iter().filter(|id| !pass.contains(id)).collect();
-        }
         view::sort(st, &mut ids, &t.sort, &t.kinds, &no);
         ids
+    }
+
+    /// Invert flips the search and the column filters, never the values hidden or kept (as the
+    /// web's); a value filter compares the exact text.
+    #[test]
+    fn invert_leaves_value_filters_alone() {
+        let ctx = egui::Context::default();
+        let mut t = Tab::blank();
+        t.table = Some(Table::new(Arc::new(Base::from_bytes(b"name,city\na,Lyon\nb,Paris\nc,Lyon \nd,Nice\ne,Paris\n".to_vec(), OpenOptions::default())), None));
+        t.analyse();
+        t.col_filters = vec![String::new(); 2];
+        let names = |t: &mut Tab| -> String {
+            t.refresh(&ctx);
+            settle(t);
+            let st = t.st().unwrap().clone();
+            (0..t.shown()).map(|p| st.cell(t.shown_id(p), 0)).collect()
+        };
+        t.filter.hidden = vec![(1, Arc::new(["Lyon".to_string()].into_iter().collect()))];
+        assert_eq!(names(&mut t), "bcde", "\"Lyon \" is not \"Lyon\"");
+        t.filter.invert = true;
+        assert_eq!(names(&mut t), "bcde", "nothing to flip");
+        t.col_filters[1] = "paris".into();
+        assert_eq!(names(&mut t), "cd");
+        t.filter.invert = false;
+        t.filter.hidden.clear();
+        t.keep_values(1, Some(view::Keeps::Values(Arc::new(["Paris".to_string(), "Nice".to_string()].into_iter().collect()))), &ctx);
+        t.col_filters[1].clear();
+        t.filter.global = "a".into();
+        t.filter.invert = true;
+        assert_eq!(names(&mut t), "d", "the search flipped within the values kept");
     }
 
     /// Typing, sorting, flipping, hiding, editing: every view as computed from scratch.

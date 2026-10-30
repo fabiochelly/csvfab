@@ -188,6 +188,8 @@ fn show_marks(cx: &mut Cx, m: eng::Marks) {
     cx.tab.marks = Arc::new(Marks { dups: cx.tab.marks.dups.clone(), ..marks });
     let label = format!("{} {}", kit::plural(n, "row", "rows"), m.label);
     cx.tab.restrict_to(label.clone(), m.rows, cx.ctx);
+    // The ◆ chip counts the rows itself: its label is what they are, as written.
+    cx.tab.marks_label = m.label.clone();
     cx.toast(format!("{label} — shown alone; the chip shows every row again."));
 }
 
@@ -204,8 +206,7 @@ fn to_marks(m: &eng::Marks) -> Marks {
 fn go_col(cx: &mut Cx, c: usize) {
     let g = &mut cx.tab.grid;
     let row = g.cursor.map_or(0, |x| x.row);
-    g.select(crate::grid::Cell { row, col: c }, false);
-    g.xoff = g.widths.iter().take(c).sum();
+    g.go_to_col(row, c);
 }
 
 fn act(cx: &mut Cx, a: Act) {

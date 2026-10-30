@@ -37,6 +37,17 @@ fn main() {
         view::sort(st, &mut ids, &[SortKey { col: col(name), desc: false }], &kinds, &no);
         println!("sort    {:>7.0} ms  {name}", t.elapsed().as_secs_f64() * 1e3);
     }
+    // Text sorts: the first builds the column's rank cache, the second reads it; a filtered
+    // view (a third of the rows) builds its keys on the spot.
+    let some: Vec<_> = all.iter().copied().filter(|&id| id % 3 == 0).collect();
+    for name in ["email", "street", "company", "city"] {
+        for pass in ["first", "again", "third"] {
+            let mut ids = if pass == "third" { some.clone() } else { all.clone() };
+            let t = Instant::now();
+            view::sort(st, &mut ids, &[SortKey { col: col(name), desc: false }], &kinds, &no);
+            println!("sort    {:>7.0} ms  {name} ({pass})", t.elapsed().as_secs_f64() * 1e3);
+        }
+    }
     let t = Instant::now();
     let out = csvfab_engine::save::write_to(st, &Default::default(), std::io::sink()).unwrap();
     let _ = out;

@@ -22,8 +22,11 @@ const ROWS_MAX: usize = 100;
 
 struct Review {
     st: State,
-    job: Option<Job<Option<Changes>>>,
+    /// The changes, and whether the file on disk is no longer the one read (another program
+    /// changed it since: the comparison is with the file as it was read).
+    job: Option<Job<Option<(Changes, bool)>>>,
     res: Option<Changes>,
+    changed_since: bool,
     /// Going to this cell once the rows shown are ready.
     pending: Option<(RowId, usize)>,
     /// The edits Undo can step back through, most recent first: what each did (the toasts'
@@ -40,10 +43,13 @@ impl Review {
     fn new(cx: &mut Cx) -> Option<Review> {
         let st = cx.tab.st()?.clone();
         let s2 = st.clone();
-        let job = Job::spawn(cx.ctx, move |cancel, _| review::changes(&s2, cancel));
+        let job = Job::spawn(cx.ctx, move |cancel, _| {
+            let since = s2.base.path.as_deref().is_some_and(|p| csvfab_engine::Stamp::of(p) != s2.base.stamp);
+            review::changes(&s2, cancel).map(|c| (c, since))
+        });
         let uid = cx.tab.uid;
         let log = cx.tab.table.as_ref().map_or(Vec::new(), |t| t.undo_versions().into_iter().rev().map(|v| crate::app::edit_what::get((uid, v))).collect());
-        Some(Review { st, job: Some(job), res: None, pending: None, log })
+        Some(Review { st, job: Some(job), res: None, changed_since: false, pending: None, log })
     }
 }
 
@@ -66,8 +72,8 @@ fn mark(tab: &mut Tab, st: &State, res: &Changes, ctx: &eframe::egui::Context) {
 
 /// Selects a cell of the rows shown and scrolls to it; false if the row is not shown.
 pub fn go_to(tab: &mut Tab, id: RowId, col: usize) -> bool {
-    let Some(pos) = tab.shown_ids().iter().position(|&x| x == id) else { return false };
-    tab.grid.select(crate::grid::Cell { row: pos, col }, false);
+    let Some(pos) = tab.position_of(id) else { return false };
+    tab.grid.go_to_col(pos, col);
     tab.grid.set_top(pos.saturating_sub(tab.grid.page / 2));
     true
 }
@@ -83,14 +89,14 @@ impl Tool for Review {
         if let Some(r) = self.job.as_mut().and_then(|j| j.poll()) {
             self.job = None;
             match r {
-                Some(c) => self.res = Some(c),
+                Some((c, since)) => { self.res = Some(c); self.changed_since = since; }
                 None => return false,
             }
         }
         let p = cx.p.clone();
         let heads = self.st.headers();
         let name = cx.tab.name.clone();
-        let cx_edits = cx.tab.table.as_ref().map_or(0, |t| t.undo_depth());
+        let cx_edits = cx.tab.table.as_ref().map_or(0, |t| t.pending_edits());
         let st = self.st.clone();
         let mut go = None;
         let mut do_mark = false;
@@ -115,7 +121,8 @@ impl Tool for Review {
             if c.moved { parts.push("columns moved".into()); }
             let sum = if parts.is_empty() { "The rows are the same as in the file.".to_string() } else { parts.join(" · ") };
             let pending = cx_edits;
-            form::stat_at(ui, &p, &format!("{sum}\n{}", muted(format!("{} edit{} pending — compared with {name} as it was read.", form::n(pending), if pending == 1 { "" } else { "s" }))), 0.0);
+            let against = if self.changed_since { format!("compared with {name} as it was read: another program changed it since") } else { format!("compared with {name}") };
+            form::stat_at(ui, &p, &format!("{sum}\n{}", muted(format!("{} edit{} pending — {against}.", form::n(pending), if pending == 1 { "" } else { "s" }))), 0.0);
 
             let mut rows: Vec<PvRow> = Vec::new();
             let mut targets: Vec<Option<(RowId, usize)>> = Vec::new();

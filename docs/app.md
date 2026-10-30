@@ -21,7 +21,7 @@ centring, every padding, the original SVG icons, silky instant scrolling, no fli
 | `theme.rs` | `Palette` (every CSS variable, 6 themes), `Metrics`, `apply`, `menu_frame`, `dialog_frame`, `tooltip_frame` | done |
 | `fonts.rs` | system fonts as the web picked them; `UI_MEDIUM`, `UI_SEMIBOLD`, `MONO_BOLD` families | done |
 | `job.rs` | `Job::spawn(ctx, |cancel, progress| …)`, `poll()`, `cancel()`; cancelled on drop; a panic in the job is caught: the job returns `Failed::failed()` (implement `job::Failed` for a new result type) and a toast tells it | done |
-| `recovery.rs` | unsaved edits copied to `<state>/recovery/` 3 s after the last edit (big files every 30 s), offered back after a crash; the panic hook (`crash.log`, and on a UI-thread panic every unsaved table written at once) | lead |
+| `recovery.rs` | unsaved edits kept in `<state>/recovery/` 3 s after the last edit — a journal of the edits (`engine/src/journal.rs`) while the file on disk is the one read, else a copy of the table (big files every 30 s) — offered back after a crash; the panic hook (`crash.log`, and on a UI-thread panic every unsaved table written at once) | lead |
 | `tools/mod.rs` | `Tool` trait, `Cx`, `Cmd`, `Command` registry, `dialog()` helper | lead |
 | `tools/<name>.rs` | one tool family per file | tool agents |
 | `shot.rs` | `CSVFAB_SHOT=menu,col:3,cell,scroll:PX` screenshot hooks | lead |
@@ -94,6 +94,29 @@ cancel on close. Never block the UI thread on anything that grows with the file.
 - **Panics**: in jobs, caught (`job::guarded`); on the UI thread, the hook writes the unsaved tables and
   `crash.log` before the process ends. The next start offers the copies back (`Dialog::Recover`).
 - **Toasts** that follow an edit carry Undo (only while that edit is still the last of its tab).
+- **Sync clients** (kDrive, Dropbox…) rewrite a file after our own save (another inode, another
+  time): a stamp that differs at the same size is checked on a sample of the content (whole up to
+  3 MB, else its first, middle and last MB, `base::file_sample`, in a job) against the bytes read
+  or written (`Stamp::holds`, `Expect`); our content is ours, as the web's 2 s / fingerprint rule.
+- **Row ids after a save**: a save that wrote the rows in another order (inserted, deleted, moved)
+  gives the next table each old id's record (`tab::renumbering`, in the save's job); the rows a
+  tool showed (`restrict`) and marked (`marks`) follow them; the duplicate marks are counted again.
+- **Duplicate marks** follow every change of the table: `Tab::poll` counts them again 300 ms after
+  the last one, one job per tab (a newer one cancels the one under way).
+
+## Filters (choices that differ from a plain reading)
+
+- **Value filters** (`FilterSpec::hidden`, `picks`): values hidden from a column's panel or a
+  cell's menu, values kept ("Only the rows with …", exact text) and chart parts picked
+  (`view::ValuePick`, the part's own test). One per column (a new one replaces it), the other
+  columns' and the typed filters kept. Exact text: "Paris " is not "Paris".
+- **Invert** flips the text tests (search, column filters, expression) as one test — never the
+  value filters, which are ticked by hand (as the web's). Column filters of several words: AND.
+- **Text sort**: the web's French numeric collator (`text::sort_key`): accents and case ignored,
+  digit runs as numbers ("Lot 2" < "Lot 10"), punctuation before digits before letters; ties keep
+  the file's order. Keys made once per column (`colcache` ranks), radix sorted.
+- **Sort** is a view (Save keeps the file's order; "Write the sorted order to the file" writes it).
+  Enter and Tab keep the cell after writing it.
 
 ## Process
 

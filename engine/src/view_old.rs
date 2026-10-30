@@ -135,7 +135,7 @@ impl Filter {
 
     fn row_matches(&self, st: &State, id: RowId, s: &mut Scratch) -> bool {
         for (c, h) in &self.hidden {
-            if st.with_cell(id, *c, &mut s.tmp, |v| h.contains(v.trim())) {
+            if st.with_cell(id, *c, &mut s.tmp, |v| h.contains(v)) {
                 return false;
             }
         }
@@ -299,7 +299,7 @@ fn build_keys(st: &State, ids: &[RowId], col: usize, kind: Kind, cancel: &Atomic
                             buf.clear();
                             fold_into(v.trim(), &mut buf);
                         });
-                        arena.extend_from_slice(buf.as_bytes());
+                        crate::text::sort_key_into(buf.as_bytes(), &mut arena);
                         offs.push(arena.len() as u32);
                     }
                     offs.resize(chunk.len() + 1, arena.len() as u32);

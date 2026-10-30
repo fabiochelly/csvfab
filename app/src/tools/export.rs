@@ -14,6 +14,7 @@ use crate::job::Job;
 use crate::tab::Tab;
 use csvfab_engine::convert::{self, Format};
 use csvfab_engine::save::{self, SaveError, SaveOptions};
+use csvfab_engine::table::RowMask;
 use csvfab_engine::{Enc, RowId, State};
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -104,30 +105,54 @@ pub fn next_name(name: &str) -> String {
 }
 
 /// Cells (headers included) holding a character `enc` cannot write, and the
-/// first such character. Rows read in that very encoding hold none. None if cancelled.
+/// first such character. None if cancelled. In the file's own encoding only the edited
+/// cells are looked at (a cell as read holds none); in another, every cell, each row read
+/// in one pass, the rows in parallel.
 pub(crate) fn unencodable(st: &State, enc: Enc, rows: Option<&[RowId]>, cancel: &AtomicBool) -> Option<(usize, char)> {
-    let same = st.base.enc == enc;
+    use rayon::prelude::*;
+    let bad = |v: &str| csvfab_engine::enc::unencodable(enc, v);
+    if st.base.enc == enc {
+        // The rows written: these (and the titles), or every row of the table.
+        let head = (st.header && st.all_len() > 0).then(|| st.all_id(0));
+        let keep = match (rows, &st.order) {
+            (Some(r), _) => Some(RowMask::new(r.iter().copied().chain(head))),
+            (None, Some(o)) => Some(RowMask::new(o.iter().copied())),
+            (None, None) => None,
+        };
+        let parts: Vec<(usize, Option<char>)> = (0..st.ncols).into_par_iter().map(|c| {
+            let mut ids: Vec<RowId> = st.cols[c].iter().flat_map(|l| l.ids().iter().copied()).filter(|&id| keep.as_ref().map_or((id as usize) < st.base.n, |k| k.contains(id))).collect();
+            ids.par_sort_unstable();
+            ids.dedup();
+            let (mut n, mut first) = (0, None);
+            for id in ids {
+                if let Some(ch) = st.edited(id, c).and_then(bad) { n += 1; first.get_or_insert(ch); }
+            }
+            (n, first)
+        }).collect();
+        if cancel.load(Ordering::Relaxed) { return None; }
+        return Some((parts.iter().map(|p| p.0).sum(), parts.iter().find_map(|p| p.1).unwrap_or('?')));
+    }
     let mut n = 0;
     let mut first = None;
-    let mut test = |v: &str| {
-        if let Some(c) = csvfab_engine::enc::unencodable(enc, v) {
-            n += 1;
-            first.get_or_insert(c);
-        }
-    };
-    for h in st.headers() { test(&h); }
+    for h in st.headers() {
+        if let Some(c) = bad(&h) { n += 1; first.get_or_insert(c); }
+    }
     let all: Vec<RowId>;
     let ids: &[RowId] = match rows {
         Some(r) => r,
         None => { all = (0..st.len()).map(|p| st.data_id(p)).collect(); &all }
     };
-    let mut tmp = Vec::new();
-    for (k, &id) in ids.iter().enumerate() {
-        if k % 8192 == 0 && cancel.load(Ordering::Relaxed) { return None; }
-        if same && st.pristine(id) { continue; }
-        for c in 0..st.ncols { st.with_cell(id, c, &mut tmp, |v| test(v)); }
-    }
-    Some((n, first.unwrap_or('?')))
+    let parts: Vec<(usize, Option<char>)> = ids.par_chunks(8192).map(|chunk| {
+        let (mut n, mut first) = (0, None);
+        if cancel.load(Ordering::Relaxed) { return (n, first); }
+        for &id in chunk {
+            st.visit(id, |_, v| if let Some(c) = bad(v) { n += 1; first.get_or_insert(c); });
+        }
+        (n, first)
+    }).collect();
+    if cancel.load(Ordering::Relaxed) { return None; }
+    n += parts.iter().map(|p| p.0).sum::<usize>();
+    Some((n, first.or(parts.iter().find_map(|p| p.1)).unwrap_or('?')))
 }
 
 // --- Save as --------------------------------------------------------------------
@@ -146,7 +171,8 @@ struct Plan {
 
 enum Done {
     Workbook(convert::Exported),
-    Csv,
+    /// The file's stamp once written, the sample of what was written, the rows' new ids.
+    Csv(csvfab_engine::Stamp, Option<u64>, Option<std::sync::Arc<Vec<u32>>>),
 }
 
 enum Stage {
@@ -307,11 +333,12 @@ impl SaveAs {
                 let cur = Self::cur_fmt(&st);
                 let delim = match fmt { Fmt::Csv(d) if fmt != cur => Some(d), Fmt::Text if cur != Fmt::Text => Some(0), _ => None };
                 let opts = SaveOptions { enc: Some(plan.enc), delim, bom: Some(plan.bom), backup: true, rows: rows.as_deref().cloned() };
-                let expect = if plan.in_place && !force { st.base.stamp } else { None };
-                let mut backed = if plan.in_place { tab.backed_up } else { false };
-                if plan.in_place { tab.backed_up = true; }
+                let expect = if plan.in_place && !force { st.base.stamp.map(Into::into) } else { None };
+                // Overwriting another program's version (`force`): a .bak of theirs first. The
+                // tab counts its .bak made once the save is done.
+                let mut backed = plan.in_place && !force && tab.backed_up;
                 Job::spawn(cx.ctx, move |_, _| match save::save(&st, &dest, &opts, expect, &mut backed) {
-                    Ok(_) => Ok(Done::Csv),
+                    Ok(stamp) => Ok(Done::Csv(stamp, csvfab_engine::base::file_sample(&dest, stamp.len), crate::tab::renumbering(&st))),
                     Err(SaveError::Changed) => Err((true, String::new())),
                     Err(e) => Err((false, e.to_string())),
                 })
@@ -330,12 +357,14 @@ impl SaveAs {
                 let limits = if j.truncated_rows || j.truncated_cols { " · truncated to Excel's limits" } else { "" };
                 cx.out.push(Cmd::Toast(format!("{} | {what} written: {file} — {} rows{limits}.", tab.name, form::n(j.rows as usize))));
             }
-            Done::Csv if plan.rows.is_some() => {
+            Done::Csv(..) if plan.rows.is_some() => {
                 cx.out.push(Cmd::Toast(format!("{} | {} rows exported to {file}.", tab.name, form::n(total))));
                 cx.out.push(Cmd::Open(plan.dest.clone()));
             }
-            Done::Csv => {
+            Done::Csv(stamp, sample, renumber) => {
                 let from = tab.name.clone();
+                // The file is ours now: no "changed on disk" for it while the table stands on its read.
+                if plan.in_place { cx.out.push(Cmd::Wrote(tab.uid, tab.st().and_then(|st| st.base.stamp), stamp, sample)); }
                 if let Some(t) = &mut tab.table { t.mark_saved_at(version); }
                 // The file uses that delimiter and encoding now: the next read must agree.
                 let st = tab.st().cloned();
@@ -349,7 +378,8 @@ impl SaveAs {
                 tab.path = Some(plan.dest.clone());
                 tab.name = file.clone();
                 tab.backed_up = true;
-                if !tab.dirty() || !plan.in_place { tab.reload(cx.ctx); }
+                // Read again: the rows a tool showed or marked follow their new ids.
+                if !tab.dirty() || !plan.in_place { tab.renumber = renumber; tab.reload(cx.ctx); }
                 let rows = form::n(total);
                 cx.out.push(Cmd::Toast(if plan.in_place {
                     format!("{file} | Saved in place — {rows} rows written.")

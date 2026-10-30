@@ -54,6 +54,11 @@ behind everything: `bg`.
   5. close ×: 16 × 16, radius 4, ui 14, `txt_dim`; hover fill `danger`, text `on_danger`.
 - After the tabs, 4 px gap: **+** button 24 × 24, radius 5, ui 17, `txt_mut`, 1 px
   transparent border; hover fill `surf_2`, text `txt_strong`, border `brd`.
+- **Many tabs** (as the web's `overflow-x: auto`): the names shrink first (10 px steps,
+  down to 60), then the tabs scroll sideways under the wheel, clipped at the bar's
+  right, the active one brought into view when it changes; a ▾ button (chevron 14,
+  24 × 24 at the right end, + button's look) lists every tab (● before an unsaved one,
+  ✓ on the active).
 - Right end (optional in native): memory info, ui 11.5 `txt_dim` ("1/1 in RAM ≈ 153.4 MB ·
   Keep in RAM: [3 tabs ▾]"), the select `bg_deep` / `brd` / radius 4 / `txt_mut`.
 
@@ -88,7 +93,12 @@ behind everything: `bg`.
    - chip: 24 + 2 px border tall (`m.chip_h` = 26), radius 12, padding 0 3 0 9,
      gap 4, ui 12 `txt_hi`, fill `chip_bg`, border `chip_brd`.
    - text: **what** in ui 600 `txt_strong` + 2 px, then the value (cut at 28 chars
-     with …); "inverted" in ui 11 `txt_mut`.
+     with …). Inverted (the search and column-filter chips): border `orange_txt` (the
+     Invert toggle's colour); the tooltip names the options (regex, accents and case,
+     inverted).
+   - value filters (values hidden; a value or a chart part kept): `<column> ≠ v`,
+     `<column> = v`, `<column> 3 values hidden`, `<column> 10 to 20` (the part, as its
+     toast said it).
    - ×: 18 × 18 circle, a cross 12 × 12 stroke 2 in `txt_mut`, hover `danger_txt`.
    - Labels: `Search gmail`, `Expression {…}`, `<column> <text>` (column filter),
      value filters, irregular rows, duplicates, marked rows.
@@ -215,7 +225,9 @@ behind everything: `bg`.
   theme) 7 px from the left, centred; text ui 12 `txt_hi` from 24 px in, 8 px right
   padding; placeholder "Filter" `txt_faint`. Hover border `surf_3`. Focus border
   `prim` + 3 px ring `focus_ring_sm`. Holding a value: border `alpha(prim, .55)`, fill
-  `alpha(prim, .1)` over `bg`.
+  `alpha(prim, .1)` over `bg`. Not compiling (`>abc`): border `danger`, fill
+  `mix(danger, bg, .08)`, the reason as its tooltip and in the status line ("Filter not
+  applied — column "total": not a number: abc").
 - Gutter cell: a funnel 13 × 13 in `txt_faint` (hover `txt_mut`), hides the row.
 
 ### Rows (35)
@@ -522,7 +534,9 @@ to open them" ui 600 15.5 `txt_hi`, "CSV, TSV, Excel or JSON — or click to cho
 `txt_mut` hover `txt_hi`, same glass border) "Command palette Ctrl+P", "Shortcuts F1"
 (key caps mono 11.5, line 18, padding 0 5, radius 5); recent files card (radius 14,
 rows padding 10 × 14 with a green file icon `ok_rgb`, name ui 500 13.5 `txt_hi`, path
-ui 11.5 `txt_dim`, size right, × on hover); footer "open · filter · clean · rewrite in
+ui 11.5 `txt_dim`, size right and when it was last opened under it (`txt_faint`), × on
+hover; up to 12 as fit; a file no longer there: name `txt_faint`, "missing", a click says
+so and forgets it; sizes looked up in the background, never on a frame); footer "open · filter · clean · rewrite in
 place" ui 12, letter-spacing .04em, `txt_faint`, dots `alpha(accent, .6)`.
 
 ## Motion

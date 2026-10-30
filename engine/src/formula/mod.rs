@@ -103,7 +103,11 @@ pub fn decimal_comma(st: &State) -> bool {
 
 /// A pattern written the JavaScript way (as the web app's regex boxes took it), with the guard's bounds.
 pub fn js_regex(src: &str, case_insensitive: bool) -> Result<regex::Regex, String> {
-    jsre::build(src, if case_insensitive { "i" } else { "" }).map(|r| r.re)
+    let r = jsre::build(src, if case_insensitive { "i" } else { "" })?;
+    match r.re {
+        jsre::Engine::Fast(re) => Ok(re),
+        jsre::Engine::Fancy(_) => Err("look-ahead, look-behind and back-references (\\1) work in formulas (ƒx), not here".into()),
+    }
 }
 
 /// The outcome of a run over many rows: rows whose evaluation failed are
@@ -197,32 +201,13 @@ impl<'e> Worker<'e> {
         Worker { e, cells: vec![String::new(); e.cols.len()], tmp: Vec::new(), sc: Scratch::default() }
     }
 
-    /// Reads the row's cells the formula uses; an untouched row with several
-    /// of them is scanned once, not once per column.
+    /// Reads the row's cells the formula uses: its record scanned once for all of them.
     fn load(&mut self, st: &State, id: RowId) {
-        let e = self.e;
-        if e.cols.len() >= 2 && st.pristine(id) && !st.base.dialect.lines {
-            for c in &mut self.cells {
-                c.clear();
-            }
-            let (b, cells, slot_of) = (&st.base, &mut self.cells, &e.slot_of);
-            crate::scan::visit_fields(b.record(id as usize), b.dialect.delim, &mut self.tmp, |i, f| {
-                if let Some(&s) = slot_of.get(i) {
-                    if s != NONE {
-                        cells[s].push_str(&crate::enc::decode(b.enc, f));
-                    }
-                }
-                i + 1 < slot_of.len()
-            });
-            return;
-        }
-        for (s, &c) in e.cols.iter().enumerate() {
-            let cell = &mut self.cells[s];
-            st.with_cell(id, c, &mut self.tmp, |v| {
-                cell.clear();
-                cell.push_str(v);
-            });
-        }
+        let cells = &mut self.cells;
+        st.visit_cols(id, &self.e.cols, |s, v| {
+            cells[s].clear();
+            cells[s].push_str(v);
+        });
     }
 
     fn out(&mut self, row: f64, today: f64) -> Result<String, String> {

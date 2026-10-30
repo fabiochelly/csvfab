@@ -194,10 +194,9 @@ pub struct Scan {
 pub fn scan(st: &State, rows: &[RowId], col: Option<usize>, noise: &Noise, cancel: &AtomicBool) -> Option<Scan> {
     let parts: Vec<Vec<(RowId, usize, String, String)>> = rows.par_chunks(4096).map(|chunk| {
         let mut out = Vec::new();
-        let (mut tmp, mut row) = (Vec::new(), Vec::new());
         if cancel.load(Ordering::Relaxed) { return out; }
         for &id in chunk {
-            crate::kinds::visit_row(st, id, &mut tmp, &mut row, |c, v| {
+            st.visit(id, |c, v| {
                 if col.is_some_and(|k| k != c) || v.is_empty() { return; }
                 if let Cow::Owned(n) = noise.strip(v) { if n != v { out.push((id, c, v.to_string(), n)); } }
             });

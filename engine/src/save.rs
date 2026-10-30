@@ -5,7 +5,7 @@
 //! temporary file beside the target, synced, then renamed over it — after a
 //! timestamped `.bak` of the original, the first time it is overwritten.
 
-use crate::base::{Base, Stamp};
+use crate::base::{Base, Expect, Stamp};
 use crate::enc::{self, Enc};
 use crate::scan::Offsets;
 use crate::table::{RowId, State};
@@ -41,6 +41,18 @@ pub enum SaveError {
     CutShort,
     Io(io::Error),
 }
+
+/// The file moved on disk during the save (carried out of the write as an io::Error).
+#[derive(Debug)]
+struct Changed;
+
+impl std::fmt::Display for Changed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "changed on disk")
+    }
+}
+
+impl std::error::Error for Changed {}
 
 impl From<io::Error> for SaveError {
     fn from(e: io::Error) -> Self {
@@ -81,7 +93,7 @@ impl<W: Write> Sink for Out<W> {
             None => self.w.write_all(b),
             Some(be) => {
                 self.pending.extend_from_slice(b);
-                if self.pending.len() >= 1 << 20 { self.flush_utf16(be, false)?; }
+                if self.pending.len() >= 32 << 20 { self.flush_utf16(be, false)?; }
                 Ok(())
             }
         }
@@ -95,10 +107,23 @@ impl<W: Write> Out<W> {
             while c > 0 && self.pending[c - 1] & 0xC0 == 0x80 { c -= 1; }
             if c > 0 && self.pending[c - 1] >= 0xC0 { c - 1 } else { self.pending.len() }
         };
-        let s = String::from_utf8_lossy(&self.pending[..cut]);
-        let mut o = Vec::with_capacity(cut * 2);
-        enc::utf8_to_utf16(&s, be, &mut o);
-        self.w.write_all(&o)?;
+        // Transcoded in pieces side by side, cut before a character's first byte (where a
+        // lossy reading cuts too).
+        let src = &self.pending[..cut];
+        let mut bounds = vec![0];
+        let piece = (cut / rayon::current_num_threads().max(1)).max(1 << 20);
+        while bounds.last().unwrap() + piece < cut {
+            let mut at = bounds.last().unwrap() + piece;
+            while at > *bounds.last().unwrap() + 1 && src[at] & 0xC0 == 0x80 { at -= 1; }
+            bounds.push(at);
+        }
+        bounds.push(cut);
+        let parts: Vec<Vec<u8>> = bounds.par_windows(2).map(|w| {
+            let mut o = Vec::with_capacity((w[1] - w[0]) * 2);
+            enc::utf8_to_utf16(&String::from_utf8_lossy(&src[w[0]..w[1]]), be, &mut o);
+            o
+        }).collect();
+        for o in &parts { self.w.write_all(o)?; }
         self.pending.drain(..cut);
         Ok(())
     }
@@ -151,33 +176,51 @@ impl Sink for FileSink {
     }
 }
 
-/// One row's fields as a record (no line break): quoted when a field holds the
-/// delimiter, a quote, a line break, or starts or ends with a space (or is alone and empty).
-pub fn write_record(fields: &[String], d: u8, enc: Enc, lines: bool, out: &mut Vec<u8>) {
-    if lines {
-        enc::encode_into(enc, fields.first().map_or("", |s| s.as_str()), out);
-        return;
+/// One field of a record: quoted when it holds the delimiter, a quote, a line break, or
+/// starts or ends with a space.
+#[inline]
+fn write_field(f: &str, d: u8, enc: Enc, out: &mut Vec<u8>) {
+    let needs = f.bytes().any(|b| b == d || b == b'"' || b == b'\n' || b == b'\r') || f.starts_with(' ') || f.ends_with(' ');
+    if !needs { return enc::encode_into(enc, f, out); }
+    out.push(b'"');
+    let mut rest = f;
+    while let Some(k) = rest.find('"') {
+        enc::encode_into(enc, &rest[..=k], out);
+        out.push(b'"');
+        rest = &rest[k + 1..];
     }
-    // One empty field: quoted, or the record would be an empty line, read back as none.
-    if fields.len() <= 1 && fields.first().is_none_or(|f| f.is_empty()) {
-        out.extend_from_slice(b"\"\"");
-        return;
-    }
-    for (i, f) in fields.iter().enumerate() {
-        if i > 0 { out.push(d); }
-        let needs = f.bytes().any(|b| b == d || b == b'"' || b == b'\n' || b == b'\r') || f.starts_with(' ') || f.ends_with(' ');
-        if needs {
-            out.push(b'"');
-            enc::encode_into(enc, &f.replace('"', "\"\""), out);
-            out.push(b'"');
+    enc::encode_into(enc, rest, out);
+    out.push(b'"');
+}
+
+/// Row `id` as a record (no line break): `State::row`'s fields read in one pass, no String
+/// made; a raw text line as it is. Returns its field count.
+fn put_row(st: &State, id: RowId, p: &Plan, out: &mut Vec<u8>) -> u32 {
+    let start = out.len();
+    let (mut n, mut blank) = (0usize, true);
+    st.visit(id, |i, v| {
+        if p.lines {
+            if i == 0 { enc::encode_into(p.mem_enc, v, out); }
         } else {
-            enc::encode_into(enc, f, out);
+            if i > 0 { out.push(p.d); }
+            write_field(v, p.d, p.mem_enc, out);
+            blank &= v.is_empty();
         }
+        n = i + 1;
+    });
+    if p.lines { return 1; }
+    if blank {
+        // A row of empty cells: its delimiters (`""` for one), never an empty line, which no
+        // scan reads as a record — the row would be gone once the file is read again.
+        out.truncate(start);
+        n = n.max(st.ncols.max(1));
+        if n == 1 { out.extend_from_slice(b"\"\""); } else { out.resize(start + n - 1, p.d); }
     }
+    n as u32
 }
 
 /// Every row of the table, in file order, to `w`.
-pub fn write_to<W: Write>(st: &State, o: &SaveOptions, w: W) -> io::Result<W> {
+pub fn write_to<W: Write + Send>(st: &State, o: &SaveOptions, w: W) -> io::Result<W> {
     let p = Plan::new(st, o);
     let mut out = Out { w, utf16: p.utf16, pending: Vec::new() };
     if p.bom {
@@ -235,10 +278,83 @@ impl Index {
     }
 }
 
-/// Rows made here, encoded in parallel past this many in a row.
+/// Rows made here, encoded in parallel past this many in a row; at most this many at a time.
 const PAR_ROWS: usize = 256;
+const BLOCK: usize = 1 << 17;
 
-fn write_rows(st: &State, o: &SaveOptions, p: &Plan, out: &mut impl Sink, mut ix: Option<&mut Index>) -> io::Result<()> {
+/// Records made here end to end, the line breaks between them included: where each is
+/// (start, end, fields), and whether a reading would see every one as written.
+struct Encoded {
+    buf: Vec<u8>,
+    recs: Vec<(usize, usize, u32)>,
+    ok: bool,
+}
+
+/// What the writing thread is handed, in order: bytes made here, or a run of the file's own.
+enum Piece<'a> {
+    Bytes(Vec<u8>),
+    Slice(&'a [u8]),
+    Copy(&'a [u8], usize),
+}
+
+/// `write_rows`'s output, written by a thread of its own while the next rows are made. Short
+/// runs are gathered first: one hand-over per megabyte, not per line break.
+struct Pipe<'a> {
+    tx: std::sync::mpsc::SyncSender<Piece<'a>>,
+    buf: Vec<u8>,
+}
+
+impl<'a> Pipe<'a> {
+    fn send(&mut self, p: Piece<'a>) -> io::Result<()> {
+        if !self.buf.is_empty() {
+            let b = std::mem::replace(&mut self.buf, Vec::with_capacity(1 << 20));
+            self.tx.send(Piece::Bytes(b)).map_err(|_| io::Error::other("the write stopped"))?;
+        }
+        self.tx.send(p).map_err(|_| io::Error::other("the write stopped"))
+    }
+
+    fn put(&mut self, b: &'a [u8]) -> io::Result<()> {
+        if b.len() >= 1 << 16 { return self.send(Piece::Slice(b)); }
+        self.buf.extend_from_slice(b);
+        if self.buf.len() >= 1 << 20 { self.send(Piece::Bytes(Vec::new()))?; }
+        Ok(())
+    }
+
+    fn own(&mut self, b: Vec<u8>) -> io::Result<()> {
+        if b.len() < 1 << 16 { self.buf.extend_from_slice(&b); return Ok(()); }
+        self.send(Piece::Bytes(b))
+    }
+
+    fn copy(&mut self, b: &'a [u8], at: usize) -> io::Result<()> {
+        if b.len() < KERNEL_COPY { return self.put(b); }
+        self.send(Piece::Copy(b, at))
+    }
+}
+
+/// Every row (or `o.rows`) to `out`: made here on every core, written by a thread of its own.
+fn write_rows(st: &State, o: &SaveOptions, p: &Plan, out: &mut (impl Sink + Send), ix: Option<&mut Index>) -> io::Result<()> {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Piece>(64);
+    std::thread::scope(|s| {
+        let w = s.spawn(move || -> io::Result<()> {
+            for piece in rx {
+                match piece {
+                    Piece::Bytes(b) => out.put(&b)?,
+                    Piece::Slice(b) => out.put(b)?,
+                    Piece::Copy(b, at) => out.copy(b, at)?,
+                }
+            }
+            Ok(())
+        });
+        let mut pipe = Pipe { tx, buf: Vec::with_capacity(1 << 20) };
+        let made = make_rows(st, o, p, &mut pipe, ix).and_then(|_| pipe.send(Piece::Bytes(Vec::new())));
+        drop(pipe);
+        // The writer's own error first: the maker's is then only that it stopped.
+        w.join().unwrap_or_else(|e| std::panic::resume_unwind(e))?;
+        made
+    })
+}
+
+fn make_rows<'a>(st: &'a State, o: &'a SaveOptions, p: &Plan, out: &mut Pipe<'a>, mut ix: Option<&mut Index>) -> io::Result<()> {
     let b = &st.base;
     let bytes = b.bytes();
     if o.rows.is_none() {
@@ -251,8 +367,9 @@ fn write_rows(st: &State, o: &SaveOptions, p: &Plan, out: &mut impl Sink, mut ix
             None if b.n == 0 && st.all_len() > 0 => std::borrow::Cow::Borrowed(&b.prefix()[..memchr::memrchr(b.dialect.nl, b.prefix()).map_or(0, |k| k + 1)]),
             None => std::borrow::Cow::Borrowed(b.prefix()),
         };
-        out.put(&pre)?;
-        if let Some(x) = ix.as_deref_mut() { x.pos += pre.len(); }
+        let n = pre.len();
+        out.own(pre.into_owned())?;
+        if let Some(x) = ix.as_deref_mut() { x.pos += n; }
     }
     // A line break chosen for every record (`State::eol`): put between all of them, and at
     // the end where the file had one.
@@ -355,68 +472,69 @@ fn write_rows(st: &State, o: &SaveOptions, p: &Plan, out: &mut impl Sink, mut ix
             k = q;
             continue;
         }
-        // Rows made here: as many in a row as there are, encoded in parallel.
+        // Rows made here: as many in a row as there are, encoded in parallel — the line breaks
+        // between them too, and whether a reading would see each as written (for the index).
         let mut q = k + 1;
-        while q < count && q - k < 1 << 16 && !copy_at(q) { q += 1; }
+        while q < count && q - k < BLOCK && !copy_at(q) { q += 1; }
         let ids: Vec<RowId> = (k..q).map(id_at).collect();
-        // Each chunk's records end to end, and where each ends with its field count.
-        type Encoded = (Vec<u8>, Vec<(usize, u32)>);
+        let tail_of = |id: RowId| -> &[u8] {
+            if (id as usize) < b.n { let span = b.span(id as usize); &span[own_len(span, b.dialect)..] } else { default_eol }
+        };
+        let check = ix.as_ref().is_some_and(|x| x.ok);
         let encode = |ids: &[RowId]| -> Encoded {
-            let (mut buf, mut ends) = (Vec::with_capacity(ids.len() * 128), Vec::with_capacity(ids.len()));
-            let mut row = Vec::new();
+            let mut e = Encoded { buf: Vec::with_capacity(ids.len() * 128), recs: Vec::with_capacity(ids.len()), ok: true };
+            let mut prev: Option<&[u8]> = None;
             for &id in ids {
-                st.row(id, &mut row);
-                // A row of empty cells: its delimiters (`""` for one), never an empty line, which
-                // no scan reads as a record — the row would be gone once the file is read again.
-                if !p.lines && row.iter().all(|f| f.is_empty()) { row.resize(st.ncols.max(1), String::new()); }
-                write_record(&row, p.d, p.mem_enc, p.lines, &mut buf);
-                let fields = if p.lines { 1 } else { row.len().max(1) as u32 };
-                ends.push((buf.len(), fields));
-            }
-            (buf, ends)
-        };
-        let parts: Vec<Encoded> = if ids.len() >= PAR_ROWS {
-            ids.par_chunks(1024).map(encode).collect()
-        } else {
-            vec![encode(&ids)]
-        };
-        let mut idx = ids.iter();
-        for (buf, ends) in &parts {
-            let mut from = 0;
-            for &(end, fields) in ends {
-                let id = *idx.next().unwrap();
-                if !first {
-                    let sep = if forced.is_some() || !is_break(owed, b.dialect) { default_eol } else { owed };
-                    out.put(sep)?;
-                    if let Some(x) = ix.as_deref_mut() { x.pos += sep.len(); }
+                if let Some(t) = prev {
+                    e.buf.extend_from_slice(if forced.is_some() || !is_break(t, b.dialect) { default_eol } else { t });
                 }
-                let quoted;
-                let rec = if first && bom_start && !p.lines && buf[from..end].starts_with(b"\xEF\xBB\xBF") {
-                    // Unquoted (it starts with no quote): its first field quoted, not read as a BOM.
-                    let r = &buf[from..end];
-                    let d = memchr::memchr(p.d, r).unwrap_or(r.len());
-                    quoted = [b"\"", &r[..d], b"\"", &r[d..]].concat();
-                    &quoted[..]
-                } else {
-                    &buf[from..end]
-                };
-                first = false;
-                let tail = if (id as usize) < b.n {
-                    let span = b.span(id as usize);
-                    &span[own_len(span, b.dialect)..]
-                } else {
-                    default_eol
-                };
+                let start = e.buf.len();
+                let fields = put_row(st, id, p, &mut e.buf);
+                let tail = tail_of(id);
+                if check && e.ok && !reads_back(&e.buf[start..], tail, b.dialect, fields) { e.ok = false; }
+                e.recs.push((start, e.buf.len(), fields));
+                prev = Some(tail);
+            }
+            e
+        };
+        let parts: Vec<Encoded> = if ids.len() >= PAR_ROWS { ids.par_chunks(1024).map(encode).collect() } else { vec![encode(&ids)] };
+        let mut at = 0;
+        for mut e in parts {
+            let head = &ids[at..at + e.recs.len()];
+            at += e.recs.len();
+            if !first {
+                let sep = if forced.is_some() || !is_break(owed, b.dialect) { default_eol } else { owed };
+                out.put(sep)?;
+                if let Some(x) = ix.as_deref_mut() { x.pos += sep.len(); }
+            }
+            let (s0, e0, f0) = e.recs[0];
+            let len = e.buf.len();
+            let mut shift = 0;
+            if first && bom_start && !p.lines && e.buf[s0..e0].starts_with(b"\xEF\xBB\xBF") {
+                // Unquoted (it starts with no quote): its first field quoted, not read as a BOM.
+                let r = &e.buf[s0..e0];
+                let d = memchr::memchr(p.d, r).unwrap_or(r.len());
+                let quoted = [b"\"", &r[..d], b"\"", &r[d..]].concat();
                 if let Some(x) = ix.as_deref_mut() {
-                    if x.ok && !reads_back(rec, tail, b.dialect, fields) { x.ok = false; }
-                    x.record(x.pos, fields);
-                    x.pos += rec.len();
+                    if x.ok && !reads_back(&quoted, tail_of(head[0]), b.dialect, f0) { x.ok = false; }
                 }
-                out.put(rec)?;
-                blank = rec.is_empty();
-                owed = tail;
-                from = end;
+                out.own(quoted)?;
+                out.own(e.buf[e0..].to_vec())?;
+                shift = 2;
+            } else {
+                out.own(std::mem::take(&mut e.buf))?;
             }
+            if let Some(x) = ix.as_deref_mut() {
+                x.ok &= e.ok;
+                if x.ok {
+                    for (j, &(st0, _, fields)) in e.recs.iter().enumerate() { x.record(x.pos + st0 + if j > 0 { shift } else { 0 }, fields); }
+                }
+                x.pos += len + shift;
+            }
+            first = false;
+            let &(sl, el, _) = e.recs.last().unwrap();
+            blank = sl == el;
+            owed = tail_of(head[head.len() - 1]);
         }
         k = q;
     }
@@ -563,7 +681,7 @@ fn civil(t: u64) -> (i64, u32, u32, u32, u32, u32) {
 /// Saves to `path`. `expect`: the stamp the file had when read, to refuse
 /// overwriting someone else's changes (None: do not check). `backed_up`: a
 /// `.bak` was already made this session. Returns the new stamp.
-pub fn save(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, backed_up: &mut bool) -> Result<Stamp, SaveError> {
+pub fn save(st: &State, path: &Path, o: &SaveOptions, expect: Option<Expect>, backed_up: &mut bool) -> Result<Stamp, SaveError> {
     save_with(st, path, o, expect, backed_up, false).map(|r| r.0)
 }
 
@@ -571,16 +689,27 @@ pub fn save(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, bac
 /// known from what was written, nothing re-read — when that can be told
 /// for sure (the file's own encoding and delimiter, every row, no quote
 /// error in the file read); None: open it again.
-pub fn save_indexed(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, backed_up: &mut bool) -> Result<(Stamp, Option<Base>), SaveError> {
+pub fn save_indexed(st: &State, path: &Path, o: &SaveOptions, expect: Option<Expect>, backed_up: &mut bool) -> Result<(Stamp, Option<Base>), SaveError> {
     save_with(st, path, o, expect, backed_up, true)
 }
 
-fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, backed_up: &mut bool, reindex: bool) -> Result<(Stamp, Option<Base>), SaveError> {
-    if let Some(e) = expect {
-        if let Some(now) = Stamp::of(path) {
-            if now != e { return Err(SaveError::Changed); }
-        }
-    }
+/// Whether the file at `path` is no longer the one expected (gone counts as unchanged: written
+/// anew). Another stamp on the same content is ours still (`Stamp::holds`): the sample expected,
+/// else, when `b` was read from that stamp, the bytes read.
+fn moved(path: &Path, expect: Option<Expect>, b: &Base) -> bool {
+    let Some(e) = expect else { return false };
+    let Some(now) = Stamp::of(path) else { return false };
+    !e.stamp.holds(&now, path, || e.sample.or_else(|| (b.stamp == Some(e.stamp)).then(|| b.sample()).flatten()))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs right before the last look at the file (tests: another program writing meanwhile).
+    static BEFORE_REPLACE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+}
+
+fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Expect>, backed_up: &mut bool, reindex: bool) -> Result<(Stamp, Option<Base>), SaveError> {
+    if moved(path, expect, &st.base) { return Err(SaveError::Changed); }
     let b = &st.base;
     if b.cut_short() { return Err(SaveError::CutShort); }
     // Its first rows only, the rest still being read: written, they would cut the file short.
@@ -603,6 +732,10 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, ba
         f.sync_all()?;
         // Cut short while being written: the zeros read in its place must not land.
         if b.cut_short() { return Err(io::Error::other("cut short")); }
+        // Written by another program while this was being written (a long save): theirs stays.
+        #[cfg(test)]
+        if let Some(f) = BEFORE_REPLACE.with(|h| h.get()) { f(path); }
+        if moved(path, expect, b) { return Err(io::Error::other(Changed)); }
         #[cfg(unix)]
         if let Ok(m) = std::fs::metadata(path) {
             use std::os::unix::fs::PermissionsExt;
@@ -618,6 +751,7 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Stamp>, ba
     })();
     if let Err(e) = res {
         let _ = std::fs::remove_file(&tmp);
+        if e.get_ref().is_some_and(|x| x.is::<Changed>()) { return Err(SaveError::Changed); }
         return Err(if b.cut_short() { SaveError::CutShort } else { e.into() });
     }
     let stamp = Stamp::of(path).ok_or_else(|| SaveError::Io(io::Error::other("saved file vanished")))?;
@@ -748,13 +882,13 @@ mod tests {
         let id = t.st.data_id(0);
         t.set_cells(&[(id, 0, "9".into())]);
         let mut backed = false;
-        save(&t.st, &p, &SaveOptions::default(), stamp, &mut backed).unwrap();
+        save(&t.st, &p, &SaveOptions::default(), stamp.map(Into::into), &mut backed).unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"a,b\n9,2\n");
         assert!(backed);
         let baks: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().ends_with(".bak")).collect();
         assert_eq!(baks.len(), 1);
         // A second save with the old stamp: refused.
-        assert!(matches!(save(&t.st, &p, &SaveOptions::default(), stamp, &mut backed), Err(SaveError::Changed)));
+        assert!(matches!(save(&t.st, &p, &SaveOptions::default(), stamp.map(Into::into), &mut backed), Err(SaveError::Changed)));
         // Saved over while mapped (Windows: the old file set aside): nothing left once let go.
         drop(t);
         let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains("csvfab-old")).collect();
@@ -838,7 +972,7 @@ mod tests {
                 let mut t = Table::new(base, None);
                 edit(&mut t);
                 let want = write_to(&t.st, &SaveOptions::default(), Vec::new()).unwrap();
-                let (_, got) = save_indexed(&t.st, &p, &SaveOptions { backup: false, ..Default::default() }, stamp, &mut false).unwrap();
+                let (_, got) = save_indexed(&t.st, &p, &SaveOptions { backup: false, ..Default::default() }, stamp.map(Into::into), &mut false).unwrap();
                 assert_eq!(std::fs::read(&p).unwrap(), want, "{name} / {what}: bytes");
                 // Read again as it was read (a save keeps the file's encoding and delimiter).
                 let d = &t.st.base.dialect;
@@ -853,6 +987,133 @@ mod tests {
                 }
             }
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A record as rows were written before (`State::row`'s Strings, then each field).
+    fn write_record(fields: &[String], d: u8, enc: Enc, lines: bool, out: &mut Vec<u8>) {
+        if lines {
+            enc::encode_into(enc, fields.first().map_or("", |s| s.as_str()), out);
+            return;
+        }
+        // One empty field: quoted, or the record would be an empty line, read back as none.
+        if fields.len() <= 1 && fields.first().is_none_or(|f| f.is_empty()) {
+            out.extend_from_slice(b"\"\"");
+            return;
+        }
+        for (i, f) in fields.iter().enumerate() {
+            if i > 0 { out.push(d); }
+            let needs = f.bytes().any(|b| b == d || b == b'"' || b == b'\n' || b == b'\r') || f.starts_with(' ') || f.ends_with(' ');
+            if needs {
+                out.push(b'"');
+                enc::encode_into(enc, &f.replace('"', "\"\""), out);
+                out.push(b'"');
+            } else {
+                enc::encode_into(enc, f, out);
+            }
+        }
+    }
+
+    /// A row written straight from its record and layers is the record `write_record` makes
+    /// of `State::row`'s fields — columns moved, added, removed, cells edited, rows made here,
+    /// fields quoted or not, another delimiter or encoding, text read as lines.
+    #[test]
+    fn rows_written_as_their_fields() {
+        let files: &[&[u8]] = &[
+            b"a,b,c\n1,\"x,y\",3\n\"q\"\"q\", lead,trail \n,,\n4,5,6,7,8\n9\n\"\"\n",
+            b"nom;ville\nJos\xE9;N\xEEmes\r\n;\r\n",
+            b"just some text\nwith lines\n\n  and spaces  \n",
+        ];
+        for bytes in files {
+            let mut t = Table::new(Arc::new(Base::from_bytes(bytes.to_vec(), OpenOptions::default())), None);
+            let steps: Vec<fn(&mut Table)> = vec![
+                |_| {},
+                |t| { let id = t.st.data_id(0); t.set_cells(&[(id, 0, "a \"b\", c".into())]); },
+                |t| t.move_column(0, 2),
+                |t| t.insert_column(1, "new"),
+                |t| { let ids = t.insert_rows(1, 2); t.set_cells(&[(ids[0], 1, " x".into())]); },
+                |t| { let id = t.st.data_id(1); t.set_cells(&[(id, 1, String::new()), (id, 0, String::new())]); },
+                |t| t.delete_columns(&[0]),
+                |t| { let id = t.st.data_id(2); t.set_cells(&[(id, 2, "été;€".into())]); },
+            ];
+            for step in steps {
+                step(&mut t);
+                for o in [SaveOptions::default(), SaveOptions { delim: Some(b'\t'), ..Default::default() }, SaveOptions { enc: Some(Enc::Windows1252), ..Default::default() }, SaveOptions { delim: Some(0), ..Default::default() }] {
+                    let p = Plan::new(&t.st, &o);
+                    for k in 0..t.st.all_len() {
+                        let id = t.st.all_id(k);
+                        let mut row = Vec::new();
+                        t.st.row(id, &mut row);
+                        if !p.lines && row.iter().all(|f| f.is_empty()) { row.resize(t.st.ncols.max(1), String::new()); }
+                        let mut want = Vec::new();
+                        write_record(&row, p.d, p.mem_enc, p.lines, &mut want);
+                        let mut got = Vec::new();
+                        let n = put_row(&t.st, id, &p, &mut got);
+                        assert_eq!(String::from_utf8_lossy(&got), String::from_utf8_lossy(&want), "{:?} row {k}", String::from_utf8_lossy(bytes));
+                        assert_eq!(n, if p.lines { 1 } else { row.len().max(1) as u32 });
+                    }
+                }
+            }
+        }
+    }
+
+    /// A sync client rewrites the file with the same bytes (another inode, another time): still
+    /// ours. Another program's write of the same size: refused.
+    #[test]
+    fn same_content_rewritten_is_ours() {
+        let dir = std::env::temp_dir().join(format!("csvfab-save-sync-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.csv");
+        std::fs::write(&p, b"a,b\n1,2\n").unwrap();
+        let base = Arc::new(Base::open(&p, OpenOptions::default(), None).unwrap());
+        let stamp = base.stamp;
+        let mut t = Table::new(base, None);
+        let id = t.st.data_id(0);
+        t.set_cells(&[(id, 0, "9".into())]);
+        let other = dir.join("t.tmp");
+        std::fs::write(&other, b"a,b\n1,2\n").unwrap();
+        std::fs::rename(&other, &p).unwrap();
+        assert_ne!(Stamp::of(&p), stamp);
+        let r = save(&t.st, &p, &SaveOptions { backup: false, ..Default::default() }, stamp.map(Into::into), &mut false);
+        assert!(r.is_ok(), "{r:?}");
+        let ours = r.unwrap();
+        let sample = crate::base::file_sample(&p, ours.len);
+        // Rewritten again by the client: the sample of what we wrote says it is ours.
+        std::fs::write(&other, b"a,b\n9,2\n").unwrap();
+        std::fs::rename(&other, &p).unwrap();
+        let e = Expect { stamp: ours, sample };
+        assert!(save(&t.st, &p, &SaveOptions { backup: false, ..Default::default() }, Some(e), &mut false).is_ok());
+        // Someone else's edit, same size.
+        let ours = Stamp::of(&p).unwrap();
+        let e = Expect { stamp: ours, sample: crate::base::file_sample(&p, ours.len) };
+        std::fs::write(&other, b"a,b\n7,2\n").unwrap();
+        std::fs::rename(&other, &p).unwrap();
+        assert!(matches!(save(&t.st, &p, &SaveOptions::default(), Some(e), &mut false), Err(SaveError::Changed)));
+        drop(t);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Another program writes the file while a save is under way: found right before the
+    /// rename, refused — their version stays, nothing left behind.
+    #[test]
+    fn changed_during_the_save() {
+        let dir = std::env::temp_dir().join(format!("csvfab-save-late-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.csv");
+        std::fs::write(&p, b"a,b\n1,2\n").unwrap();
+        let base = Arc::new(Base::open(&p, OpenOptions::default(), None).unwrap());
+        let stamp = base.stamp;
+        let mut t = Table::new(base, None);
+        let id = t.st.data_id(0);
+        t.set_cells(&[(id, 0, "9".into())]);
+        BEFORE_REPLACE.with(|h| h.set(Some(|p| std::fs::write(p, b"theirs, longer\n").unwrap())));
+        let r = save(&t.st, &p, &SaveOptions::default(), stamp.map(Into::into), &mut false);
+        BEFORE_REPLACE.with(|h| h.set(None));
+        assert!(matches!(r, Err(SaveError::Changed)), "{r:?}");
+        assert_eq!(std::fs::read(&p).unwrap(), b"theirs, longer\n");
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 1, "{left:?}");
+        drop(t);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

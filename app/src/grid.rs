@@ -43,6 +43,8 @@ pub struct Editing {
     pub text: String,
     /// Typing on a cell replaces its text; Enter/F2 keep it with the caret at the end.
     pub fresh: bool,
+    /// Enter: the whole text selected, as the web's (F2, a double-click: the caret at the end).
+    pub select: bool,
 }
 
 /// A colour scale or data bars being computed for a column (over every row, as the JS).
@@ -57,8 +59,20 @@ struct StripPic<K> {
     data: Vec<u32>,
 }
 
+/// What the search highlights were made from (`Hl`), to make them again only when it changes.
+#[derive(PartialEq)]
+struct HlKey {
+    global: String,
+    cols: Vec<String>,
+    regex: bool,
+    case: bool,
+    off: bool,
+}
+
 #[derive(Default)]
 pub struct GridState {
+    /// The search's and the column filters' highlights (a regex compiled once, not every frame).
+    hl: Option<(HlKey, Arc<(Hl, Vec<Hl>)>, u64)>,
     /// The navigator held down, and whether the pointer has reached the magnified map
     /// since (the view then follows the pointer on it).
     nav_hold: Option<bool>,
@@ -285,6 +299,14 @@ impl GridState {
         self.hidden.retain(|&c| c < n);
         self.heat.retain(|&c, _| c < n);
         self.bars.retain(|&c, _| c < n);
+    }
+
+    /// Goes to column `c` (a hidden one shown again, as the web's `goToColumn`), the cursor on
+    /// it in `row`, scrolled into view.
+    pub fn go_to_col(&mut self, row: usize, c: usize) {
+        self.hidden.retain(|&k| k != c);
+        self.select(Cell { row, col: c }, false);
+        self.reveal_col = true;
     }
 
     /// Scrolls so that `row` is the first one shown.
@@ -614,13 +636,18 @@ pub fn move_column(tab: &mut Tab, from: usize, to: usize, ctx: &egui::Context) {
     order.insert(to, f);
     let new = |c: usize| order.iter().position(|&x| x == c);
     crate::tools::edit_kit::remap_columns(tab, n, new, ctx);
+    let name = tab.heads().get(to).cloned().unwrap_or_default();
+    tab.grid.notice = Some(format!("Column \"{name}\" moved — not written yet, use Save."));
 }
 
 /// Freezes every column up to `col` — or none, when they already are. Refused when they
 /// would take most of the grid: nothing would be left to scroll.
 pub fn freeze_to(tab: &mut Tab, col: usize) {
     let g = &mut tab.grid;
-    if g.frozen == col + 1 { g.frozen = 0; return; }
+    if g.frozen == col + 1 { g.frozen = 0; g.notice = Some("Columns unfrozen.".into()); return; }
+    // "The first column": the first shown (a hidden column 0 is not the one in view).
+    let ncols = g.widths.len();
+    let col = if col == 0 { (0..ncols).find(|c| !g.hidden.contains(c)).unwrap_or(0) } else { col };
     let w: f32 = (0..=col).map(|c| g.w(c)).sum();
     if g.view_w > 0.0 && w > g.view_w * 0.8 {
         g.notice = Some("Not frozen: those columns would fill most of the window. Narrow them, or freeze fewer.".into());
@@ -628,6 +655,8 @@ pub fn freeze_to(tab: &mut Tab, col: usize) {
     }
     g.frozen = col + 1;
     g.xoff = 0.0;
+    let name = tab.heads().get(col).cloned().unwrap_or_default();
+    tab.grid.notice = Some(if col == 0 || tab.grid.frozen == 1 { format!("Column \"{name}\" frozen: it stays in view when scrolling sideways.") } else { format!("Columns frozen up to \"{name}\": they stay in view when scrolling sideways.") });
 }
 
 /// The column panel's data bars (`heat` false) or colour scale: on (computed over every row,
@@ -656,15 +685,16 @@ pub fn fit_column(tab: &mut Tab, st: &State, ctx: &egui::Context, c: usize, m: &
     let Some(&from) = tab.grid.widths.get(c) else { return };
     let to = fit_width(ctx, st, tab, c, m);
     tab.grid.width_to = Some((c, from, to, Instant::now()));
+    tab.grid.notice = Some(format!("Column \"{}\" fitted to its content.", tab.heads().get(c).map_or("", |s| s.as_str())));
     ctx.request_repaint();
 }
 
 /// The columns' titles as shown: a text file's one column is titled by its language
 /// ("Python", "Log", "Text"), not "Column 1".
-pub fn titles(st: &State, tab: &Tab) -> Vec<String> {
-    let mut h = st.headers();
+pub fn titles(st: &State, tab: &Tab) -> Arc<Vec<String>> {
+    let mut h = tab.heads();
     if st.base.dialect.lines {
-        if let Some(t) = h.first_mut() { *t = crate::syntax::lang_of(&tab.name).label.to_owned(); }
+        if let Some(t) = Arc::make_mut(&mut h).first_mut() { *t = crate::syntax::lang_of(&tab.name).label.to_owned(); }
     }
     h
 }
@@ -673,14 +703,20 @@ pub fn titles(st: &State, tab: &Tab) -> Vec<String> {
 pub fn fit_width(ctx: &egui::Context, st: &State, tab: &Tab, c: usize, m: &Metrics) -> f32 {
     let title = titles(st, tab).get(c).cloned().unwrap_or_default();
     let mut w = ctx.fonts_mut(|f| f.layout_no_wrap(title, semibold(m.font_header), Color32::WHITE).size().x) + 20.0 + BADGE_W + num_w(c) + 22.0;
-    let mut tmp = Vec::new();
     let cw = char_w(ctx, m);
     let n = tab.shown();
-    let from = tab.grid.top.min(n);
     let extra = if tab.pills.get(c).is_some_and(|x| x.is_some()) { 4.0 } else if matches!(tab.rich.get(c), Some(Some(Rich::Color))) { 20.0 } else { 0.0 };
-    for pos in from..(from + 200).min(n) {
-        st.with_cell(tab.shown_id(pos), c, &mut tmp, |s| w = w.max(display(s).chars().count() as f32 * cw + 2.0 * m.cell_pad_x + 1.0 + extra));
-    }
+    // Every row shown, as the web's (past 200 000, an even sample of them), counted on every
+    // core: a long value far down the view counts too.
+    use rayon::prelude::*;
+    let take = n.min(200_000);
+    let view = tab.view.as_deref();
+    let chars = (0..take).into_par_iter().with_min_len(4096).map_init(Vec::new, |tmp, k| {
+        let pos = if take == n { k } else { k * n / take };
+        let id = view.map_or_else(|| st.data_id(pos), |v| v[pos]);
+        st.with_cell(id, c, tmp, |s| display(s).chars().count())
+    }).max().unwrap_or(0);
+    w = w.max(chars as f32 * cw + 2.0 * m.cell_pad_x + 1.0 + extra);
     w.clamp(m.col_min_w, m.col_fit_max)
 }
 
@@ -707,8 +743,10 @@ struct Look<'a> {
     heat: &'a HashMap<usize, Heat>,
     bars: &'a HashMap<usize, DataBars>,
     lit: Option<(usize, Keep<'a>)>,
-    hl_global: Hl,
-    hl_col: Vec<Hl>,
+    hl: &'a (Hl, Vec<Hl>),
+    /// The highlights' identity (the search's, the column filters', the find's): a cell whose
+    /// text and this are the last frame's has the same marks, not looked for again.
+    hl_gen: u64,
     find: Option<FindLook>,
     ghost: Option<&'a Ghost>,
     editing: Option<Cell>,
@@ -806,6 +844,8 @@ struct CellG {
     galley: Option<Arc<egui::Galley>>,
     cut: bool,
     seen: u32,
+    /// `Look::hl_gen` its marks (`look.marks`) were found with.
+    hl: u64,
 }
 
 /// The galleys of the cells on screen. Laying text out (shaping) is most of a frame's
@@ -889,13 +929,13 @@ impl RowFields {
         self.ok = !b.dialect.lines && (id as usize) < b.n && want.len() > 1;
         if !self.ok { return; }
         let last = want[want.len() - 1].1;
-        let (enc, mut k) = (b.enc, 0);
+        let mut k = 0;
         let (text, at) = (&mut self.text, &mut self.at);
         csvfab_engine::scan::visit_fields(b.record(id as usize), b.dialect.delim, tmp, |i, v| {
             while k < want.len() && want[k].1 < i { k += 1; }
             while k < want.len() && want[k].1 == i {
                 let a = text.len() as u32;
-                text.push_str(&csvfab_engine::enc::decode(enc, v));
+                text.push_str(&b.text(v));
                 at.push((want[k].0, a, text.len() as u32));
                 k += 1;
             }
@@ -939,7 +979,7 @@ impl Look<'_> {
             if cells.edited && old.as_ref().is_some_and(|e| e.src != src) { flashed.push((id, c)); }
             let entry = match old {
                 Some(e) => { e.seen = cells.frame; if e.src != src { e.galley = None; e.src = src; } e }
-                None => cells.map.entry(key).or_insert(CellG { src, look: TextLook { color: Color32::TRANSPARENT, font: 0, max_w: 0, marks: 0 }, galley: None, cut: false, seen: cells.frame }),
+                None => cells.map.entry(key).or_insert(CellG { src, look: TextLook { color: Color32::TRANSPARENT, font: 0, max_w: 0, marks: 0 }, galley: None, cut: false, seen: cells.frame, hl: 0 }),
             };
             // The fills: frozen cells opaque, then the colour scale, the marks, the selection.
             let heat = self.heat.get(&c).and_then(|h| h.cell(s.trim()));
@@ -1027,41 +1067,51 @@ impl Look<'_> {
                 color = p.txt_strong;
                 if pill.is_none() { font = 1; }
             }
-            let f = match font { 1 => &self.font_bold, 2 => &self.pill_font, _ => &self.font };
-            // Search highlights (the global search and this column's filter), then a find's.
-            let mut marks_key = 0u64;
-            hits.clear();
-            if !self.hl_global.is_empty() || !self.hl_col[c].is_empty() || self.find.is_some() {
-                self.hl_global.hits(text, hits, hits2);
-                let mine = std::mem::take(hits);
-                self.hl_col[c].hits(text, hits, hits2);
-                hits.extend(mine);
-                let n = hits.len();
-                if let Some(fl) = &self.find {
-                    if fl.col.is_none_or(|fc| fc == c) && fl.matches.binary_search(&(pos, c)).is_ok() {
-                        if fl.regex {
-                            hits.push((0, text.len()));
-                        } else if fl.case {
-                            hits.extend(text.match_indices(fl.needle.as_str()).take(16).map(|(a, t)| (a, a + t.len())));
-                        } else {
-                            matches(text, &fl.needle, hits2);
-                            hits.extend_from_slice(hits2);
-                        }
-                    }
-                }
-                // Search marks sort before a find's at the same place: (a, b, find) as the old tuple order.
-                let mut h = Fx(0);
-                for (k, &(a, b)) in hits.iter().enumerate() { h.mix(((a as u64) << 33) ^ ((b as u64) << 1) ^ (k >= n) as u64); }
-                marks_key = h.0 | 1;
-                // Tag the find's hits by the high bit of the end (cleared below).
-                for hm in hits[n..].iter_mut() { hm.1 |= 1 << 63; }
-            }
             // A text line coloured (unless lit or differing: their colour says more). Its galley
             // is kept as any cell's; the theme's syntax colours are in its key.
             let colored = syn.filter(|_| !lit && !differs);
-            if colored.is_some() { font |= 0x80; marks_key ^= (u32::from_le_bytes(p.sy_kw.to_array()) as u64) << 32 | u32::from_le_bytes(p.sy_str.to_array()) as u64; }
-            let look = TextLook { color, font, max_w: max_w.to_bits(), marks: marks_key };
-            let reuse = entry.look == look && entry.galley.as_ref().is_some_and(|g| g.job.text == text);
+            if colored.is_some() { font |= 0x80; }
+            // Search highlights (the global search and this column's filter), then a find's: not
+            // looked for again when the text, the look and the searches are the last frame's.
+            let (hl_global, hl_col) = (&self.hl.0, &self.hl.1);
+            hits.clear();
+            let probe = TextLook { color, font, max_w: max_w.to_bits(), marks: entry.look.marks };
+            let mut reuse = entry.hl == self.hl_gen && entry.look == probe && entry.galley.as_ref().is_some_and(|g| g.job.text == text);
+            let mut look = probe;
+            if !reuse {
+                let mut marks_key = 0u64;
+                if !hl_global.is_empty() || !hl_col[c].is_empty() || self.find.is_some() {
+                    hl_global.hits(text, hits, hits2);
+                    let mine = std::mem::take(hits);
+                    hl_col[c].hits(text, hits, hits2);
+                    hits.extend(mine);
+                    let n = hits.len();
+                    if let Some(fl) = &self.find {
+                        if fl.col.is_none_or(|fc| fc == c) && fl.matches.binary_search(&(pos, c)).is_ok() {
+                            if fl.regex {
+                                hits.push((0, text.len()));
+                            } else if fl.case {
+                                hits.extend(text.match_indices(fl.needle.as_str()).take(16).map(|(a, t)| (a, a + t.len())));
+                            } else {
+                                matches(text, &fl.needle, hits2);
+                                hits.extend_from_slice(hits2);
+                            }
+                        }
+                    }
+                    // Search marks sort before a find's at the same place: (a, b, find) as the old tuple order.
+                    let mut h = Fx(0);
+                    for (k, &(a, b)) in hits.iter().enumerate() { h.mix(((a as u64) << 33) ^ ((b as u64) << 1) ^ (k >= n) as u64); }
+                    marks_key = h.0 | 1;
+                    // Tag the find's hits by the high bit of the end (cleared below).
+                    for hm in hits[n..].iter_mut() { hm.1 |= 1 << 63; }
+                }
+                if colored.is_some() { marks_key ^= (u32::from_le_bytes(p.sy_kw.to_array()) as u64) << 32 | u32::from_le_bytes(p.sy_str.to_array()) as u64; }
+                look = TextLook { color, font, max_w: max_w.to_bits(), marks: marks_key };
+                reuse = entry.look == look && entry.galley.as_ref().is_some_and(|g| g.job.text == text);
+            }
+            entry.hl = self.hl_gen;
+            let marks_key = look.marks;
+            let f = match font & 0x7f { 1 => &self.font_bold, 2 => &self.pill_font, _ => &self.font };
             if !reuse {
                 let plain = TextFormat::simple(f.clone(), color);
                 let mut job = LayoutJob::default();
@@ -1363,6 +1413,8 @@ fn poll_jobs(tab: &mut Tab, actions: &mut Vec<Action>) {
         if let Some((row, col)) = r.filter(|r| r.0 < shown) {
             g.select(Cell { row, col }, false);
             g.set_top(row.saturating_sub(g.page / 2));
+        } else {
+            g.notice = Some("No row shown holds that value.".into());
         }
     }
     if let Some((j, pasted)) = &mut g.patch_job {
@@ -1554,6 +1606,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
                         let s = s.trim();
                         if is_link(s) {
                             let url = if s.contains('@') && !s.contains("://") { format!("mailto:{s}") } else { s.to_string() };
+                            tab.grid.notice = Some(format!("Opened {url}"));
                             ctx.open_url(egui::OpenUrl::new_tab(url));
                         }
                     }
@@ -1631,7 +1684,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     if resp.double_clicked() && !on_handle {
         if let Some(c) = resp.interact_pointer_pos().filter(|q| q.x >= cells_x0).and_then(|pt| hit(pt, tab.grid.scroll, tab.grid.xoff, false)) {
             let id = tab.shown_id(c.row);
-            tab.grid.editing = Some(Editing { at: c, id, text: st.cell(id, c.col), fresh: false });
+            tab.grid.editing = Some(Editing { at: c, id, text: st.cell(id, c.col), fresh: false, select: false });
         }
     }
     if resp.has_focus() && tab.grid.editing.is_none() {
@@ -1706,19 +1759,36 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     let mut flashed = Vec::new();
     let mut drawn = std::mem::take(&mut tab.grid.drawn);
     drawn.clear();
+    // What the search and each column's filter matched, marked in the cells: each word, or
+    // the regex (nothing when inverted: the rows shown are those without it). Made again only
+    // when they change.
+    let hl = {
+        let (rx, case) = (tab.filter.regex, tab.filter.match_case);
+        let off = tab.filter.invert || tab.expr_mode;
+        let fresh = |k: &HlKey| k.global == tab.filter.global && k.cols.len() == ncols && k.cols.iter().zip(&tab.col_filters).all(|(a, b)| a == b) && k.regex == rx && k.case == case && k.off == off;
+        match &tab.grid.hl {
+            Some((k, h, n)) if fresh(k) => (h.clone(), *n),
+            _ => {
+                let global = if off { Hl::default() } else { Hl::new(&tab.filter.global, rx, case) };
+                let cols: Vec<Hl> = (0..ncols)
+                    .map(|c| {
+                        let f = tab.col_filters.get(c).map_or("", |s| s.as_str());
+                        if tab.filter.invert || (!rx && f.starts_with(['=', '!', '<', '>'])) { Hl::default() } else { Hl::new(f, rx, case) }
+                    })
+                    .collect();
+                let h = Arc::new((global, cols));
+                let key = HlKey { global: tab.filter.global.clone(), cols: (0..ncols).map(|c| tab.col_filters.get(c).cloned().unwrap_or_default()).collect(), regex: rx, case, off };
+                // Numbered: a cell's marks are told apart from those of the searches before.
+                let n = tab.grid.hl.as_ref().map_or(1, |x| x.2 + 1);
+                tab.grid.hl = Some((key, h.clone(), n));
+                (h, n)
+            }
+        }
+    };
+    let (hl, hl_n) = hl;
     {
         let tabr: &Tab = tab;
         let fold = csvfab_engine::text::fold;
-        // What the search and each column's filter matched, marked in the cells: each word, or
-        // the regex (nothing when inverted: the rows shown are those without it).
-        let (rx, case) = (tabr.filter.regex, tabr.filter.match_case);
-        let hl_global = if tabr.filter.invert || tabr.expr_mode { Hl::default() } else { Hl::new(&tabr.filter.global, rx, case) };
-        let hl_col: Vec<Hl> = (0..ncols)
-            .map(|c| {
-                let f = tabr.col_filters.get(c).map_or("", |s| s.as_str());
-                if tabr.filter.invert || (!rx && f.starts_with(['=', '!', '<', '>'])) { Hl::default() } else { Hl::new(f, rx, case) }
-            })
-            .collect();
         let find = (tabr.find.open && !tabr.find.text.is_empty()).then(|| FindLook {
             needle: if tabr.find.match_case { tabr.find.text.clone() } else { fold(&tabr.find.text) },
             case: tabr.find.match_case,
@@ -1744,8 +1814,16 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             heat: if raw { &no_heat } else { &tabr.grid.heat },
             bars: if raw { &no_bars } else { &tabr.grid.bars },
             lit: tabr.spark.lit.and_then(|(c, pk)| spark_base.as_ref().filter(|s| c < s.cols.len()).map(|s| (c, s.keep(c, pk)))),
-            hl_global,
-            hl_col,
+            hl: &hl,
+            hl_gen: {
+                let mut h = Fx(hl_n);
+                if let Some(f) = &find {
+                    h.mix(Arc::as_ptr(&f.matches) as u64 ^ (f.matches.len() as u64) << 44);
+                    h.mix(f.needle.len() as u64 ^ (f.case as u64) << 40 ^ (f.regex as u64) << 41 ^ (f.col.map_or(u64::MAX, |c| c as u64)) << 8);
+                    for b in f.needle.bytes() { h.mix(b as u64); }
+                }
+                h.0 | 1
+            },
             find,
             ghost: tabr.ghost.as_deref(),
             editing: tabr.grid.editing.as_ref().map(|e| e.at),
@@ -1840,7 +1918,7 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
                 None => {
                     // The number's galley is kept as the cells' (key: the column past the last).
                     let look = TextLook { color: p.txt, font: 9, max_w: rec as u32, marks: base_row as u64 };
-                    let e = cx.cells.map.entry((id, u32::MAX)).or_insert(CellG { src: 0, look, galley: None, cut: false, seen: 0 });
+                    let e = cx.cells.map.entry((id, u32::MAX)).or_insert(CellG { src: 0, look, galley: None, cut: false, seen: 0, hl: 0 });
                     e.seen = cx.cells.frame;
                     if e.look != look || e.galley.is_none() {
                         e.look = look;
@@ -1976,9 +2054,9 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
     lap(tab, 3, &mut tl);
     if let Some(r) = band.charts {
         crate::spark_ui::frame_start(tab);
-        crate::spark_ui::band(ui, tab, &painter, r, Rect::from_min_max(pos2(scroll_x0, r.min.y), r.max), &vis_scroll, p, m, &mut actions);
+        crate::spark_ui::band(ui, tab, &painter, r, Rect::from_min_max(pos2(scroll_x0, r.min.y), r.max), &vis_scroll, p, m);
         if frozen > 0 {
-            crate::spark_ui::band(ui, tab, &painter, r, Rect::from_min_max(pos2(cells_x0, r.min.y), pos2(scroll_x0, r.max.y)), &vis_frz, p, m, &mut actions);
+            crate::spark_ui::band(ui, tab, &painter, r, Rect::from_min_max(pos2(cells_x0, r.min.y), pos2(scroll_x0, r.max.y)), &vis_frz, p, m);
         }
         crate::spark_ui::frame_end(tab);
     } else {
@@ -2155,7 +2233,7 @@ fn shot_hooks(tab: &mut Tab, ctx: &egui::Context, resp: &egui::Response, ncols: 
         let c = Cell { row: 2, col: 1 };
         tab.grid.select(c, false);
         let id = tab.shown_id(2);
-        tab.grid.editing = Some(Editing { at: c, id, text: tab.st().map(|s| s.cell(id, 1)).unwrap_or_default(), fresh: false });
+        tab.grid.editing = Some(Editing { at: c, id, text: tab.st().map(|s| s.cell(id, 1)).unwrap_or_default(), fresh: false, select: false });
     }
     if let Some(v) = drawn.then(|| take("filter")).flatten() {
         // `filter:3=text`: a column filter.
@@ -2429,6 +2507,8 @@ pub fn duplicate_row(tab: &mut Tab, pos: usize, ctx: &egui::Context) {
         *v = Arc::new(csvfab_engine::table::splice_ids(v, pos + 1, &[n]));
     }
     tab.after_edit(false, ctx);
+    // Said, with Undo (as the web's "Row duplicated").
+    tab.grid.notice = Some(format!("Row {} duplicated — not written yet, use Save.", fmt_int(fpos + 1)));
 }
 
 /// The group at the top of the view, floating 4 px under the header over the sort column.
@@ -2502,10 +2582,12 @@ fn editor(ui: &mut Ui, tab: &mut Tab, st: &State, painter: &egui::Painter, body:
         if !e.fresh {
             let mut s = out.state;
             let end = egui::text::CCursor::new(e.text.chars().count());
-            s.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+            let range = if e.select { egui::text::CCursorRange::two(egui::text::CCursor::new(0), end) } else { egui::text::CCursorRange::one(end) };
+            s.cursor.set_char_range(Some(range));
             s.store(ui.ctx(), te_id);
         }
         e.fresh = false;
+        e.select = false;
     }
     let (enter, tab_key, esc, shift, cmd) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Tab) && !raw, i.key_pressed(Key::Escape), i.modifiers.shift, i.modifiers.command));
     // Shift+Enter went into the text as a line break.
@@ -2855,7 +2937,8 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
             let has = !tab.col_filters[c].is_empty();
             let focused = ctx.memory(|mem| mem.has_focus(fid));
             let hovered = ui.rect_contains_pointer(fr.intersect(fclip_r));
-            let (fill, border) = if focused { (p.bg, p.prim) } else if has { (mix(p.prim, p.bg, 0.1), alpha(p.prim, 0.55)) } else { (p.bg, if hovered { p.surf_3 } else { Color32::TRANSPARENT }) };
+            let bad = tab.filter_error_col == Some(c) && tab.filter_error.is_some();
+            let (fill, border) = if bad { (if focused { p.bg } else { mix(p.danger, p.bg, 0.08) }, p.danger) } else if focused { (p.bg, p.prim) } else if has { (mix(p.prim, p.bg, 0.1), alpha(p.prim, 0.55)) } else { (p.bg, if hovered { p.surf_3 } else { Color32::TRANSPARENT }) };
             let fclip = painter.with_clip_rect(fclip_r);
             if focused { fclip.rect_stroke(fr, 6.0, Stroke::new(3.0, p.focus_ring_sm), StrokeKind::Outside); }
             fclip.rect(fr, 5.0, fill, Stroke::new(1.0, border), StrokeKind::Inside);
@@ -2869,6 +2952,7 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
                     .text_color(p.txt_hi)
                     .frame(egui::Frame::NONE);
                 let r = crate::widgets::centered_edit(ui, inner, te);
+                let r = if bad { r.on_hover_text(tab.filter_error.clone().unwrap_or_default()) } else { r };
                 if tab.grid.focus_filter == Some(c) { r.request_focus(); tab.grid.focus_filter = None; }
                 if r.changed() { actions.push(Action::FiltersChanged); }
             }
@@ -3346,6 +3430,7 @@ fn keys(ui: &mut Ui, tab: &mut Tab, st: &State, rows: usize, ncols: usize, page:
     let cur = tab.grid.cursor.unwrap_or(Cell { row: tab.grid.top, col: 0 });
     let mut moved: Option<(Cell, bool)> = None;
     let mut start_edit: Option<(String, bool)> = None;
+    let mut select_all = false;
     let mut clear = false;
     let mut fill_down = std::mem::take(&mut tab.grid.want_fill_down);
     // Sideways, the hidden columns are stepped over.
@@ -3379,7 +3464,10 @@ fn keys(ui: &mut Ui, tab: &mut Tab, st: &State, rows: usize, ncols: usize, page:
             tab.grid.cursor = Some(Cell { row: last_row, col: last });
         }
         if i.consume_key(Modifiers::COMMAND, Key::D) { fill_down = true; }
-        if i.consume_key(Modifiers::NONE, Key::Enter) || i.consume_key(Modifiers::NONE, Key::F2) {
+        if i.consume_key(Modifiers::NONE, Key::Enter) {
+            start_edit = Some((String::new(), false));
+            select_all = true;
+        } else if i.consume_key(Modifiers::NONE, Key::F2) {
             start_edit = Some((String::new(), false));
         }
         if i.consume_key(Modifiers::NONE, Key::Delete) || i.consume_key(Modifiers::NONE, Key::Backspace) { clear = true; }
@@ -3410,14 +3498,15 @@ fn keys(ui: &mut Ui, tab: &mut Tab, st: &State, rows: usize, ncols: usize, page:
     }
     if let Some((text, fresh)) = start_edit {
         let id = tab.shown_id(cur.row);
-        // Enter keeps a block selected: its value then goes to every cell (Ctrl+Enter: a series).
-        let keep_block = !fresh && tab.grid.range().is_some_and(|(r, cs)| r.contains(&cur.row) && cs.contains(&cur.col));
+        // Enter, F2 or a key typed keep a block selected: its value then goes to every cell, as the
+        // web's (Ctrl+Enter: a series).
+        let keep_block = tab.grid.range().is_some_and(|(r, cs)| r.contains(&cur.row) && cs.contains(&cur.col));
         if !keep_block {
             tab.grid.anchor = Some(cur);
             tab.grid.cursor = Some(cur);
         }
         let text = if fresh { text } else { st.cell(id, cur.col) };
-        tab.grid.editing = Some(Editing { at: cur, id, text, fresh });
+        tab.grid.editing = Some(Editing { at: cur, id, text, fresh, select: select_all });
         tab.grid.reveal(rows, view_w);
     }
     if clear {
@@ -3446,19 +3535,18 @@ fn cell_menu(ui: &mut Ui, tab: &mut Tab, st: &State, c: Cell, heads: &[String], 
         let cols = tab.grid.shown_cols(st.ncols);
         let tsv: Vec<String> = cols.iter().map(|&c| st.cell(id, c)).map(|v| if v.contains(['\t', '\n', '"']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v }).collect();
         ctx.copy_text(tsv.join("\t"));
+        tab.grid.notice = Some(format!("Row {} copied.", fmt_int(rec)));
         ui.close();
     }
     sep(ui, p);
     let blank = value.trim().is_empty();
     let (keep, hide) = if blank { ("Only the rows where it is empty".to_string(), "Hide the rows where it is empty".to_string()) } else { (format!("Only the rows with “{short}”"), format!("Hide the rows with “{short}”")) };
     if Item::new(&keep).icon(Icon::Keep).show(ui, p).clicked() {
-        actions.push(Action::FilterValue { col: c.col, value: value.trim().to_string(), keep: true });
+        actions.push(Action::FilterValue { col: c.col, value: value.clone(), keep: true });
         ui.close();
     }
     if Item::new(&hide).icon(Icon::Hide).show(ui, p).clicked() {
-        let mut set: std::collections::HashSet<String> = tab.filter.hidden.iter().find(|(hc, _)| *hc == c.col).map(|(_, s)| (**s).clone()).unwrap_or_default();
-        set.insert(value.trim().to_string());
-        tab.hide_values(c.col, set, &ctx);
+        actions.push(Action::FilterValue { col: c.col, value: value.clone(), keep: false });
         ui.close();
     }
     sep(ui, p);

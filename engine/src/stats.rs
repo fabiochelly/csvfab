@@ -58,30 +58,6 @@ pub fn key_of(kind: Kind, s: &str) -> Option<f64> {
     }
 }
 
-/// Runs `f(k, cell)` on the cells `cols[k]` of a row (`cols` ascending, no
-/// repeats): a row still as read is split once, not once per column.
-pub(crate) fn visit_cols(st: &State, id: RowId, cols: &[usize], tmp: &mut Vec<u8>, mut f: impl FnMut(usize, &str)) {
-    let b = &st.base;
-    if cols.len() > 1 && st.pristine(id) && !b.dialect.lines {
-        let enc = b.enc;
-        let mut k = 0;
-        crate::scan::visit_fields(b.record(id as usize), b.dialect.delim, tmp, |i, v| {
-            if i == cols[k] {
-                f(k, &crate::enc::decode(enc, v));
-                k += 1;
-            }
-            k < cols.len()
-        });
-        for j in k..cols.len() {
-            f(j, "");
-        }
-        return;
-    }
-    for (k, &c) in cols.iter().enumerate() {
-        st.with_cell(id, c, tmp, |v| f(k, v));
-    }
-}
-
 /// Positions 0..n in chunks, one accumulator each, in parallel; the
 /// accumulators come back in order, for merges that keep "the first one".
 /// None if cancelled.
@@ -734,44 +710,15 @@ pub fn profile_col(st: &State, ids: &[RowId], col: usize, cancel: &AtomicBool) -
 /// read and split once for all of them, instead of once per column — a big file's
 /// profile is bound by reading its records. Their distinct values are held together.
 pub fn profile_cols(st: &State, ids: &[RowId], cols: &[usize], cancel: &AtomicBool) -> Option<Vec<ColProfile>> {
-    let Some(&last) = cols.last() else { return Some(Vec::new()) };
-    // Column → its accumulator.
-    let mut slot = vec![usize::MAX; last + 1];
-    for (k, &c) in cols.iter().enumerate() { slot[c] = k; }
-    struct Acc { cols: Vec<ProfAcc>, tmp: Vec<u8>, got: Vec<bool> }
-    let init = || Acc { cols: cols.iter().map(|_| ProfAcc::new()).collect(), tmp: Vec::new(), got: vec![false; cols.len()] };
-    let b = &st.base;
-    let parts = chunked(ids.len(), cancel, init, |a, p| {
-        let (id, pos) = (ids[p], p as u32);
-        a.got.iter_mut().for_each(|g| *g = false);
-        if st.pristine(id) && !b.dialect.lines {
-            // The record's fields up to the last column wanted; those wanted decoded.
-            let Acc { cols: accs, tmp, got, .. } = a;
-            crate::scan::visit_fields(b.record(id as usize), b.dialect.delim, tmp, |i, v| {
-                if let Some(&k) = slot.get(i).filter(|&&k| k != usize::MAX) {
-                    accs[k].add(&crate::enc::decode(b.enc, v), pos);
-                    got[k] = true;
-                }
-                i < last
-            });
-        } else {
-            // Edited, remapped or a text file read as lines: cell by cell, as `with_cell`.
-            for (k, &c) in cols.iter().enumerate() {
-                let mut tmp = std::mem::take(&mut a.tmp);
-                st.with_cell(id, c, &mut tmp, |v| a.cols[k].add(v, pos));
-                a.tmp = tmp;
-                a.got[k] = true;
-            }
-        }
-        // Fields the record lacks: empty cells.
-        for k in 0..cols.len() {
-            if !a.got[k] { a.cols[k].add("", pos); }
-        }
+    if cols.is_empty() { return Some(Vec::new()); }
+    // Each record split once for all of them, moved or edited columns alike.
+    let parts = chunked(ids.len(), cancel, || cols.iter().map(|_| ProfAcc::new()).collect::<Vec<_>>(), |accs, p| {
+        st.visit_cols(ids[p], cols, |k, v| accs[k].add(v, p as u32));
     })?;
     // Chunk-major → column-major.
     let mut by: Vec<Vec<ProfAcc>> = cols.iter().map(|_| Vec::with_capacity(parts.len())).collect();
     for part in parts {
-        for (k, acc) in part.cols.into_iter().enumerate() { by[k].push(acc); }
+        for (k, acc) in part.into_iter().enumerate() { by[k].push(acc); }
     }
     by.into_iter().zip(cols).map(|(parts, &c)| ProfAcc::finish(parts, st, ids, c)).collect()
 }
@@ -986,7 +933,7 @@ pub fn totals(st: &State, ids: &[RowId], reqs: &[TotalReq], cancel: &AtomicBool)
             }
         }
         if cols.is_empty() { return; }
-        visit_cols(st, id, &cols, tmp, |s, v| {
+        st.visit_cols(id, &cols, |s, v| {
             for &k in &by_slot[s] {
                 let (r, a) = (&reqs[k], &mut accs[k]);
                 let c = read_total(r.kind, v);
@@ -1551,7 +1498,8 @@ mod tests {
     #[test]
     fn big_counts_merge_exactly() {
         // Enough rows for many chunks and shards: every count exact, order of first appearance kept.
-        let mut s = String::from("k;x\n");
+        // (A title found again in its column would read as data: "flag" over "x".)
+        let mut s = String::from("k;flag\n");
         for i in 0..200_000 { s += &format!("v{};x\n", (i * 7919) % 50_000); }
         let t = table(&s);
         let no = AtomicBool::new(false);

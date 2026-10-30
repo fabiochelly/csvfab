@@ -5,7 +5,6 @@
 //! sorts) are broader: these must find what the JS found, on the same values.
 
 use crate::enc;
-use crate::scan;
 use crate::table::{RowId, State};
 use std::sync::OnceLock;
 
@@ -428,36 +427,12 @@ pub fn field_count(st: &State, id: RowId, row: &mut Vec<String>) -> usize {
     row.len()
 }
 
-/// Visits a row's cells in column order — a record still as read is split once, not once per column.
-#[inline]
-pub fn visit_row(st: &State, id: RowId, tmp: &mut Vec<u8>, row: &mut Vec<String>, mut f: impl FnMut(usize, &str)) {
-    if st.pristine(id) {
-        let b = &st.base;
-        let rec = b.record(id as usize);
-        if b.dialect.lines {
-            f(0, &enc::decode(b.enc, rec));
-            return;
-        }
-        let e = b.enc;
-        scan::visit_fields(rec, b.dialect.delim, tmp, |i, v| {
-            f(i, &enc::decode(e, v));
-            true
-        });
-        return;
-    }
-    st.row(id, row);
-    for (i, s) in row.iter().enumerate() {
-        f(i, s);
-    }
-}
-
 /// JS `columnKinds`: each column's kind from its first 400 rows (≥ 90 % of the filled cells).
 pub fn column_kinds(st: &State) -> Vec<Kind> {
     let w = st.ncols;
     let mut k = vec![[0usize; 3]; w];
-    let (mut tmp, mut row) = (Vec::new(), Vec::new());
     for p in 0..st.len().min(400) {
-        visit_row(st, st.data_id(p), &mut tmp, &mut row, |c, v| {
+        st.visit(st.data_id(p), |c, v| {
             if c >= w { return; }
             match cell_type(v) {
                 Kind::Num => k[c][0] += 1,

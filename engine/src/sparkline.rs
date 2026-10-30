@@ -10,7 +10,7 @@
 //! value, the filled or the empty cells — maps back to the rows it stands for
 //! (`Keep`) and to column filter texts (`view::FilterSpec::cols`).
 
-use crate::stats::{cell_kind, chunked, Best, fmt_int, hash, quantiles, visit_cols, Counter};
+use crate::stats::{cell_kind, chunked, Best, fmt_int, hash, quantiles, Counter};
 use crate::table::{RowId, State};
 use crate::text::{parse_date, parse_number};
 use crate::view::Kind;
@@ -412,8 +412,8 @@ pub fn spark_filtered(st: &State, base: &Spark, ids: &[RowId], sample: Sample, c
         })
         .collect();
     let cols: Vec<usize> = (0..nc).collect();
-    let parts = run(s, s > 4096, cancel, || (blank.clone(), Vec::new()), |(acc, tmp), p| {
-        visit_cols(st, ids[p * k], &cols, tmp, |c, v| match (&mut acc[c], &base.cols[c]) {
+    let parts = run(s, s > 4096, cancel, || blank.clone(), |acc, p| {
+        st.visit_cols(ids[p * k], &cols, |c, v| match (&mut acc[c], &base.cols[c]) {
             (ColF::Empty { fill }, _) => *fill += cell_kind(v).is_some() as usize,
             (ColF::Curve { cnt, fill, bad }, Col::Curve(b)) => {
                 let Some(ty) = cell_kind(v) else { return };
@@ -436,7 +436,7 @@ pub fn spark_filtered(st: &State, base: &Spark, ids: &[RowId], sample: Sample, c
             _ => unreachable!(),
         });
     })?;
-    let mut it = parts.into_iter().map(|p| p.0);
+    let mut it = parts.into_iter();
     let mut acc = it.next().unwrap_or(blank);
     for b in it {
         for (x, y) in acc.iter_mut().zip(b) {

@@ -77,6 +77,21 @@ impl Layer {
         self.ids.is_empty()
     }
 
+    /// Its ids, cell ends (empty: one text for all) and text, as a journal keeps them.
+    pub(crate) fn parts(&self) -> (&[RowId], &[u32], &[u8]) {
+        (&self.ids, &self.offs, &self.arena)
+    }
+
+    /// A layer from `parts` read back: None unless the ids increase, the ends fit the text and
+    /// every cell is whole UTF-8 (cells are read unchecked).
+    pub(crate) fn from_parts(ids: Vec<RowId>, offs: Vec<u32>, arena: Vec<u8>) -> Option<Layer> {
+        let text = std::str::from_utf8(&arena).ok()?;
+        let ok = ids.windows(2).all(|w| w[0] < w[1])
+            && (offs.is_empty() || (offs.len() == ids.len() + 1 && offs[0] == 0 && offs.windows(2).all(|w| w[0] <= w[1]) && *offs.last()? as usize == arena.len()
+                && offs.iter().all(|&o| text.is_char_boundary(o as usize))));
+        ok.then(|| Layer { ids: Arc::new(ids), offs, arena })
+    }
+
     /// Its memory, the ids shared with the other columns of the same edit counted once among them.
     pub fn bytes(&self) -> usize {
         self.ids.capacity() * 4 / Arc::strong_count(&self.ids) + self.offs.capacity() * 4 + self.arena.capacity()
@@ -217,17 +232,17 @@ impl Patch {
         cols.dedup();
         // Per chunk of rows (in id order: the file read front to back), per column, the rows
         // whose cell changes; each row split once for all the columns.
-        let parts = crate::stats::chunked(rows.len(), cancel, || (vec![Vec::new(); cols.len()], Vec::new()), |(acc, tmp): &mut (Vec<Vec<RowId>>, Vec<u8>), p| {
+        let parts = crate::stats::chunked(rows.len(), cancel, || vec![Vec::new(); cols.len()], |acc: &mut Vec<Vec<RowId>>, p| {
             let id = rows[p];
-            crate::stats::visit_cols(st, id, &cols, tmp, |k, v| if v != value { acc[k].push(id) });
+            st.visit_cols(id, &cols, |k, v| if v != value { acc[k].push(id) });
         })?;
         let rows = Arc::new(rows);
         let per_col: Vec<(usize, Vec<Arc<Layer>>, usize)> = cols.par_iter().enumerate().filter_map(|(k, &c)| {
-            let n: usize = parts.iter().map(|p| p.0[k].len()).sum();
+            let n: usize = parts.iter().map(|p| p[k].len()).sum();
             if n == 0 { return None; }
             let ids = if n == rows.len() { rows.clone() } else {
                 let mut v = Vec::with_capacity(n);
-                for p in &parts { v.extend_from_slice(&p.0[k]); }
+                for p in &parts { v.extend_from_slice(&p[k]); }
                 Arc::new(v)
             };
             Some((c, vec![Arc::new(Layer::uniform(ids, value))], n))
@@ -411,6 +426,115 @@ impl State {
         self.cmap.is_none() && (id as usize) < self.base.n && !self.row_edited(id)
     }
 
+    /// `edited`, the layers searched only in a column that has some.
+    #[inline]
+    fn edited_in(&self, id: RowId, col: usize) -> Option<&str> {
+        self.cols.get(col).filter(|l| !l.is_empty()).and_then(|_| self.edited(id, col))
+    }
+
+    /// Runs `f(column, text)` on the row's cells in column order: the fields `row` gives,
+    /// without a String each. The record is split once, its fields mapped to the current
+    /// columns (moved, inserted, deleted ones alike), and only the columns holding edits
+    /// look in their layers.
+    pub fn visit(&self, id: RowId, mut f: impl FnMut(usize, &str)) {
+        let b = &*self.base;
+        let real = (id as usize) < b.n;
+        let edited = self.row_edited(id);
+        if self.cmap.is_none() && !edited {
+            // As read: the record's fields in order, straight from its bytes.
+            if real { with_gather(|g| fields_of(b, id, &mut g.tmp, |i, v| f(i, &b.text(v)))) }
+            return;
+        }
+        with_gather(|g| {
+            let rec: &[u8] = if real { b.record(id as usize) } else { b"" };
+            let nf = match &self.cmap {
+                _ if !real => {
+                    g.spans.clear();
+                    0
+                }
+                None => {
+                    g.gather(b, rec, |i| Some(i));
+                    g.spans.len()
+                }
+                Some(m) => {
+                    g.inv.clear();
+                    g.inv.resize(m.iter().map(|&x| x + 1).max().unwrap_or(0).max(0) as usize, u32::MAX);
+                    for (c, &x) in m.iter().enumerate() { if x >= 0 { g.inv[x as usize] = c as u32; } }
+                    let inv = std::mem::take(&mut g.inv);
+                    g.gather(b, rec, |i| inv.get(i).filter(|&&c| c != u32::MAX).map(|&c| c as usize));
+                    g.inv = inv;
+                    g.spans.resize(m.len(), Span::None);
+                    m.len()
+                }
+            };
+            let mut len = nf;
+            if edited {
+                // As `row`: every column, an edited row's trailing empty extra fields dropped.
+                len = len.max(self.ncols);
+                while len > self.ncols.max(1) && g.bytes(rec, len - 1).is_empty() { len -= 1; }
+            }
+            for c in 0..len {
+                match self.edited_in(id, c) {
+                    Some(s) => f(c, s),
+                    None => f(c, &b.text(g.bytes(rec, c))),
+                }
+            }
+        })
+    }
+
+    /// Runs `f(k, text)` on the cells `cols[k]` of the row (as `with_cell`: "" where there is
+    /// none), any columns in any order: the record split once for all of them.
+    pub fn visit_cols(&self, id: RowId, cols: &[usize], mut f: impl FnMut(usize, &str)) {
+        let b = &*self.base;
+        if cols.len() < 2 || b.dialect.lines || id as usize >= b.n {
+            return with_gather(|g| for (k, &c) in cols.iter().enumerate() { self.with_cell(id, c, &mut g.tmp, |v| f(k, v)) });
+        }
+        let rec = b.record(id as usize);
+        let edited = cols.iter().any(|&c| self.edited_in(id, c).is_some());
+        if self.cmap.is_none() && !edited && cols.windows(2).all(|w| w[0] < w[1]) {
+            // Columns in field order, none edited: the fields streamed, those wanted decoded.
+            let mut k = 0;
+            with_gather(|g| scan::visit_fields(rec, b.dialect.delim, &mut g.tmp, |i, v| {
+                if i == cols[k] {
+                    f(k, &b.text(v));
+                    k += 1;
+                }
+                k < cols.len()
+            }));
+            for j in k..cols.len() { f(j, ""); }
+            return;
+        }
+        with_gather(|g| {
+            // (field, k) of the cells read from the record, in field order.
+            g.want.clear();
+            g.want.extend(cols.iter().enumerate().filter(|&(_, &c)| self.edited_in(id, c).is_none()).filter_map(|(k, &c)| self.field_of(c).map(|fl| (fl, k))));
+            g.want.sort_unstable();
+            let want = std::mem::take(&mut g.want);
+            g.spans.clear();
+            g.spans.resize(cols.len(), Span::None);
+            g.arena.clear();
+            let mut j = 0;
+            let Gather { tmp, arena, spans, .. } = g;
+            if !want.is_empty() {
+                scan::visit_fields(rec, b.dialect.delim, tmp, |i, v| {
+                    while j < want.len() && want[j].0 < i { j += 1; }
+                    while j < want.len() && want[j].0 == i {
+                        spans[want[j].1] = Span::of(rec, v, arena);
+                        j += 1;
+                    }
+                    j < want.len()
+                });
+            }
+            g.want = want;
+            for (k, &c) in cols.iter().enumerate() {
+                match self.edited_in(id, c) {
+                    Some(s) => f(k, s),
+                    None => f(k, &b.text(g.bytes(rec, k))),
+                }
+            }
+        })
+    }
+
     pub fn headers(&self) -> Vec<String> {
         let mut h = Vec::new();
         if self.header && self.all_len() > 0 {
@@ -429,6 +553,85 @@ impl State {
     pub fn edit_bytes(&self) -> usize {
         self.cols.iter().flat_map(|l| l.iter()).map(|l| l.bytes()).sum()
     }
+}
+
+/// Where a field's bytes are: in the record, or unescaped (`""` → `"`) in the arena.
+#[derive(Clone, Copy)]
+enum Span {
+    None,
+    Rec(usize, usize),
+    Arena(usize, usize),
+}
+
+impl Span {
+    #[inline]
+    fn of(rec: &[u8], v: &[u8], arena: &mut Vec<u8>) -> Span {
+        let at = (v.as_ptr() as usize).wrapping_sub(rec.as_ptr() as usize);
+        if at <= rec.len() && at + v.len() <= rec.len() { return Span::Rec(at, at + v.len()); }
+        arena.extend_from_slice(v);
+        Span::Arena(arena.len() - v.len(), arena.len())
+    }
+}
+
+/// The row visitors' scratch, one per thread: a record's fields gathered by column.
+#[derive(Default)]
+struct Gather {
+    tmp: Vec<u8>,
+    arena: Vec<u8>,
+    spans: Vec<Span>,
+    /// Field → current column (u32::MAX: none).
+    inv: Vec<u32>,
+    want: Vec<(usize, usize)>,
+}
+
+impl Gather {
+    /// Each field `i` of the record whose column `to(i)` gives, by column.
+    fn gather(&mut self, b: &Base, rec: &[u8], to: impl Fn(usize) -> Option<usize>) {
+        self.spans.clear();
+        self.arena.clear();
+        let Gather { tmp, arena, spans, .. } = self;
+        let mut put = |c: usize, s: Span| {
+            if c >= spans.len() { spans.resize(c + 1, Span::None); }
+            spans[c] = s;
+        };
+        if b.dialect.lines {
+            if let Some(c) = to(0) { put(c, Span::Rec(0, rec.len())); }
+            return;
+        }
+        scan::visit_fields(rec, b.dialect.delim, tmp, |i, v| {
+            if let Some(c) = to(i) { put(c, Span::of(rec, v, arena)); }
+            true
+        });
+    }
+
+    #[inline]
+    fn bytes<'a>(&'a self, rec: &'a [u8], c: usize) -> &'a [u8] {
+        match self.spans.get(c) {
+            Some(&Span::Rec(a, e)) => &rec[a..e],
+            Some(&Span::Arena(a, e)) => &self.arena[a..e],
+            _ => b"",
+        }
+    }
+}
+
+thread_local! {
+    static GATHER: std::cell::RefCell<Gather> = std::cell::RefCell::default();
+}
+
+/// The thread's scratch (a fresh one when a visitor runs inside another's callback).
+fn with_gather<R>(f: impl FnOnce(&mut Gather) -> R) -> R {
+    GATHER.with(|g| match g.try_borrow_mut() {
+        Ok(mut g) => f(&mut g),
+        Err(_) => f(&mut Gather::default()),
+    })
+}
+
+/// Record `id`'s fields as read (unescaped bytes), in order; a text file's line is one field.
+#[inline]
+fn fields_of(b: &Base, id: RowId, tmp: &mut Vec<u8>, mut f: impl FnMut(usize, &[u8])) {
+    let rec = b.record(id as usize);
+    if b.dialect.lines { return f(0, rec); }
+    scan::visit_fields(rec, b.dialect.delim, tmp, |i, v| { f(i, v); true });
 }
 
 /// A set of rows as one bit per id: membership without hashing (deleting or dropping
@@ -492,7 +695,9 @@ pub fn detected_header(base: &Base) -> bool {
     }
     let mut f = Vec::new();
     base.fields(0, &mut f);
-    crate::base::guess_header(&f)
+    // Up to five records below it, for the types of their columns.
+    let sample: Vec<Vec<String>> = (1..base.n.min(6)).map(|i| { let mut r = Vec::new(); base.fields(i, &mut r); r }).collect();
+    crate::base::guess_header(&f, &sample)
 }
 
 impl Table {
@@ -508,6 +713,13 @@ impl Table {
             serial: 0,
             saved: 0,
         }
+    }
+
+    /// A table in state `st` (a journal replayed): no undo history, unsaved.
+    pub(crate) fn restored(st: State) -> Table {
+        let ids = st.order.iter().flat_map(|o| o.iter()).chain(st.cols.iter().flat_map(|c| c.iter()).flat_map(|l| l.ids().iter()));
+        let next_id = ids.map(|&id| id + 1).max().unwrap_or(0).max(st.base.n as RowId);
+        Table { st, next_id, undo: Vec::new(), redo: Vec::new(), serial: 0, saved: u64::MAX }
     }
 
     pub fn dirty(&self) -> bool {
@@ -543,6 +755,21 @@ impl Table {
 
     pub fn redo_depth(&self) -> usize {
         self.redo.len()
+    }
+
+    /// Edits between the file as last saved (or read) and now — what Save would write, counted
+    /// in undo steps (undone past the save: those steps). As the web's pending count.
+    pub fn pending_edits(&self) -> usize {
+        if !self.dirty() { return 0; }
+        // The steps in order: the undo stack, then the redo stack from its top.
+        let at = |serial: u64| -> Option<usize> {
+            if serial == 0 { return Some(0); }
+            self.undo.iter().chain(self.redo.iter().rev()).position(|o| o.serial == serial).map(|k| k + 1)
+        };
+        match at(self.saved) {
+            Some(k) => self.undo.len().abs_diff(k),
+            None => self.undo.len().max(1),
+        }
     }
 
     /// The version Redo would bring back.
@@ -963,6 +1190,23 @@ mod tests {
 
     fn table(s: &str) -> Table {
         Table::new(Arc::new(Base::from_bytes(s.as_bytes().to_vec(), OpenOptions::default())), None)
+    }
+
+    #[test]
+    fn pending_edits_count_since_the_save() {
+        let mut t = Table::new(Arc::new(Base::from_bytes(b"a\n1\n2\n".to_vec(), Default::default())), None);
+        let id = t.st.data_id(0);
+        for v in ["x", "y", "z"] { t.set_cells(&[(id, 0, v.into())]); }
+        assert_eq!(t.pending_edits(), 3);
+        t.mark_saved();
+        assert_eq!(t.pending_edits(), 0);
+        t.set_cells(&[(id, 0, "w".into())]);
+        assert_eq!(t.pending_edits(), 1);
+        t.undo();
+        t.undo();
+        assert_eq!(t.pending_edits(), 1, "undone past the save");
+        t.redo();
+        assert_eq!(t.pending_edits(), 0);
     }
 
     #[test]

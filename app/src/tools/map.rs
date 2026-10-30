@@ -43,6 +43,8 @@ struct Bin {
     bad: Vec<u32>,
     /// The first position (in the view) of a value not of its column's type.
     first_bad: Vec<Option<usize>>,
+    /// The first position of an irregular or edited row (a gutter click goes there).
+    first_mark: Option<usize>,
 }
 
 /// The counts, as published by the job.
@@ -83,7 +85,11 @@ impl Geom {
 }
 
 /// Counts every run's rows, pass after pass, publishing the counts as they grow.
-fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, kinds: Vec<Kind>, out: Arc<Mutex<Counts>>, cancel: &AtomicBool, progress: &AtomicUsize) {
+/// `cols`: the columns drawn (those the grid shows), band k being column cols[k].
+#[allow(clippy::too_many_arguments)]
+fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, cols: Vec<usize>, kinds: Vec<Kind>, out: Arc<Mutex<Counts>>, cancel: &AtomicBool, progress: &AtomicUsize) {
+    let mut slot = vec![usize::MAX; st.ncols.max(cols.iter().max().map_or(0, |m| m + 1))];
+    for (k, &c) in cols.iter().enumerate().take(g.nc) { slot[c] = k; }
     let (nb, nc) = (g.nb, g.nc);
     let sampled = g.n > EXACT;
     let most = (0..nb).map(|b| g.lo(b + 1) - g.lo(b)).max().unwrap_or(0);
@@ -99,7 +105,6 @@ fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, kinds: Vec<Kind>, ou
         let k = (65_536 / nb).max(1).min(rounds - round);
         bins.par_iter_mut().enumerate().for_each(|(b, bin)| {
             let (lo, size) = (g.lo(b), g.lo(b + 1) - g.lo(b));
-            let (mut tmp, mut row) = (Vec::new(), Vec::new());
             for r in round..round + k {
                 let off = if sampled { ((r as f64 + 0.5) * size as f64 / rounds as f64) as usize } else { r };
                 if off >= size { continue; }
@@ -107,9 +112,9 @@ fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, kinds: Vec<Kind>, ou
                 let id = id_at(i);
                 bin.seen += 1;
                 let mut fields = 0;
-                kinds::visit_row(&st, id, &mut tmp, &mut row, |c, v| {
+                st.visit(id, |c, v| {
                     fields = c + 1;
-                    if c >= nc { return; }
+                    let Some(&c) = slot.get(c).filter(|&&k| k < nc) else { return };
                     let ty = kinds::cell_type(v);
                     if ty == Kind::Empty { return; }
                     bin.fill[c] += 1;
@@ -122,6 +127,7 @@ fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, kinds: Vec<Kind>, ou
                 let edited = id as usize >= st.base.n || st.row_edited(id);
                 if fields != width { bin.irr += 1; }
                 if edited { bin.edit += 1; }
+                if (fields != width || edited) && bin.first_mark.is_none_or(|f| i < f) { bin.first_mark = Some(i); }
             }
         });
         round += k;
@@ -136,6 +142,8 @@ fn count(st: State, view: Option<Arc<Vec<RowId>>>, g: Geom, kinds: Vec<Kind>, ou
 
 struct Map {
     geom: Option<Geom>,
+    /// The columns drawn: those the grid shows (hidden ones left out, as the web's map).
+    cols: Vec<usize>,
     kinds: Vec<Kind>,
     counts: Arc<Mutex<Counts>>,
     job: Option<Job<()>>,
@@ -148,7 +156,7 @@ struct Map {
 impl Map {
     fn new(cx: &Cx) -> Map {
         let st = cx.tab.st().unwrap();
-        Map { geom: None, kinds: kinds::column_kinds(st), counts: Default::default(), job: None, tex: None, view: cx.tab.view.clone(), generation: cx.tab.generation, resized: None }
+        Map { geom: None, cols: cx.tab.grid.shown_cols(st.ncols), kinds: kinds::column_kinds(st), counts: Default::default(), job: None, tex: None, view: cx.tab.view.clone(), generation: cx.tab.generation, resized: None }
     }
 
     fn start(&mut self, cx: &Cx, g: Geom) {
@@ -156,8 +164,9 @@ impl Map {
         self.geom = Some(g);
         self.counts = Default::default();
         let (view, out) = (self.view.clone(), self.counts.clone());
-        let kinds: Vec<Kind> = (0..g.nc).map(|c| self.kinds.get(c).copied().unwrap_or(Kind::Text)).collect();
-        self.job = Some(Job::spawn(cx.ctx, move |cancel, progress| count(st, view, g, kinds, out, cancel, progress)));
+        let kinds: Vec<Kind> = (0..g.nc).map(|k| self.cols.get(k).and_then(|&c| self.kinds.get(c)).copied().unwrap_or(Kind::Text)).collect();
+        let cols = self.cols.clone();
+        self.job = Some(Job::spawn(cx.ctx, move |cancel, progress| count(st, view, g, cols, kinds, out, cancel, progress)));
     }
 
     /// The picture, at the screen's pixel density.
@@ -194,7 +203,7 @@ impl Map {
                     rect(x0, y0, x1, y1, p.danger, 0.6 + 0.4 * (bad / s).sqrt());
                 } else if fill > 0.0 {
                     // Text quieter: the typed columns and the misfits stand out.
-                    match self.kinds.get(k) {
+                    match self.cols.get(k).and_then(|&c| self.kinds.get(c)) {
                         Some(Kind::Num) => rect(x0, y0, x1, y1, p.cyan_txt, 0.3 + 0.7 * fill / s),
                         Some(Kind::Date) => rect(x0, y0, x1, y1, p.violet_txt, 0.3 + 0.7 * fill / s),
                         _ => rect(x0, y0, x1, y1, p.txt_mut, 0.15 + 0.35 * fill / s),
@@ -236,6 +245,9 @@ impl Tool for Map {
             self.kinds = kinds::column_kinds(st);
             self.geom = None;
         }
+        // Columns hidden or shown again in the grid: drawn as it shows them.
+        let shown = cx.tab.grid.shown_cols(st.ncols);
+        if shown != self.cols { self.cols = shown; self.geom = None; }
         if let Some(j) = &mut self.job { if j.poll().is_some() { self.job = None; } }
         let p = cx.p;
         let size = cx.ctx.content_rect().size() - vec2(60.0, 60.0);
@@ -243,7 +255,6 @@ impl Tool for Map {
         let mut close = cx.ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::M)));
         let mut go = None;
         let headers = st.headers();
-        let ncols = st.ncols;
         let (_, open) = kit::modal_fixed(cx, "map", size, (20, 16, 12), |ui, cx| {
             let counts = self.counts.lock().unwrap().clone();
             let pt = ui.painter().clone();
@@ -272,7 +283,7 @@ impl Tool for Map {
             ui.add_space(8.0);
             let (cols_r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::hover());
             let (body, _) = ui.allocate_exact_size(vec2(ui.available_width(), (ui.available_height() - 8.0 - 16.0).max(0.0)), Sense::hover());
-            let g = Geom::new(body.size(), ncols, n);
+            let g = Geom::new(body.size(), self.cols.len(), n);
             // A new size: counted again once the window rests.
             if self.geom != Some(g) {
                 if self.geom.is_none() || self.resized.is_some_and(|t| t.elapsed() > Duration::from_millis(150)) {
@@ -287,7 +298,7 @@ impl Tool for Map {
             let pic = Rect::from_min_size(pos2(body.min.x + LABELS, body.min.y), vec2(g.w, g.h));
             // Column names over their bands, when there is room (ui 11 `txt_mut`).
             if g.cw >= 28.0 {
-                for (k, h) in headers.iter().enumerate().take(g.nc) {
+                for (k, h) in self.cols.iter().filter_map(|&c| headers.get(c)).enumerate().take(g.nc) {
                     let r = Rect::from_min_size(pos2(pic.min.x + GUT + 4.0 + k as f32 * g.cw - 8.0, cols_r.min.y), vec2(g.cw + 5.0, 18.0));
                     kit::cell_text(ui, &pt, r, h, kit::ui(11.0), p.txt_mut, false);
                 }
@@ -322,10 +333,11 @@ impl Tool for Map {
                         if v.is_empty() { "no irregular nor edited row".into() } else { v.join(" · ") }
                     }
                     Some(k) => {
-                        let kind = match self.kinds.get(k) { Some(Kind::Num) => "numbers", Some(Kind::Date) => "dates", Some(Kind::Empty) => "empty", _ => "text" };
+                        let c = self.cols.get(k).copied().unwrap_or(0);
+                        let kind = match self.kinds.get(c) { Some(Kind::Num) => "numbers", Some(Kind::Date) => "dates", Some(Kind::Empty) => "empty", _ => "text" };
                         let filled = if bin.seen > 0 { (100.0 * bin.fill[k] as f64 / bin.seen as f64).round() } else { 0.0 };
                         let bad = if bin.bad[k] > 0 { format!(" · {} not {kind}", kit::n(bin.bad[k] as usize)) } else { String::new() };
-                        format!("{} ({kind}) · {filled} % filled{bad}", headers.get(k).map_or("", |s| s.as_str()))
+                        format!("{} ({kind}) · {filled} % filled{bad}", headers.get(c).map_or("", |s| s.as_str()))
                     }
                 };
                 info = format!("{span}{part} · {what}");
@@ -340,7 +352,9 @@ impl Tool for Map {
                     let frac = (resp.interact_pointer_pos().map_or(pic.min.y, |q| q.y) - pic.min.y) / bh - b as f32;
                     let mut i = g.lo(b) + ((frac.max(0.0) * size as f32) as usize).min(size - 1);
                     if let Some(f) = k.and_then(|k| bin.first_bad[k]) { i = f; }
-                    go = Some((i, k.unwrap_or(0)));
+                    // The gutter: the run's first irregular or edited row, in the first column shown.
+                    if k.is_none() { if let Some(f) = bin.first_mark { i = f; } }
+                    go = Some((i, k.and_then(|k| self.cols.get(k).copied()).or(self.cols.first().copied()).unwrap_or(0)));
                 }
             }
             ui.add_space(8.0);
@@ -377,7 +391,7 @@ mod tests {
         let g = Geom::new(vec2(LABELS + 200.0, 2.0), 2, 4);
         assert_eq!((g.nb, g.nc), (2, 2));
         let out = Arc::new(Mutex::new(Counts::default()));
-        count(t.st.clone(), None, g, vec![Kind::Num, Kind::Text], out.clone(), &AtomicBool::new(false), &AtomicUsize::new(0));
+        count(t.st.clone(), None, g, vec![0, 1], vec![Kind::Num, Kind::Text], out.clone(), &AtomicBool::new(false), &AtomicUsize::new(0));
         let c = out.lock().unwrap();
         assert_eq!(c.round, c.rounds);
         // Run 0: rows 1–2, B filled once. Run 1: "zz" is not a number; row 4 has three fields.

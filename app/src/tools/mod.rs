@@ -70,6 +70,9 @@ pub enum Cmd {
     /// it has no file until saved.
     OpenBytes { name: String, bytes: Vec<u8> },
     Toast(String),
+    /// Tab `uid`'s file was written by a save of ours: (its stamp as read, the one written, the
+    /// sample of what was written: `base::file_sample`).
+    Wrote(u64, Option<csvfab_engine::Stamp>, csvfab_engine::Stamp, Option<u64>),
     /// Open another tool on the active tab.
     Tool(Box<dyn Tool>),
 }
@@ -78,6 +81,11 @@ pub trait Tool {
     /// Draws the tool (usually an `egui::Window` or `egui::Modal` with
     /// `theme::dialog_frame`). Returns false once it is closed.
     fn show(&mut self, cx: &mut Cx) -> bool;
+
+    /// A tool open at most once per tab: opening it again replaces the one open.
+    fn single(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// An entry of the main menu and the command palette.
@@ -98,8 +106,14 @@ pub fn has_table(t: &Tab) -> bool {
     t.table.is_some() && !t.partial()
 }
 
-/// Every tool's commands, in menu order.
-pub fn commands() -> Vec<Command> {
+/// Every tool's commands, in menu order: made once (the menu, the palette and the shortcuts
+/// read them every frame).
+pub fn commands() -> &'static [Command] {
+    static ALL: std::sync::OnceLock<Vec<Command>> = std::sync::OnceLock::new();
+    ALL.get_or_init(all_commands)
+}
+
+fn all_commands() -> Vec<Command> {
     let mut v = Vec::new();
     // Each tool module adds its own: `v.extend(module::commands());`
     v.extend(find::commands());

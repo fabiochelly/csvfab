@@ -183,6 +183,8 @@ impl<'a> Item<'a> {
             pt.text(pos2(right, y), Align2::RIGHT_CENTER, "›", FontId::proportional(12.0), blend(p.txt_hi, p.txt_dim, t));
         } else if self.checked {
             icons::paint(pt, Icon::MenuCheck, Rect::from_center_size(pos2(right - 7.0, y), vec2(14.0, 14.0)), p.accent_2);
+            // Ticked with a value beside it (the totals' function in force): the value before the tick.
+            if !self.keys.is_empty() { pt.text(pos2(right - 20.0, y), Align2::RIGHT_CENTER, self.keys, FontId::proportional(11.5), fade(p.txt_dim)); }
         } else if !self.keys.is_empty() {
             pt.text(pos2(right, y), Align2::RIGHT_CENTER, self.keys, FontId::proportional(11.5), fade(p.txt_dim));
         }

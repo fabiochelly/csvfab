@@ -102,7 +102,8 @@ fn messages_say_what_to_write() {
     assert_eq!(msg("12abc").msg, "“12a” is not a number");
     assert_eq!(msg("08").msg, "Decimals with leading zeros are not allowed in strict mode.");
     assert!(msg("/(/").msg.starts_with("Invalid regular expression: /(/"));
-    assert!(msg("/(a)\\1/").msg.contains("back-references"));
+    // Back-references run (on fancy-regex), as in the web app.
+    assert!(compiled(&t, "/(a)\\1/").is_ok());
     assert!(compile("  ", &[]).unwrap_err().is_empty());
     // A column is found ignoring case, accents and symbols.
     let e = compile("{CITY } + {prénom}", &["city".into(), "Prenom".into()]).unwrap();

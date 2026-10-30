@@ -12,7 +12,7 @@ use std::sync::Arc;
 pub fn commands() -> Vec<Command> {
     vec![
         Command { name: "Split column…", group: "Columns", keys: None, enabled: has_table, run: |cx| cx.out.push(Cmd::Tool(Box::new(SplitTool::new(cx.tab, None)))) },
-        Command { name: "Merge columns…", group: "Columns", keys: None, enabled: has_table, run: |cx| cx.out.push(Cmd::Tool(Box::new(MergeTool::new(None)))) },
+        Command { name: "Merge columns…", group: "Columns", keys: None, enabled: has_table, run: |cx| cx.out.push(Cmd::Tool(Box::new(MergeTool::new(cx.tab.grid.cursor.map(|c| c.col))))) },
     ]
 }
 
@@ -274,7 +274,10 @@ impl Tool for MergeTool {
                     let old_n = t.st.ncols;
                     let (keep, order) = (self.keep, self.order.clone());
                     let msg = cols::apply_merge(t, plan);
-                    form::remap_columns(cx.tab, old_n, |c| merge_map(&order, keep, c), cx.ctx);
+                    // The merged column is a new one: the first original's filter, sort and look
+                    // do not carry onto it (as the web's).
+                    let first = order.iter().min().copied();
+                    form::remap_columns(cx.tab, old_n, |c| if !keep && Some(c) == first { None } else { merge_map(&order, keep, c) }, cx.ctx);
                     cx.toast(msg);
                 }
                 (Some(Err(e)), _) => cx.toast(e),

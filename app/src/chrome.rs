@@ -160,22 +160,58 @@ pub fn tab_bar(app: &mut App, ui: &mut Ui) {
         let bottom = bar.max.y;
         let rule_y = ui.painter().round_to_pixel_center(bottom - 0.5);
         ui.painter().hline(bar.x_range().expand(10.0), rule_y, Stroke::new(1.0, p.brd));
-        let mut x = bar.min.x;
         let t_now = ui.input(|i| i.time);
         let mut loading = false;
+        // Many tabs: the names shrink (down to 60 px), then the tabs scroll sideways (the wheel
+        // over them, the active one kept in view) and ▾ lists them all, as the web's bar scrolled.
+        let width = |t: &crate::tab::Tab, cap: f32| -> f32 {
+            let name = ui.painter().layout_no_wrap(t.name.clone(), ui_font(12.5), p.txt_hi).size().x;
+            let meta = ui.painter().layout_no_wrap(t.st().map(|s| fmt_int(s.len())).unwrap_or_default(), ui_font(11.0), p.txt_dim).size().x;
+            (10.0_f32 + 7.0 + 8.0 + name.min(cap) + 8.0 + meta + if t.dirty() { 14.0 } else { 0.0 } + 8.0 + 16.0 + 8.0).min(m.tab_max_w).round()
+        };
+        let total = |cap: f32| app.tabs.iter().map(|t| width(t, cap) + 4.0).sum::<f32>();
+        let room = bar.width() - 24.0 - 4.0;
+        let mut cap = 150.0;
+        while cap > 60.0 && total(cap) > room { cap -= 10.0; }
+        let over = total(cap) > room;
+        let room = if over { room - 28.0 } else { room };
+        let ws: Vec<f32> = app.tabs.iter().map(|t| width(t, cap)).collect();
+        let sid = Id::unique("tab-scroll");
+        let mut off: f32 = ctx.data(|d| d.get_temp(sid)).unwrap_or(0.0);
+        if over {
+            if ui.rect_contains_pointer(bar) {
+                let d = ui.input(|i| i.smooth_scroll_delta);
+                off -= if d.x != 0.0 { d.x } else { d.y };
+            }
+            // The active tab in view.
+            let left: f32 = ws[..app.active.min(ws.len())].iter().map(|w| w + 4.0).sum();
+            let right = left + ws.get(app.active).copied().unwrap_or(0.0);
+            // Brought into view when it changes (a click, Alt+→, a new tab), not against the wheel.
+            let seen = (app.active, app.tabs.len());
+            if ctx.data(|d| d.get_temp::<(usize, usize)>(sid.with("seen"))) != Some(seen) {
+                off = off.min(left).max(right - room);
+                ctx.data_mut(|d| d.insert_temp(sid.with("seen"), seen));
+            }
+            off = off.clamp(0.0, (total(cap) - room).max(0.0));
+        } else {
+            off = 0.0;
+        }
+        ctx.data_mut(|d| d.insert_temp(sid, off));
+        let clip = Rect::from_min_max(pos2(bar.min.x - 10.0, bar.min.y - 5.0), pos2(bar.min.x + room, bar.max.y + 2.0));
+        let pt = ui.painter().with_clip_rect(clip);
+        let mut x = bar.min.x - off;
         for (i, t) in app.tabs.iter().enumerate() {
             let active = i == app.active;
-            let name_g = ui.painter().layout_no_wrap(t.name.clone(), ui_font(12.5), if active { p.txt_hi } else { p.txt_mut });
             let meta = t.st().map(|s| fmt_int(s.len())).unwrap_or_default();
-            let meta_g = ui.painter().layout_no_wrap(meta, ui_font(11.0), if active { p.accent_2 } else { p.txt_dim });
+            let meta_g = pt.layout_no_wrap(meta, ui_font(11.0), if active { p.accent_2 } else { p.txt_dim });
             let dirty = t.dirty();
-            let w = (10.0 + 7.0 + 8.0 + name_g.size().x.min(150.0) + 8.0 + meta_g.size().x + if dirty { 14.0 } else { 0.0 } + 8.0 + 16.0 + 8.0).min(m.tab_max_w).round();
+            let w = ws[i];
             let r = Rect::from_min_max(pos2(x, bottom - m.tab_h - 1.0), pos2(x + w, bottom + if active { 1.0 } else { 0.0 }));
-            let resp = ui.interact(r, Id::unique(("tab", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = ui.interact(r.intersect(clip), Id::unique(("tab", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             let h = ease(&ctx, resp.id, resp.hovered() && !active);
             let fill = if active { p.surf } else { mix(p.surf_2, p.surf, h) };
             let cr = CornerRadius { nw: m.r_tab, ne: m.r_tab, sw: 0, se: 0 };
-            ui.painter().rect_filled(r, cr, fill);
+            pt.rect_filled(r, cr, fill);
             if active {
                 // A breath of the accent at the top of the open tab, fading down.
                 let g = Rect::from_min_max(r.min + vec2(1.0, 1.0), pos2(r.max.x - 1.0, r.min.y + r.height() * 0.7));
@@ -187,13 +223,13 @@ pub fn tab_bar(app: &mut App, ui: &mut Ui) {
                 mesh.colored_vertex(g.left_bottom(), Color32::TRANSPARENT);
                 mesh.add_triangle(0, 1, 2);
                 mesh.add_triangle(0, 2, 3);
-                ui.painter().with_clip_rect(r.shrink2(vec2(m.r_tab as f32 * 0.5, 0.0))).add(mesh);
+                pt.with_clip_rect(r.shrink2(vec2(m.r_tab as f32 * 0.5, 0.0))).add(mesh);
             }
             let border = if active { p.prim } else { mix(p.brd_2, p.brd, h) };
             // Top, left and right borders only, with true rounded corners: the outline of the
             // whole rounded rectangle, its bottom edge cut off so the active tab opens into the toolbar.
             let outline = Rect::from_min_max(r.min, pos2(r.max.x, r.max.y + 4.0));
-            ui.painter().with_clip_rect(Rect::from_min_max(r.min - vec2(1.0, 1.0), pos2(r.max.x + 1.0, r.max.y)))
+            pt.with_clip_rect(Rect::from_min_max(r.min - vec2(1.0, 1.0), pos2(r.max.x + 1.0, r.max.y)))
                 .rect_stroke(outline, cr, Stroke::new(1.0, border), StrokeKind::Inside);
             let cy = r.center().y;
             let mut cx = r.min.x + 10.0;
@@ -203,32 +239,32 @@ pub fn tab_bar(app: &mut App, ui: &mut Ui) {
             let dot_c = pos2(cx + 3.5, cy);
             if reading {
                 let k = 0.5 + 0.5 * (t_now * std::f64::consts::TAU).sin() as f32;
-                ui.painter().circle_filled(dot_c, 3.5 + 3.0 * (1.0 - k), alpha(p.prim, 0.18 * k));
-                ui.painter().circle_filled(dot_c, 3.5, alpha(p.prim, 0.25 + 0.75 * k));
+                pt.circle_filled(dot_c, 3.5 + 3.0 * (1.0 - k), alpha(p.prim, 0.18 * k));
+                pt.circle_filled(dot_c, 3.5, alpha(p.prim, 0.25 + 0.75 * k));
             } else {
-                ui.painter().circle_filled(dot_c, 3.5, if t.error.is_some() { p.danger } else { p.ok });
+                pt.circle_filled(dot_c, 3.5, if t.error.is_some() { p.danger } else { p.ok });
             }
             cx += 7.0 + 8.0;
             let mut job = egui::text::LayoutJob::simple_singleline(t.name.clone(), ui_font(12.5), if active { p.txt_hi } else { p.txt_mut });
-            job.wrap = egui::text::TextWrapping { max_width: 150.0, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-            let g = ui.painter().layout_job(job);
+            job.wrap = egui::text::TextWrapping { max_width: cap, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+            let g = pt.layout_job(job);
             let gw = g.size().x;
             let name_c = if active { p.txt_hi } else { mix(p.txt_hi, p.txt_mut, h) };
-            ui.painter().galley_with_override_text_color(pos2(cx, snap(&ctx, cy - g.size().y / 2.0)), g, name_c);
+            pt.galley_with_override_text_color(pos2(cx, snap(&ctx, cy - g.size().y / 2.0)), g, name_c);
             cx += gw + 8.0;
             let mw = meta_g.size().x;
-            ui.painter().galley(pos2(cx, snap(&ctx, cy - meta_g.size().y / 2.0)), meta_g, p.txt_dim);
+            pt.galley(pos2(cx, snap(&ctx, cy - meta_g.size().y / 2.0)), meta_g, p.txt_dim);
             cx += mw;
             if dirty {
-                ui.painter().circle_filled(pos2(cx + 7.0, cy), 3.0, p.warn);
+                pt.circle_filled(pos2(cx + 7.0, cy), 3.0, p.warn);
             }
             let xr = Rect::from_center_size(pos2(r.max.x - 8.0 - 8.0, cy), vec2(16.0, 16.0));
-            let xresp = ui.interact(xr, Id::unique(("tab-x", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let xresp = ui.interact(xr.intersect(clip), Id::unique(("tab-x", t.uid)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             let xh = ease(&ctx, xresp.id, xresp.hovered());
             if xh > 0.0 {
-                ui.painter().rect_filled(xr, 4.0, p.danger.gamma_multiply(xh));
+                pt.rect_filled(xr, 4.0, p.danger.gamma_multiply(xh));
             }
-            icons::cross(ui.painter(), xr.shrink(4.0), 2.0, mix(p.on_danger, if active || h > 0.5 { p.txt_mut } else { p.txt_dim }, xh));
+            icons::cross(&pt, xr.shrink(4.0), 2.0, mix(p.on_danger, if active || h > 0.5 { p.txt_mut } else { p.txt_dim }, xh));
             if xresp.clicked() {
                 close = Some(i);
             } else if resp.clicked() {
@@ -245,14 +281,32 @@ pub fn tab_bar(app: &mut App, ui: &mut Ui) {
                 tip += &format!("\n{sz} · {} rows", fmt_int(st.len()));
             }
             if let Some(x) = t.table.as_ref().filter(|x| x.dirty()) {
-                let n = x.undo_depth();
+                let n = x.pending_edits();
                 tip += &format!("\n● {} pending edit{} — Ctrl+S saves", fmt_int(n), if n == 1 { "" } else { "s" });
             }
             resp.on_hover_text(tip);
             x = r.max.x + 4.0;
         }
         if loading {
-            ctx.request_repaint();
+            // The breathing dot: 30 frames a second is smooth enough (not every frame the screen can).
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
+        let x = x.min(bar.min.x + room);
+        if over {
+            // ▾: every tab, by name.
+            let lr = Rect::from_min_size(pos2(bar.max.x - 24.0, bottom - 24.0 - 4.0), vec2(24.0, 24.0));
+            let lresp = ui.interact(lr, Id::unique("tab-list"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let h = ease(&ctx, lresp.id, lresp.hovered());
+            if h > 0.0 { ui.painter().rect(lr, 5.0, p.surf_2.gamma_multiply(h), Stroke::new(1.0, p.brd.gamma_multiply(h)), StrokeKind::Inside); }
+            icons::paint(ui.painter(), Icon::ChevronDown, lr.shrink(5.0), mix(p.txt_strong, p.txt_mut, h));
+            let lresp = lresp.on_hover_text(format!("All {} tabs", app.tabs.len()));
+            egui::Popup::menu(&lresp).frame(crate::theme::menu_frame(p, m)).show(|ui| {
+                crate::widgets::width(ui, 260.0);
+                for (i, t) in app.tabs.iter().enumerate() {
+                    let label = if t.dirty() { format!("● {}", t.name) } else { t.name.clone() };
+                    if crate::widgets::Item::new(&label).checked(i == app.active).show(ui, p).clicked() { pick = Some(i); ui.close(); }
+                }
+            });
         }
         let plus = Rect::from_min_size(pos2(x, bottom - 24.0 - 4.0), vec2(24.0, 24.0));
         let r = ui.interact(plus, Id::unique("tab-add"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -351,7 +405,8 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             let line = Rect::from_min_max(pos2(full.min + a, bottom - 2.0), pos2(full.min + b, bottom));
             ui.painter().add(egui::Shadow { offset: [0, 0], blur: 8, spread: 0, color: alpha(p.prim, 0.7) }.as_shape(line, 1));
             ui.painter().rect_filled(line, 1.0, p.prim);
-            ctx.request_repaint();
+            // A busy line: 30 frames a second (not every frame the screen can draw).
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
         let cy = bar.center().y;
         let gap = m.toolbar_gap;
@@ -380,7 +435,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         if !tab.filter.global.is_empty() {
             chips.push((if tab.expr_mode { "Expression".into() } else { "Search".into() }, tab.filter.global.clone(), 0, 0));
         }
-        let heads = tab.st().map(|s| s.headers()).unwrap_or_default();
+        let heads = tab.heads();
         for (c, f) in tab.col_filters.iter().enumerate() {
             if !f.is_empty() {
                 chips.push((heads.get(c).cloned().unwrap_or_default(), f.clone(), 1, c));
@@ -396,15 +451,27 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             };
             chips.push((heads.get(*c).cloned().unwrap_or_default(), what, 3, *c));
         }
+        // Values kept: a chart's part, a cell's value.
+        for pk in &tab.filter.picks {
+            let what = match &pk.keep {
+                csvfab_engine::view::Keeps::Values(v) if v.len() == 1 => match v.iter().next().map(String::as_str) { Some("") => "empty".to_string(), Some(v) => format!("= {v}"), None => String::new() },
+                csvfab_engine::view::Keeps::Values(v) => format!("{} values", fmt_int(v.len())),
+                csvfab_engine::view::Keeps::Part(..) => tab.spark.picks.get(&pk.col).map_or("a chart's part".to_string(), |p| p.label.clone()),
+            };
+            chips.push((heads.get(pk.col).cloned().unwrap_or_default(), what, 3, pk.col));
+        }
         if let Some(r) = &tab.restrict {
             chips.push((r.label.clone(), String::new(), 2, 0));
         }
         // What each one keeps, said in full on hover when the chip cuts it short.
+        // The search's options said too (as the web's chips): regex, case and accents, inverted.
+        let f = &tab.filter;
+        let opts: String = [(f.regex, "regular expression"), (f.match_case, "accents and case matched"), (f.invert, "inverted: the rows that do NOT match")].iter().filter(|o| o.0).map(|o| format!(" · {}", o.1)).collect();
         let tips: Vec<String> = chips.iter().map(|(what, value, kind, _)| match kind {
-            0 if tab.expr_mode => format!("Rows where: {value}"),
-            0 => format!("Rows holding: {value}"),
-            1 => format!("Column \"{what}\" holds: {value}"),
-            3 => format!("Column \"{what}\": {value} — set in its panel (▾)"),
+            0 if tab.expr_mode => format!("Rows where: {value}{}", if f.invert { " · inverted" } else { "" }),
+            0 => format!("Rows holding: {value}{opts}"),
+            1 => format!("Column \"{what}\" holds: {value}{opts}"),
+            3 => format!("Column \"{what}\": {value} — set in its panel or a chart"),
             _ => format!("Only the rows: {what}"),
         }).collect();
         let widths: Vec<f32> = chips.iter().map(|c| chip_w(&pt, &p, c)).collect();
@@ -414,7 +481,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
 
         // The right group: [Discard]  [Save n | ▾], with or without labels (Extract is in ▾).
         let dirty = tab.dirty();
-        let n = tab.table.as_ref().map_or(0, |t| t.version() as usize);
+        let n = tab.table.as_ref().map_or(0, |t| t.pending_edits());
         let badge = (dirty && n > 0).then(|| fmt_int(n));
         let label_w = |s: &str| pt.layout_no_wrap(s.to_string(), medium(13.0), p.txt).size().x;
         let bw = badge.as_ref().map_or(0.0, |b| pt.layout_no_wrap(b.clone(), semibold(11.0), p.on_warn).size().x + 12.0 + 8.0);
@@ -462,7 +529,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         let id = Id::unique("global-search");
         let focused = ctx.memory(|mem| mem.has_focus(id));
         let ff = ease(&ctx, id.with("ring"), focused);
-        let bad = tab.filter_error.is_some();
+        let bad = tab.filter_error.is_some() && tab.filter_error_col.is_none();
         let sh = ease(&ctx, id.with("hover"), ui.rect_contains_pointer(sr));
         if ff > 0.0 {
             ui.painter().rect_stroke(Rect::from_min_max(fr.min, sr.max), 6.0, Stroke::new(4.0, p.focus_ring.gamma_multiply(ff)), StrokeKind::Outside);
@@ -495,7 +562,7 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
         if r.changed() {
             refresh = true;
         }
-        if let Some(e) = &tab.filter_error {
+        if let (Some(e), None) = (&tab.filter_error, tab.filter_error_col) {
             r.on_hover_text(e.clone());
         }
         x = sr.max.x + gap;
@@ -554,12 +621,14 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
             x = slot.max.x + 6.0;
             let r = Rect::from_center_size(slot.center(), slot.size() * (0.96 + 0.04 * e));
             let fade = |col: Color32| col.gamma_multiply(e);
-            pt.rect(r, 13.0, fade(p.chip_bg), Stroke::new(1.0, fade(p.chip_brd)), StrokeKind::Inside);
+            // A test Invert flips: its chip outlined in the Invert toggle's orange.
+            let flipped = tab.filter.invert && *kind <= 1;
+            pt.rect(r, 13.0, fade(p.chip_bg), Stroke::new(1.0, fade(if flipped { p.orange_txt } else { p.chip_brd })), StrokeKind::Inside);
             pt.text(pos2(r.min.x + 9.0, r.center().y), Align2::LEFT_CENTER, what, semibold(12.0), fade(p.txt_strong));
             if !v.is_empty() {
                 pt.text(pos2(r.min.x + 9.0 + gw + 6.0, r.center().y), Align2::LEFT_CENTER, v, ui_font(12.0), fade(p.txt_hi));
             }
-            if cut { let _ = ui.interact(r, Id::unique(("chip", k)), Sense::hover()).on_hover_text(&tips[k]); }
+            if cut || (*kind <= 1 && !opts.is_empty()) { let _ = ui.interact(r, Id::unique(("chip", k)), Sense::hover()).on_hover_text(&tips[k]); }
             let xr = Rect::from_center_size(pos2(r.max.x - 3.0 - 9.0, r.center().y), vec2(18.0, 18.0));
             let xresp = ui.interact(xr, Id::unique(("chip-x", k)), Sense::click());
             let xh = ease(&ctx, xresp.id, xresp.hovered());
@@ -611,11 +680,17 @@ pub fn toolbar(app: &mut App, ui: &mut Ui) {
                 1 => tab.col_filters[c].clear(),
                 // Leaving the marked rows keeps their tints (the status bar's ◆ chip drops them).
                 2 => tab.restrict = None,
-                3 => tab.filter.hidden.retain(|(hc, _)| *hc != c),
+                3 => {
+                    tab.filter.hidden.retain(|(hc, _)| *hc != c);
+                    tab.filter.picks.retain(|pk| pk.col != c);
+                    tab.spark.picks.remove(&c);
+                }
                 _ => {
                     tab.filter.global.clear();
                     tab.col_filters.iter_mut().for_each(|s| s.clear());
                     tab.filter.hidden.clear();
+                    tab.filter.picks.clear();
+                    tab.spark.picks.clear();
                     tab.restrict = None;
                 }
             }
@@ -993,7 +1068,7 @@ fn spinner(ui: &mut Ui, p: &Colors) {
         c + vec2(a.cos(), a.sin()) * 5.5
     }).collect();
     ui.painter().add(egui::Shape::line(pts, Stroke::new(1.6, p.prim)));
-    ui.ctx().request_repaint();
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
 }
 
 /// The colour level switch, as its level: `ALL` the palette's hues around the disc from the
@@ -1194,7 +1269,8 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 msg.append("  |  ", 0.0, tf(sepc, ui_font(12.0)));
                 msg.append(&hint, 0.0, tf(p.status_fg, ui_font(12.0)));
             } else if let Some((rows, cols)) = tab.grid.range() {
-                let (nr, nc) = (rows.end() - rows.start() + 1, cols.end() - cols.start() + 1);
+                // The columns shown only (hidden ones are not copied, not summed).
+                let (nr, nc) = (rows.end() - rows.start() + 1, cols.filter(|c| !tab.grid.hidden.contains(c)).count());
                 if nr * nc > 1 {
                     msg.append("  |  ", 0.0, tf(sepc, ui_font(12.0)));
                     msg.append(&format!("{} × {}", fmt_int(nr), fmt_int(nc)), 0.0, tf(p.txt_hi, semibold(12.0)));
@@ -1212,9 +1288,16 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                         }
                     }
                 }
-            } else if tab.filtered() {
+            } else if let Some(e) = &tab.filter_error {
+                // A filter that does not compile: the rows of the last one that did stay; said.
+                msg.append("  |  ", 0.0, tf(sepc, ui_font(12.0)));
+                msg.append(&format!("Filter not applied — {e}"), 0.0, tf(p.danger_txt, ui_font(12.0)));
+            } else if tab.narrowed() {
                 msg.append("  |  ", 0.0, tf(sepc, ui_font(12.0)));
                 msg.append("filtered", 0.0, tf(p.stat_filt, ui_font(12.0)));
+            } else if !tab.sort.is_empty() {
+                msg.append("  |  ", 0.0, tf(sepc, ui_font(12.0)));
+                msg.append("sorted", 0.0, tf(p.stat_filt, ui_font(12.0)));
             }
             // The expression filter's rows in error: hidden, and said (as the web's).
             if let Some((n, first)) = tab.expr_errors.lock().ok().and_then(|e| e.clone()).filter(|_| tab.expr_mode) {
@@ -1308,7 +1391,9 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 egui::Popup::menu(&er).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
                     crate::widgets::width(ui, 210.0);
                     crate::widgets::head(ui, &p, "Read as");
-                    if crate::widgets::Item::new("Auto (detected)").checked(enc_auto).show(ui, &p).clicked() {
+                    // What was detected, named (as the web's "Auto (UTF-8 BOM)") while it is in force.
+                    let auto_l = if enc_auto { format!("Auto ({etext})") } else { "Auto (detected)".to_string() };
+                    if crate::widgets::Item::new(&auto_l).checked(enc_auto).show(ui, &p).clicked() {
                         if !enc_auto { reopen.0 = Some(None); }
                         ui.close();
                     }
@@ -1328,12 +1413,16 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                     b'|' => ("|", "Pipe", p.pink_txt, p.pink),
                     _ => ("?", "Other", p.pink_txt, p.pink),
                 };
-                let dr = pill(ui, "delim", Some(cap), name, tab.open_opts.delim.is_none(), fg, alpha(bg, 0.13), alpha(bg, 0.4), m.sb_pill_h);
+                // Raw text says its language (as the web's "Raw text · Python").
+                let lang = crate::syntax::lang_of(&tab.name).label;
+                let shown = if d == 0 && lang != "Text" { format!("{name} · {lang}") } else { name.to_string() };
+                let dr = pill(ui, "delim", Some(cap), &shown, tab.open_opts.delim.is_none(), fg, alpha(bg, 0.13), alpha(bg, 0.4), m.sb_pill_h);
                 egui::Popup::menu(&dr).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
                     crate::widgets::width(ui, 210.0);
                     crate::widgets::head(ui, &p, "Split on");
                     let auto = tab.open_opts.delim.is_none();
-                    if crate::widgets::Item::new("Auto (detected)").checked(auto).show(ui, &p).clicked() {
+                    let auto_l = if auto { format!("Auto ({})", name.to_lowercase()) } else { "Auto (detected)".to_string() };
+                    if crate::widgets::Item::new(&auto_l).checked(auto).show(ui, &p).clicked() {
                         if !auto { reopen.1 = Some(None); }
                         ui.close();
                     }
@@ -1394,14 +1483,22 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 }
 
                 // Chips: irregular rows, quote errors.
-                if !st.base.odd.is_empty() {
+                // Quote errors alone are said too (as the web's): an unclosed quote may swallow
+                // the rest of the file into one field.
+                if !st.base.odd.is_empty() || st.base.qerr > 0 {
                     let n = st.base.odd.len();
                     let on = tab.restrict.as_ref().is_some_and(|r| r.label.starts_with("Irregular"));
                     let q = st.base.qerr as usize;
-                    let text = format!("{} irregular row{}{}", fmt_int(n), if n > 1 { "s" } else { "" }, if q > 0 { format!(" · {} quote error{}", fmt_int(q), if q > 1 { "s" } else { "" }) } else { String::new() });
+                    let qs = format!("{} quote error{}", fmt_int(q), if q > 1 { "s" } else { "" });
+                    let text = match (n, q) {
+                        (0, _) => qs,
+                        (_, 0) => format!("{} irregular row{}", fmt_int(n), if n > 1 { "s" } else { "" }),
+                        _ => format!("{} irregular row{} · {qs}", fmt_int(n), if n > 1 { "s" } else { "" }),
+                    };
+                    let tip = if n == 0 { "A quote opened in a field is not closed where it should be: what follows it, up to the next quote, is read as one field." } else { "Rows whose field count differs from the titles'. Click to show only them." };
                     let r = pill(ui, "irr", None, &text, false, if on { p.on_warn } else { p.warn }, if on { p.warn } else { alpha(p.warn_rgb, 0.08) }, alpha(p.warn_rgb, 0.45), 20.0)
-                        .on_hover_text("Rows whose field count differs from the titles'. Click to show only them.");
-                    if r.clicked() {
+                        .on_hover_text(tip);
+                    if r.clicked() && n > 0 {
                         if on {
                             tab.restrict = None;
                             tab.refresh(&ctx);
@@ -1437,8 +1534,9 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 // the tints kept; right-click drops the marks (as the web's ◆ chip).
                 let marked = tab.marks.rows.len();
                 if marked > 0 {
-                    let label = if tab.marks_label.is_empty() { "marked rows".to_string() } else { tab.marks_label.to_lowercase() };
-                    let only = tab.restrict.as_ref().is_some_and(|r| r.label.to_lowercase() == label);
+                    let label = if tab.marks_label.is_empty() { "marked rows".to_string() } else { tab.marks_label.clone() };
+                    // Their view: named after them (with their count, from Insights).
+                    let only = tab.restrict.as_ref().is_some_and(|r| r.label.eq_ignore_ascii_case(&label) || r.label.ends_with(&format!(" {label}")));
                     let text = format!("◆ {} {label}", fmt_int(marked));
                     let r = pill(ui, "marks", None, &text, false, if only { p.txt_strong } else { p.accent_2 }, if only { alpha(p.prim, 0.3) } else { alpha(p.prim, 0.08) }, alpha(p.prim, 0.45), 20.0)
                         .on_hover_text(format!("Click: {} · right-click: remove the marks", if only { "every row again, the tints kept" } else { "only these rows" }));
@@ -1476,6 +1574,7 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                 if let Some(e) = toggle_eol {
                     if let Some(t) = &mut tab.table { t.set_eol(e); }
                     tab.after_edit(false, &ctx);
+                    tab.grid.notice = Some(format!("Line endings set to {} — written at the next Save.", if e == b"\r\n" { "CRLF" } else { "LF" }));
                 }
                 if reopen.0.is_some() || reopen.1.is_some() {
                     if tab.dirty() { reread_ask = Some(reopen); } else { tab.reopen_with(reopen.0, reopen.1, &ctx); }
@@ -1618,6 +1717,39 @@ pub fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
     Some((score - t.len() as i32 / 8, hits))
 }
 
+/// What a command does, in the palette's words (the web's labels): searched with its name.
+fn about(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Map" => "the file map: the whole file as one picture",
+        "Insights" => "what I noticed: keys, values written otherwise, outliers, copies, hidden rules",
+        "File profile…" => "every column at a glance",
+        "Clean up…" => "spaces, invisible characters, garbled accents, empty rows…",
+        "Remove noise words…" => "a list of words taken out of a column or every column",
+        "Anonymise…" => "names, e-mails, phones, postal codes",
+        "Group by…" => "count, sum, average per value, in a new tab",
+        "Pivot table…" => "rows × columns, counts or sums, colour scale, click to see the rows",
+        "Split into files…" => "one per value of a column, in a new folder",
+        "Combine files…" => "open tabs into one new file, columns matched by title",
+        "Fill by example" => "type one or two results, the rest of the column follows",
+        "Compare with another tab or file…" => "changed rows, rows only on one side",
+        "Convert formats…" => "dates, numbers, phone numbers",
+        "Freeze the first column" => "it stays in view when scrolling sideways",
+        "Review changes…" => "what Save would write",
+        "Why does this row look wrong?" => "its bytes examined",
+        "Create a schema…" => "the rules this file follows, as name.schema.json",
+        "Validate against a schema…" => "check this file against its rules",
+        "Insert a function (ƒx)" => "every helper of formulas, with examples",
+        "Computed column…" => "a formula over the other columns",
+        "Mark duplicates…" => "rows written twice, even differently",
+        "Look up from another tab…" => "a column brought in from another table by a key",
+        "Follow the end of the file (tail -f)" => "new lines as they are written",
+        "Save as Excel workbook" => "an .xlsx beside the file",
+        "Save as SQLite database" => "one table, typed columns",
+        "Delete hidden rows" => "the rows the filters hide go from the file",
+        _ => return None,
+    })
+}
+
 pub fn palette(app: &mut App, ctx: &egui::Context) {
     let Some(l) = &mut app.palette else { return };
     let p = &app.theme.p;
@@ -1638,7 +1770,9 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
     let tab = app.tabs.get(app.active);
     for c in tools::commands() {
         if tab.is_some_and(|t| (c.enabled)(t)) {
-            entries.push((c.name.to_string(), c.group, c.keys, command_icon(c.name), Entry::Command(c.run)));
+            // With what it does, as the web's palette said it: searched too ("noticed", "accents").
+            let label = match about(c.name) { Some(a) => format!("{} — {a}", c.name), None => c.name.to_string() };
+            entries.push((label, c.group, c.keys, command_icon(c.name), Entry::Command(c.run)));
         }
     }
     for th in crate::theme::themes() {
@@ -1677,6 +1811,11 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
             entries.push((format!("Show all rows again (leave the {})", r.label.to_lowercase()), "Rows", None, Some(Icon::Rows), Entry::Shell("unrestrict")));
         }
         if !t.marks.rows.is_empty() {
+            // The marked rows' view, left: entered again (as the web's "Show only the …").
+            if t.restrict.is_none() {
+                let what = if t.marks_label.is_empty() { "marked rows".to_string() } else { t.marks_label.clone() };
+                entries.push((format!("Show only the {}", what.to_lowercase()), "Rows", None, Some(Icon::Rows), Entry::Shell("marked")));
+            }
             entries.push(("Remove the marks".into(), "Rows", None, Some(Icon::Cross), Entry::Shell("unmark")));
         }
         // Per column, as the web's: go, sort, then sort, its panel, group, pivot, split.
@@ -1755,7 +1894,10 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
     } else {
         let mut scored: Vec<(i32, usize, Vec<usize>)> = entries.iter().enumerate().filter_map(|(i, e)| {
             let bonus = rank(&e.0).map_or(0, |r| 24 - 2 * r as i32);
+            // A recent file is found by its folder too.
+            let dir = || match &e.4 { Entry::Recent(p) => p.parent().map(|d| d.display().to_string()), _ => None };
             fuzzy(&q, &e.0).map(|(s, h)| (s + bonus, i, h)).or_else(|| fuzzy(&q, e.1).map(|(s, _)| (s - 20 + bonus, i, Vec::new())))
+                .or_else(|| dir().and_then(|d| fuzzy(&q, &d)).map(|(s, _)| (s - 30 + bonus, i, Vec::new())))
         }).collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         shown.extend(scored.into_iter().map(|(_, i, h)| (i, h)));
@@ -1963,12 +2105,11 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
                     let row = t.grid.cursor.map_or(0, |x| x.row);
                     let key = |desc| csvfab_engine::view::SortKey { col: c, desc };
                     match act {
-                        ColAct::Go => { t.grid.select(crate::grid::Cell { row, col: c }, false); t.grid.reveal_col = true; }
+                        ColAct::Go => t.grid.go_to_col(row, c),
                         ColAct::Asc | ColAct::Desc => { t.sort = vec![key(matches!(act, ColAct::Desc))]; t.refresh(ctx); }
                         ColAct::ThenAsc | ColAct::ThenDesc => { t.sort.push(key(matches!(act, ColAct::ThenDesc))); t.refresh(ctx); }
                         ColAct::Panel => {
-                            t.grid.select(crate::grid::Cell { row, col: c }, false);
-                            t.grid.reveal_col = true;
+                            t.grid.go_to_col(row, c);
                             t.grid.open_panel = Some(c);
                         }
                         ColAct::Group => { let tool = tools::group::open(t, Some(c)); app.open_tool(tool); }
@@ -1985,7 +2126,7 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
                 "open" => app.pick_files(ctx),
                 "quit" => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                 "close-tab" => app.close_tab(app.active, false),
-                "charts" | "filters" | "totals" | "expr" | "totals-sum" | "totals-clear" | "select-all" | "irregular" | "unrestrict" | "unmark" => {
+                "charts" | "filters" | "totals" | "expr" | "totals-sum" | "totals-clear" | "select-all" | "irregular" | "unrestrict" | "unmark" | "marked" => {
                     if let Some(t) = app.tabs.get_mut(app.active) {
                         match s {
                             "charts" => t.show_charts = !t.show_charts,
@@ -2012,6 +2153,14 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
                                 }
                             }
                             "unmark" => { drop_marks(t); t.restrict = None; t.refresh(ctx); }
+                            "marked" => {
+                                // In the table's order.
+                                if let Some(st) = t.st().cloned() {
+                                    let ids: Vec<csvfab_engine::RowId> = (0..st.len()).map(|p| st.data_id(p)).filter(|id| t.marks.rows.contains(id)).collect();
+                                    let label = if t.marks_label.is_empty() { "marked rows".to_string() } else { t.marks_label.clone() };
+                                    t.restrict_to(label, ids, ctx);
+                                }
+                            }
                             _ => { t.restrict = None; t.refresh(ctx); }
                         }
                     }
@@ -2040,6 +2189,7 @@ pub fn palette(app: &mut App, ctx: &egui::Context) {
                             } else {
                                 let eol = t.st.eol.unwrap_or(t.st.base.eol);
                                 t.set_eol(if eol == b"\r\n" { b"\n" } else { b"\r\n" });
+                                tab.grid.notice = Some(format!("Line endings set to {} — written at the next Save.", if eol == b"\r\n" { "LF" } else { "CRLF" }));
                             }
                         }
                         tab.after_edit(s != "eol", ctx);
@@ -2247,10 +2397,14 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
     let ui = &mut ui;
     let pt = ui.painter().clone();
     pt.rect_filled(full, 0.0, p.bg);
-    // As many recent files as fit (at most 6), the column kept clear of the status bar.
+    // As many recent files as fit (at most 12, as the web's), the column kept clear of the
+    // status bar; a missing one drawn faint (opening it says so and forgets it). Their sizes
+    // are looked up in the background, not on every frame.
     let fixed = 54.0 + 44.0 + 170.0 + 28.0 + 34.0 + 28.0 + 22.0 + 12.0 + 60.0;
-    let fit = (((full.height() * 0.94 - fixed) / 50.0).floor().max(0.0) as usize).min(6);
-    let existing: Vec<std::path::PathBuf> = app.config.recent.iter().filter(|p| p.exists()).take(fit).cloned().collect();
+    let fit = (((full.height() * 0.94 - fixed) / 50.0).floor().max(0.0) as usize).min(12);
+    let mut files = app.recent_files(&ctx);
+    files.truncate(fit);
+    let existing: Vec<std::path::PathBuf> = files.iter().map(|f| f.0.clone()).collect();
     // The column: 580 wide, centred, starting 8 % down (more when the window is tall and there
     // is little to show, so it sits in the eye line).
     let content_h = 54.0 + 44.0 + 170.0 + 28.0 + 34.0 + if existing.is_empty() { 0.0 } else { 28.0 + 22.0 + existing.len() as f32 * 50.0 + 12.0 } + 60.0;
@@ -2275,6 +2429,7 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
     let mut open = false;
     let mut recent = None;
     let mut forget = None;
+    let mut gone_hit: Option<std::path::PathBuf> = None;
     let mut what: Option<&str> = None;
     // Title: the logo 54 and "csvfab" in a gradient prim → violet → pink, one colour per letter.
     let word = "csvfab";
@@ -2363,7 +2518,8 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
             if h > 0.0 {
                 pt.rect_filled(r, 10.0, alpha(p.hi, 0.05 * h));
             }
-            let meta = std::fs::metadata(path).ok();
+            let size = files[k].1;
+            let gone = size.is_none();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let dir = path.parent().map(short_dir).unwrap_or_default();
             let tile = Rect::from_min_size(pos2(r.min.x + 10.0, r.center().y - 16.0), vec2(32.0, 32.0));
@@ -2376,8 +2532,9 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
                 job.wrap = egui::text::TextWrapping { max_width: max, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
                 pt.layout_job(job)
             };
-            let g = line(&name, medium(13.5), p.txt_hi, r.max.x - tx - right_w);
-            pt.galley(pos2(tx, snap(&ctx, r.min.y + 8.0)), g, p.txt_hi);
+            let name_c = if gone { p.txt_faint } else { p.txt_hi };
+            let g = line(&name, medium(13.5), name_c, r.max.x - tx - right_w);
+            pt.galley(pos2(tx, snap(&ctx, r.min.y + 8.0)), g, name_c);
             let g = line(&dir, ui_font(11.5), p.txt_dim, r.max.x - tx - right_w);
             pt.galley(pos2(tx, snap(&ctx, r.min.y + 27.0)), g, p.txt_dim);
             // Right: size and age; on hover a × to forget it.
@@ -2393,16 +2550,18 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
                 }
                 rx -= 26.0 * h;
             }
-            if let Some(m) = &meta {
-                let g = pt.layout_no_wrap(fmt_size(m.len()), medium(12.0), p.txt_mut);
+            // Its size (or that it is gone), and when it was last opened here.
+            let top = match size { None => Some("missing".to_string()), Some(u64::MAX) => None, Some(n) => Some(fmt_size(n)) };
+            if let Some(t) = top {
+                let g = pt.layout_no_wrap(t, medium(12.0), if gone { p.txt_faint } else { p.txt_mut });
                 pt.galley(pos2(rx - g.size().x, snap(&ctx, r.min.y + 9.0)), g, p.txt_mut);
-                if let Ok(t) = m.modified() {
-                    let g = pt.layout_no_wrap(ago(t), ui_font(11.0), p.txt_faint);
-                    pt.galley(pos2(rx - g.size().x, snap(&ctx, r.min.y + 28.0)), g, p.txt_faint);
-                }
+            }
+            if let Some(&t) = app.config.opened.get(path) {
+                let g = pt.layout_no_wrap(ago(std::time::UNIX_EPOCH + std::time::Duration::from_secs(t)), ui_font(11.0), p.txt_faint);
+                pt.galley(pos2(rx - g.size().x, snap(&ctx, r.min.y + 28.0)), g, p.txt_faint);
             }
             if forget.is_none() && resp.on_hover_text(path.display().to_string()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                recent = Some(path.clone());
+                if gone { gone_hit = Some(path.clone()); } else { recent = Some(path.clone()); }
             }
             ry += 50.0;
         }
@@ -2429,6 +2588,11 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
     }
     if let Some(r) = recent {
         app.open(r, &ctx);
+    }
+    // A file no longer there: said, and forgotten (as the web's).
+    if let Some(g) = gone_hit {
+        app.toast(format!("{} is no longer where it was — removed from the recent files.", g.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), &ctx);
+        forget = Some(g);
     }
     if let Some(f) = forget {
         app.config.recent.retain(|x| *x != f);

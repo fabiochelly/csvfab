@@ -2,6 +2,23 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.0.3 · 30 October 2026
+
+- **Saving and exporting use every core.** On a 2 GB file (5.3 million rows): an Excel export takes 0.6 s instead of 13 s, and a smaller file; saving after a computed column or a column move 1 s instead of 2.9 s; re-encoding to UTF-16 2.1 s instead of 6 s. After a save, the view, its caches and its analyses are kept instead of being worked out again.
+- **The crash copy of a big table is a journal of its edits**: after a computed column on a 2 GB file, 82 MB written in 51 ms instead of the whole file again every 30 s.
+- **Natural text sort**: accents and case ignored, numbers in their order ("Lot 2" before "Lot 10"), as fast as before.
+- **Chart clicks are value filters**: they stack with the other filters, follow column moves and Undo, and have their own chip.
+- **Fixed: marks and the "only these rows" view were on the wrong rows** after a save that renumbered the file.
+- **Fixed: false "changed on disk" alerts** with Dropbox, OneDrive and other sync clients rewriting the same content.
+- **Line 1 is read as titles or data as in 1.x**, from the types of the rows below it.
+- **Settings and recent files of csvfab 1.x** are brought over at the first start.
+- **Filters**: "Only / Hide the rows with…" keep exact values; Invert flips the search and formula, not the value filters; a filter error is said in the status line and the box at fault turns red; Undo of "Delete hidden rows" brings the filters back.
+- **Editing**: typing over a selected block fills every cell with Enter; Ctrl+G accepts "1 234"; going to a hidden column shows it; look-around and back-references work in formulas.
+- **Many tabs**: names shrink, then the bar scrolls and a ▾ button lists every tab.
+- **Recent files**: up to 12, missing ones greyed, with the time last opened.
+- **More confirmations** (copy, move, freeze, duplicate row with Undo…); the Close and Quit dialogs name the files and their edit counts.
+- **Lighter on every frame**: search highlights, command list and column titles worked out once instead of at each repaint; a faster start-up.
+
 ## 2.0.2 · 30 October 2026
 
 - **Fixed: saving while a big file was still loading** wrote only the rows read so far, cutting the file short. Save, Save as and the tools now wait until the file is read whole.

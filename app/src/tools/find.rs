@@ -101,6 +101,7 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
         return;
     }
     let mut toast = None;
+    let mut bad: Option<(u64, String)> = None;
     WORK.with_borrow_mut(|all| {
         let w = all.entry(tab.uid).or_default();
         if free {
@@ -142,12 +143,19 @@ pub fn bar(app: &mut App, ui: &mut Ui) {
             }
         }
         show(ui, tab, w, &p, &m, &ctx);
+        // What was typed this frame is counted now, not a frame later.
+        recount(tab, w, &ctx);
+        // A pattern that does not compile: why, in the status line (as the web's).
+        if let Some(e) = &w.error { bad = Some((tab.uid, e.clone())); }
         if w.count.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     });
     if let Some(t) = toast {
         app.toast(t, &ctx);
+    }
+    if let Some((uid, e)) = bad {
+        if app.status.as_ref().is_none_or(|s| s.1 != e) { app.status = Some((uid, e, ctx.input(|i| i.time))); }
     }
 }
 
@@ -195,7 +203,7 @@ fn find_all(snap: &Snap, op: &Replace, col: Option<usize>, hidden: &[usize], fou
             if cancel.load(Ordering::Relaxed) {
                 return None;
             }
-            let (mut out, mut tmp, mut row) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut out, mut tmp) = (Vec::new(), Vec::new());
             for pos in k * 4096..((k + 1) * 4096).min(rows.len()) {
                 let id = rows[pos];
                 if !op.row_may_change(st, id, &mut ()) {
@@ -208,7 +216,7 @@ fn find_all(snap: &Snap, op: &Replace, col: Option<usize>, hidden: &[usize], fou
                 };
                 match col {
                     Some(c) => st.with_cell(id, c, &mut tmp, |v| hit(c, v)),
-                    None => csvfab_engine::kinds::visit_row(st, id, &mut tmp, &mut row, &mut hit),
+                    None => st.visit(id, &mut hit),
                 }
             }
             found.fetch_add(out.len(), Ordering::Relaxed);

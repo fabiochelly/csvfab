@@ -30,7 +30,11 @@ enum Stage {
     Failed(Alert),
 }
 
+/// The column and matching chosen last on each tab (uid; column count), offered again.
+static LAST: std::sync::Mutex<Option<std::collections::HashMap<u64, (usize, usize, Match)>>> = std::sync::Mutex::new(None);
+
 struct SplitFiles {
+    uid: u64,
     st: State,
     rows: Arc<Vec<RowId>>,
     filtered: bool,
@@ -47,8 +51,10 @@ impl SplitFiles {
         if st.ncols == 0 { return None; }
         let rows = cx.tab.shown_ids();
         // A column of categories: the first with 2 to 50 values (unless one is asked for).
-        let col = col.filter(|&c| c < st.ncols).unwrap_or_else(|| split::guess_column(&st, &rows));
-        let mut s = SplitFiles { st, rows, filtered: cx.tab.filtered(), col, how: Match::Exact, counting: None, groups: None, stage: Stage::Form };
+        let last = LAST.lock().ok().and_then(|m| m.as_ref()?.get(&cx.tab.uid).copied()).filter(|l| l.0 == st.ncols && l.1 < st.ncols);
+        let col = col.filter(|&c| c < st.ncols).or(last.map(|l| l.1)).unwrap_or_else(|| split::guess_column(&st, &rows));
+        let how = last.map_or(Match::Exact, |l| l.2);
+        let mut s = SplitFiles { uid: cx.tab.uid, st, rows, filtered: cx.tab.filtered(), col, how, counting: None, groups: None, stage: Stage::Form };
         s.count(cx);
         Some(s)
     }
@@ -201,5 +207,11 @@ impl Tool for SplitFiles {
             }
         }
         !matches!(self.stage, Stage::Form)
+    }
+}
+
+impl Drop for SplitFiles {
+    fn drop(&mut self) {
+        if let Ok(mut m) = LAST.lock() { m.get_or_insert_with(Default::default).insert(self.uid, (self.st.ncols, self.col, self.how)); }
     }
 }

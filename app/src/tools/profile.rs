@@ -46,6 +46,8 @@ struct Profile {
     rows: usize,
     sampled: bool,
     headers: Vec<String>,
+    /// The grid's hidden columns, marked "(hidden)".
+    hidden: std::collections::BTreeSet<usize>,
     version: u64,
 }
 
@@ -83,7 +85,7 @@ impl Profile {
                 Some(ctx_mojibake)
             })
         });
-        Profile { job, parts, done: cached, rows, sampled, headers, version }
+        Profile { job, parts, done: cached, rows, sampled, headers, hidden: cx.tab.grid.hidden.clone(), version }
     }
 
     /// The table as tab-separated text.
@@ -160,6 +162,8 @@ impl Tool for Profile {
         let Some(t) = cx.tab.table.as_ref() else { return false };
         // The rows changed under it (an edit, an undo): read again.
         if t.version() != self.version || t.st.ncols != self.headers.len() { *self = Profile::new(cx); }
+        // Hidden columns are marked, as the web's ("(hidden)").
+        self.hidden.clone_from(&cx.tab.grid.hidden);
         if let Some(j) = &mut self.job {
             if let Some(r) = j.poll() {
                 self.job = None;
@@ -212,8 +216,7 @@ impl Tool for Profile {
         if let Some(c) = go {
             // Its column in the grid, its panel open (as the web's).
             let row = cx.tab.grid.cursor.map_or(0, |k| k.row);
-            cx.tab.grid.select(crate::grid::Cell { row, col: c }, false);
-            cx.tab.grid.reveal_col = true;
+            cx.tab.grid.go_to_col(row, c);
             cx.tab.grid.open_panel = Some(c);
             return false;
         }
@@ -264,7 +267,11 @@ impl Profile {
                     let f = (s.filled as f64 / rows).min(1.0) as f32;
                     pt.rect_filled(Rect::from_min_size(pos2(c0.min.x, c0.max.y - 1.0 - 2.0), vec2(c0.width() * f, 2.0)), 0.0, alpha(p.prim, 0.6));
                 }
-                kit::cell_text(ui, &pt, c0, &self.headers[i], kit::medium(12.0), p.txt_hi, false);
+                if self.hidden.contains(&i) {
+                    kit::cell_text(ui, &pt, c0, &format!("{} (hidden)", self.headers[i]), kit::medium(12.0), p.txt_dim, false);
+                } else {
+                    kit::cell_text(ui, &pt, c0, &self.headers[i], kit::medium(12.0), p.txt_hi, false);
+                }
                 let mut texts: Vec<(String, Color32)> = Vec::new();
                 match s {
                     None => texts.push(("…".into(), p.txt_faint)),
@@ -348,7 +355,7 @@ mod tests {
         assert_eq!(cut("abcdef", 4), "abc…");
         assert_eq!(size(2048), "2.0 KB");
         let cols: Vec<Option<ColProfile>> = (0..2).map(|c| stats::profile_col(&t.st, &ids, c, &Default::default())).collect();
-        let pf = Profile { job: None, parts: Default::default(), done: None, rows: 3, sampled: false, headers: t.st.headers(), version: 0 };
+        let pf = Profile { job: None, parts: Default::default(), done: None, rows: 3, sampled: false, headers: t.st.headers(), hidden: Default::default(), version: 0 };
         let tsv = pf.tsv(&cols);
         let lines: Vec<&str> = tsv.lines().collect();
         assert_eq!(lines[1], "A\tNumbers\t2\t1\t2\t1\t2\t3\t1.5");

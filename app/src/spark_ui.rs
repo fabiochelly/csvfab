@@ -7,14 +7,13 @@
 //! in the background each time the view settles. A frame only draws: the old
 //! pictures stay up until the new ones arrive, so nothing flickers.
 
-use crate::grid::{self, Action};
+use crate::grid;
 use crate::job::Job;
 use crate::tab::Tab;
 use crate::theme::{alpha, Metrics, Palette};
 use csvfab_engine::look;
 use csvfab_engine::sparkline::{self as sp, Col, ColF, Part, Pick, Sample, Spark, SparkF};
-use csvfab_engine::view::Kind;
-use csvfab_engine::RowId;
+use csvfab_engine::view::{Keeps, Kind};
 use eframe::egui::{self, pos2, vec2, Color32, CornerRadius, FontId, Mesh, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,19 +37,13 @@ struct FiltKey {
     base: usize,
 }
 
-/// How a click on the chart filtered, to tell whether it is still in force (and undo it).
-#[derive(Clone, PartialEq, Debug)]
-enum Via {
-    /// A column filter text it wrote.
-    Text(String),
-    /// The rows it kept (two bounds, or a ribbon's other values: no column filter says them).
-    Restrict(String),
-}
-
-#[derive(Clone, Debug)]
-struct Picked {
+/// A part clicked: the value filter it set on its column (`view::Keeps::Part`, with the picture
+/// it was picked on), and what it keeps, said (the filter's chip).
+#[derive(Clone)]
+pub struct Picked {
     pick: Pick,
-    via: Via,
+    spark: Arc<Spark>,
+    pub label: String,
 }
 
 /// What the band keeps between frames (the charts computed, the jobs computing them).
@@ -69,8 +62,7 @@ pub struct State {
     lit_next: Option<(usize, Pick)>,
     /// A drag across a curve's bars: (column, first bar, bar under the pointer).
     brush: Option<(usize, usize, usize)>,
-    picks: HashMap<usize, Picked>,
-    refine: Option<(Job<Option<Vec<RowId>>>, usize, Pick, String)>,
+    pub picks: HashMap<usize, Picked>,
 }
 
 impl State {
@@ -141,17 +133,6 @@ pub fn poll(tab: &mut Tab, ctx: &egui::Context) {
             if !have && !busy {
                 let (st2, base) = (st.clone(), s.base.clone().unwrap());
                 s.filt_job = Some((Job::spawn(ctx, move |c, _| sp::spark_filtered(&st2, &base, &ids, Sample::Js, c)), k));
-            }
-        }
-    }
-    // A pick that needs the rows themselves (two bounds, the other values).
-    if let Some((j, col, pick, label)) = &mut s.refine {
-        if let Some(r) = j.poll() {
-            let (col, pick, label) = (*col, *pick, label.clone());
-            s.refine = None;
-            if let Some(ids) = r.filter(|v| !v.is_empty()) {
-                s.picks.insert(col, Picked { pick, via: Via::Restrict(label.clone()) });
-                tab.restrict_to(label, ids, ctx);
             }
         }
     }
@@ -404,56 +385,52 @@ fn tip_text(tab: &Tab, spark: &Spark, col: usize, pick: Pick, brush: bool) -> St
 
 /// Whether a pick's filter is still the one in force on its column.
 fn in_force(tab: &Tab, col: usize, p: &Picked) -> bool {
-    match &p.via {
-        Via::Text(t) => tab.col_filters.get(col).is_some_and(|s| s == t),
-        Via::Restrict(l) => tab.restrict.as_ref().is_some_and(|r| &r.label == l),
-    }
+    tab.filter.picks.iter().any(|v| v.col == col && matches!(&v.keep, Keeps::Part(s, k) if *k == p.pick && Arc::ptr_eq(s, &p.spark)))
 }
 
-/// A click on a part (or a range dragged across): filter on it — a column filter when one
-/// says it, else the rows themselves — or, on the part already picked, show all again.
-fn pick(tab: &mut Tab, col: usize, pick: Pick, actions: &mut Vec<Action>, ctx: &egui::Context) {
+/// A click on a part (or a range dragged across): a value filter on its column keeping the
+/// rows that hold it, as the web's (the column's other value filter replaced, the other
+/// columns' and the typed filters kept); on the part already picked, the column shown whole
+/// again. Said in a message.
+fn pick(tab: &mut Tab, col: usize, pick: Pick, ctx: &egui::Context) {
     let Some(spark) = tab.spark.base.clone() else { return };
+    let title = tab.st().and_then(|st| st.headers().get(col).cloned()).unwrap_or_default();
     if let Some(p) = tab.spark.picks.remove(&col) {
-        if in_force(tab, col, &p) {
-            match &p.via {
-                Via::Text(_) => tab.col_filters[col].clear(),
-                Via::Restrict(_) => tab.restrict = None,
-            }
-            actions.push(Action::FiltersChanged);
-            if p.pick == pick {
-                return;
-            }
+        if in_force(tab, col, &p) && p.pick == pick {
+            tab.keep_values(col, None, ctx);
+            tab.grid.notice = Some(format!("{title}: every value shown again."));
+            return;
         }
     }
-    let Some(st) = tab.st().cloned() else { return };
-    match spark.filter_texts(col, pick) {
-        Some(v) if v.len() == 1 && col < tab.col_filters.len() => {
-            tab.col_filters[col] = v[0].clone();
-            tab.spark.picks.insert(col, Picked { pick, via: Via::Text(v[0].clone()) });
-            actions.push(Action::FiltersChanged);
-        }
-        _ => {
-            let title = st.headers().get(col).cloned().unwrap_or_default();
-            let what = match pick {
-                Pick::Other => "the other values".to_string(),
-                _ => spark.what(col, pick).replace(" – ", " to "),
-            };
-            let label = format!("{title}: {what}");
-            let sp2 = spark.clone();
-            let job = Job::spawn(ctx, move |c, _| {
-                let ids: Vec<RowId> = (0..st.len()).map(|p| st.data_id(p)).collect();
-                sp::refine(&st, &ids, col, &sp2.keep(col, pick), c)
-            });
-            tab.spark.refine = Some((job, col, pick, label));
-        }
+    let (n, _) = spark.count(col, pick, None);
+    if n == 0 {
+        tab.grid.notice = Some("No row holds those values.".into());
+        return;
     }
+    if !spark.sampled && n >= spark.n && !tab.has_values(col) {
+        tab.grid.notice = Some(format!("{title}: every row already holds those values."));
+        return;
+    }
+    let what = match pick {
+        Pick::Filled => "the filled rows".to_string(),
+        Pick::Empty => "the empty rows".to_string(),
+        Pick::Other => "the other values".to_string(),
+        Pick::Seg(_) => format!("“{}”", spark.what(col, pick)),
+        Pick::Bars(a, b) => match spark.bar_values(col, a, b) {
+            Some((lo, hi)) if lo == hi => lo.to_string(),
+            Some((lo, hi)) => format!("{lo} to {hi}"),
+            None => spark.what(col, pick).replace(" – ", " to "),
+        },
+    };
+    tab.spark.picks.insert(col, Picked { pick, spark: spark.clone(), label: what.clone() });
+    tab.keep_values(col, Some(Keeps::Part(spark, pick)), ctx);
+    tab.grid.notice = Some(format!("{title}: only {what} — click it again to show all."));
 }
 
 /// Draws the band's columns `(col, x, width)` inside `clip` (the part right of the gutter,
 /// or of the frozen columns). A click or drag on a chart filters.
 #[allow(clippy::too_many_arguments)]
-pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rect, vis_cols: &[(usize, f32, f32)], p: &Palette, m: &Metrics, actions: &mut Vec<Action>) {
+pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rect, vis_cols: &[(usize, f32, f32)], p: &Palette, m: &Metrics) {
     let ctx = ui.ctx().clone();
     let clip = clip.intersect(painter.clip_rect());
     let pt = painter.with_clip_rect(clip);
@@ -581,7 +558,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
                 if let Pick::Bars(b, _) = pk { tab.spark.brush = Some((c, b, b)); }
             }
             if resp.clicked() && brush.is_none() {
-                pick(tab, c, pk, actions, &ctx);
+                pick(tab, c, pk, &ctx);
             }
         }
         if let Some((_, b0, mut b1)) = brush {
@@ -591,7 +568,7 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
             tab.spark.brush = Some((c, b0, b1));
             if !primary_down {
                 tab.spark.brush = None;
-                pick(tab, c, Pick::Bars(b0.min(b1), b0.max(b1)), actions, &ctx);
+                pick(tab, c, Pick::Bars(b0.min(b1), b0.max(b1)), &ctx);
             }
         }
         if let Some((pk, x0, x1)) = lit {

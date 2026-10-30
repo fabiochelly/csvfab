@@ -51,6 +51,55 @@ impl Stamp {
     }
 }
 
+/// A stamp expected on disk, with a sample of the content expected there (`file_sample`), when
+/// known: a save or a look at the file then tolerates another stamp on the same content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Expect {
+    pub stamp: Stamp,
+    pub sample: Option<u64>,
+}
+
+impl From<Stamp> for Expect {
+    fn from(stamp: Stamp) -> Expect {
+        Expect { stamp, sample: None }
+    }
+}
+
+impl Stamp {
+    /// Whether the file at `path`, stamped `now`, still holds what `self` stamped: the same
+    /// stamp, or the same size and the same sampled content as `want` (the sample of the bytes
+    /// expected, asked only then). Sync clients (kDrive, Dropbox…) rewrite a file and its time
+    /// after uploading our own save, as the web app found (it allowed this too).
+    pub fn holds(&self, now: &Stamp, path: &Path, want: impl FnOnce() -> Option<u64>) -> bool {
+        self == now || (self.len == now.len && want().is_some_and(|w| file_sample(path, now.len) == Some(w)))
+    }
+}
+
+const SAMPLE_MB: u64 = 1 << 20;
+
+/// A content sample of `len` bytes, read by `read(at, buf)`: the whole up to 3 MB, else its
+/// first, middle and last MB (as the web app's fingerprint), hashed.
+fn sample_of(len: u64, mut read: impl FnMut(u64, &mut [u8]) -> std::io::Result<()>) -> Option<u64> {
+    let mut h = blake3::Hasher::new();
+    h.update(&len.to_le_bytes());
+    let parts: Vec<(u64, u64)> = if len <= 3 * SAMPLE_MB { vec![(0, len)] } else { vec![(0, SAMPLE_MB), (len / 2 - SAMPLE_MB / 2, SAMPLE_MB), (len - SAMPLE_MB, SAMPLE_MB)] };
+    let mut buf = Vec::new();
+    for (at, n) in parts {
+        buf.resize(n as usize, 0);
+        read(at, &mut buf).ok()?;
+        h.update(&buf);
+    }
+    Some(u64::from_le_bytes(h.finalize().as_bytes()[..8].try_into().unwrap()))
+}
+
+/// `sample_of` the file at `path` (`len`: its size; None if it cannot be read).
+pub fn file_sample(path: &Path, len: u64) -> Option<u64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    if f.metadata().ok()?.len() != len { return None; }
+    sample_of(len, |at, buf| { f.seek(SeekFrom::Start(at))?; f.read_exact(buf) })
+}
+
 /// The file's index on its volume (NTFS's inode): a file renamed over another has its own,
 /// where the size and the time may be the same (two writes within the time's resolution).
 /// 0 when it cannot be read.
@@ -375,6 +424,14 @@ impl Base {
         matches!(self.data, Data::Map(_))
     }
 
+    /// `file_sample` of the file as it was read (from the bytes mapped; None: not mapped, or
+    /// cut short since).
+    pub fn sample(&self) -> Option<u64> {
+        if !self.mapped() || self.cut_short() { return None; }
+        let d: &[u8] = &self.data;
+        sample_of(d.len() as u64, |at, buf| { buf.copy_from_slice(&d[at as usize..at as usize + buf.len()]); Ok(()) })
+    }
+
     /// Whether another program cut the file short while it was open: the bytes past
     /// its new end read as zeros, so they must not be written anywhere as the file's.
     pub fn cut_short(&self) -> bool {
@@ -558,20 +615,83 @@ fn looks_like_text(head: &[u8], nl: u8) -> bool {
     avg > 40 || spaced * 2 > lines.len()
 }
 
-/// Whether the first record is a header: every field filled, all different,
-/// and none a number or a date.
-pub fn guess_header(fields: &[String]) -> bool {
-    if fields.is_empty() { return false; }
+/// A cell's type for the header guess: None empty, else (number or date, text).
+fn cell_type(v: &str) -> Option<bool> {
+    let s = v.trim();
+    if s.is_empty() { return None; }
+    // A number or a date starts with a digit, a sign, a decimal mark or a currency.
+    if !s.starts_with(|c: char| c.is_ascii_digit() || "+-.,€$£".contains(c)) { return Some(false); }
+    Some(crate::text::parse_number(s).is_some() || crate::text::parse_date(s).is_some())
+}
+
+/// Whether the first record is a header, as the web app's `looksLikeHeader` decided: each
+/// title's type against its column's in the next records (`sample`, up to 5) — a label on
+/// top of numbers or dates votes for titles, a number or a date on line 1 for data. When
+/// types say nothing (text above text): titles unless mostly empty, repeated, long like
+/// sentences, or found again in their own column. A year above numbers that are not years
+/// does not vote (1.x read "city;2023;2024" as data).
+pub fn guess_header(fields: &[String], sample: &[Vec<String>]) -> bool {
+    if fields.is_empty() { return true; }
+    let cells: Vec<&str> = fields.iter().map(|c| c.trim()).collect();
+    let filled: Vec<&str> = cells.iter().copied().filter(|c| !c.is_empty()).collect();
+    if filled.is_empty() { return false; }
+    let sample = &sample[..sample.len().min(5)];
+    if sample.is_empty() {
+        let numeric = filled.iter().filter(|c| cell_type(c) == Some(true)).count();
+        return numeric as f64 / filled.len() as f64 <= 0.34;
+    }
+    // The type most of a column's sample cells share (60 %), if one does.
+    let consensus = |i: usize| -> Option<bool> {
+        let types: Vec<bool> = sample.iter().filter_map(|r| r.get(i).and_then(|v| cell_type(v))).collect();
+        let nums = types.iter().filter(|&&t| t).count();
+        let best = nums * 2 > types.len();
+        let n = if best { nums } else { types.len() - nums };
+        (!types.is_empty() && n as f64 / types.len() as f64 >= 0.6).then_some(best)
+    };
+    // A year over numbers that are not years ("city;2023;2024" above amounts) says nothing:
+    // titles by year are common.
+    let year = |v: &str| v.len() == 4 && v.bytes().all(|b| b.is_ascii_digit()) && (1800..=2200).contains(&v.parse::<u32>().unwrap_or(0));
+    let years_below = |i: usize| sample.iter().any(|r| r.get(i).is_some_and(|v| year(v.trim())));
+    let (mut head, mut data) = (0, 0);
+    for (i, c) in cells.iter().enumerate() {
+        let (Some(ty), Some(cons)) = (cell_type(c), consensus(i)) else { continue };
+        if !ty && cons { head += 1 } else if ty && !(cons && year(c) && !years_below(i)) { data += 1 }
+    }
+    if head + data > 0 { return head >= data; }
+    if filled.len() * 2 < cells.len() { return false; }
     let mut seen = std::collections::HashSet::new();
-    fields.iter().all(|f| {
-        let t = f.trim();
-        !t.is_empty() && seen.insert(t) && crate::text::parse_number(t).is_none() && crate::text::parse_date(t).is_none()
-    })
+    if !filled.iter().all(|c| seen.insert(c.to_lowercase())) { return false; }
+    if filled.iter().any(|c| c.chars().count() > 60) { return false; }
+    // A title rarely repeats as a value of its own column.
+    !cells.iter().enumerate().any(|(i, c)| !c.is_empty() && sample.iter().any(|r| r.get(i).is_some_and(|v| v.trim().to_lowercase() == c.to_lowercase())))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headers_guessed_as_the_web_did() {
+        let row = |s: &str| s.split(',').map(String::from).collect::<Vec<_>>();
+        let rows = |s: &[&str]| s.iter().map(|r| row(r)).collect::<Vec<_>>();
+        // A pandas export: the index column has no title.
+        assert!(guess_header(&row(",name,amount"), &rows(&["0,Ann,12.5", "1,Bob,3"])));
+        // Years as titles over numbers; a repeated title.
+        assert!(guess_header(&row("city,2023,2024"), &rows(&["Lyon,12,14", "Paris,3,5"])));
+        assert!(!guess_header(&row("Lyon,2023,14"), &rows(&["Paris,2024,5"])));
+        assert!(guess_header(&row("name,amount,amount"), &rows(&["Ann,1,2", "Bob,3,4"])));
+        // Data on line 1.
+        assert!(!guess_header(&row("Ann,12.5,2024-01-02"), &rows(&["Bob,3,2024-02-03"])));
+        assert!(!guess_header(&row("1,2,3"), &rows(&["4,5,6"])));
+        // Text above text: shape decides.
+        assert!(guess_header(&row("first,last"), &rows(&["Ann,Lee", "Bob,Ray"])));
+        assert!(!guess_header(&row("Ann,Lee"), &rows(&["Ann,Ray", "Bob,Ray"])));
+        assert!(!guess_header(&row("a,a"), &rows(&["x,y"])));
+        assert!(!guess_header(&row(",,x"), &rows(&["a,b,c"])));
+        // One line only: mostly text is titles.
+        assert!(guess_header(&row("name,city"), &[]));
+        assert!(!guess_header(&row("12,13,x"), &[]));
+    }
 
     #[test]
     fn dialects() {

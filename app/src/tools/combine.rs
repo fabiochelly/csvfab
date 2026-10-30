@@ -37,6 +37,9 @@ enum Stage {
     Failed(Alert),
 }
 
+/// (loose titles, common columns only, a source column) as last chosen.
+static LAST: std::sync::Mutex<Option<(bool, bool, bool)>> = std::sync::Mutex::new(None);
+
 struct Combine {
     /// This tab first, then the files added.
     entries: Vec<Entry>,
@@ -68,7 +71,9 @@ impl Combine {
         let mut entries = vec![first];
         // Each with its rows shown when it is filtered, as this one.
         entries.extend(super::lookup::open_tabs().into_iter().filter(|t| t.0 != uid && combine::combinable(&t.2)).map(|(id, name, st)| Entry { name: name.clone(), on: true, read: Read::Ok(Source { name, st, rows: super::lookup::shown_rows(id) }) }));
-        Some(Combine { entries, adding: None, loose: true, common: false, source_col: false, stage: Stage::Form })
+        // The options chosen last (as the web's kept them).
+        let (loose, common, source_col) = LAST.lock().ok().and_then(|l| *l).unwrap_or((true, false, false));
+        Some(Combine { entries, adding: None, loose, common, source_col, stage: Stage::Form })
     }
 
     /// The sources ticked and read, this tab first.
@@ -253,5 +258,11 @@ impl Tool for Combine {
             }
         }
         !matches!(self.stage, Stage::Form)
+    }
+}
+
+impl Drop for Combine {
+    fn drop(&mut self) {
+        if let Ok(mut l) = LAST.lock() { *l = Some((self.loose, self.common, self.source_col)); }
     }
 }

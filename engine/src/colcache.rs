@@ -44,27 +44,6 @@ impl Folded {
         let (a, o) = &self.chunks[id / CH];
         (a, o, id / CH * CH)
     }
-
-    /// The same texts, trimmed.
-    fn trimmed(&self) -> Folded {
-        let chunks = self
-            .chunks
-            .par_iter()
-            .map(|(a, o)| {
-                let mut arena = Vec::with_capacity(a.len());
-                let mut offs = Vec::with_capacity(o.len());
-                offs.push(0u32);
-                for k in 0..o.len() - 1 {
-                    // SAFETY: as in `get`.
-                    let s = unsafe { std::str::from_utf8_unchecked(&a[o[k] as usize..o[k + 1] as usize]) };
-                    arena.extend_from_slice(s.trim().as_bytes());
-                    offs.push(arena.len() as u32);
-                }
-                (arena, offs)
-            })
-            .collect();
-        Folded { chunks }
-    }
 }
 
 /// A column that repeats itself: a code per record, each distinct value once.
@@ -77,7 +56,7 @@ pub struct Dict {
     /// parse_number / parse_date of each value (NaN: not one).
     pub num: Vec<f64>,
     pub date: Vec<f64>,
-    /// Text sort order: dense rank of fold(trim(value)); empty values rank `nranks`.
+    /// Text sort order: dense rank of the value's sort key (`text::sort_key`); empty values rank `nranks`.
     pub rank: Vec<u32>,
     pub nranks: u32,
     /// The same for `num` and `date` (equal numbers share a rank; NaN ranks last).
@@ -274,6 +253,23 @@ fn update(base: &Arc<Base>, field: usize, f: impl FnOnce(&mut Slot)) {
     USED.fetch_sub(before, Ordering::Relaxed);
 }
 
+/// After a save that left every row in its place (record k of `new` is row k of `old`; no
+/// `order`), the caches of the columns no edit touched serve the new file as they are: field
+/// `field_of(old, c)` of the old file holds what field `c` of the new one does.
+pub fn carry(old: &State, new: &Arc<Base>) {
+    if old.order.is_some() || new.n != old.base.n { return; }
+    let to: Vec<(usize, usize)> = (0..old.ncols).filter(|&c| old.cols.get(c).is_some_and(|l| l.is_empty())).filter_map(|c| field_of(old, c).map(|f| (f, c))).collect();
+    let mut r = reg();
+    let carried: Vec<Slot> = r.iter()
+        .filter(|s| std::ptr::eq(s.base.as_ptr(), Arc::as_ptr(&old.base)))
+        .filter_map(|s| to.iter().find(|t| t.0 == s.field).map(|&(_, c)| Slot { base: Arc::downgrade(new), field: c, col: s.col.clone(), no_dict: s.no_dict }))
+        .collect();
+    for s in carried {
+        USED.fetch_add(s.col.bytes(), Ordering::Relaxed);
+        r.push(s);
+    }
+}
+
 /// Drops every cache (tests, benchmarks).
 pub fn clear() {
     let mut r = reg();
@@ -290,11 +286,10 @@ pub fn with_base_cell<R>(b: &Base, id: usize, field: usize, tmp: &mut Vec<u8>, f
     }
     let rec = b.record(id);
     if b.dialect.lines {
-        return if field == 0 { f(&crate::enc::decode(b.enc, rec)) } else { f("") };
+        return if field == 0 { f(&b.text(rec)) } else { f("") };
     }
-    let enc = b.enc;
     let mut f = Some(f);
-    match crate::scan::with_field(rec, b.dialect.delim, field, tmp, |v| (f.take().unwrap())(&crate::enc::decode(enc, v))) {
+    match crate::scan::with_field(rec, b.dialect.delim, field, tmp, |v| (f.take().unwrap())(&b.text(v))) {
         Some(r) => r,
         None => (f.take().unwrap())(""),
     }
@@ -410,9 +405,9 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
                 }
             };
             if need == Need::Rank {
-                // The sort compares keys many times: trimmed once, end to end.
-                let keys = folded.trimmed();
-                let (_, rank, nranks) = crate::radix::text_order(n, |i| keys.get(i).as_bytes());
+                // The sort compares keys many times: made once (`text::sort_key_into`), end to end.
+                let keys = crate::radix::Keys::build(n, |i, out| crate::text::sort_key_into(folded.get(i).trim().as_bytes(), out));
+                let (_, rank, nranks) = crate::radix::text_order(n, |i| keys.get(i));
                 drop(keys);
                 // Kept even if the sort that asked was cancelled meanwhile: the next one uses it.
                 update(base, field, |s| s.col.ranks = Some(Arc::new(Ranks { rank, nranks })));
@@ -532,12 +527,12 @@ fn build_dict(b: &Base, field: usize, cancel: &AtomicBool) -> Option<Dict> {
     for ((c, _), m) in parts.iter().zip(&remaps) {
         codes.extend(c.iter().map(|&k| m[k as usize]));
     }
-    let enc = b.enc;
-    let values: Vec<Box<str>> = raw.par_iter().map(|v| crate::enc::decode(enc, v).into()).collect();
+    let values: Vec<Box<str>> = raw.par_iter().map(|v| b.text(v).into()).collect();
     let folded: Vec<Box<str>> = values.par_iter().map(|v| crate::text::fold(v).into()).collect();
     let num: Vec<f64> = values.par_iter().map(|v| parse_number(v).unwrap_or(f64::NAN)).collect();
     let date: Vec<f64> = values.par_iter().map(|v| parse_date(v).unwrap_or(f64::NAN)).collect();
-    let (_, rank, nranks) = crate::radix::text_order(values.len(), |i| folded[i].trim().as_bytes());
+    let keys = crate::radix::Keys::build(values.len(), |i, out| crate::text::sort_key_into(folded[i].trim().as_bytes(), out));
+    let (_, rank, nranks) = crate::radix::text_order(values.len(), |i| keys.get(i));
     let (num_rank, date_rank) = (num_ranks(&num), num_ranks(&date));
     Some(Dict { codes, values, folded, num, date, rank, nranks, num_rank, date_rank })
 }
@@ -737,5 +732,42 @@ mod tests {
         let j = c.dict.values.iter().position(|v| &**v == "x").unwrap();
         assert_eq!(t.st.cell(ids[c.first[j] as usize], 0), "x");
         assert!(ids[..c.first[j] as usize].iter().all(|&id| t.st.cell(id, 0) != "x" || c.live.iter().any(|&p| ids[p as usize] == id)));
+    }
+
+    /// A save in place keeps the rows where they were: the caches of the columns no edit
+    /// touched serve the saved file (a column moved: under its new place), the edited
+    /// column's are not carried; what they give is what the saved file holds.
+    #[test]
+    fn caches_carried_over_a_save() {
+        let dir = std::env::temp_dir().join(format!("csvfab-carry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.csv");
+        let mut csv = String::from("city,n,note\n");
+        for i in 0..3000 { csv.push_str(&format!("{},{},\"x, {}\"\n", ["Lyon", "Paris", "Nîmes"][i % 3], i % 17, i)); }
+        std::fs::write(&p, &csv).unwrap();
+        let base = Arc::new(Base::open(&p, OpenOptions::default(), None).unwrap());
+        let mut t = Table::new(base, None);
+        let no = AtomicBool::new(false);
+        for c in 0..3 {
+            ensure(&t.st, c, Need::Text, &no).unwrap();
+            ensure(&t.st, c, Need::Num, &no).unwrap();
+        }
+        t.set_cells(&[(5, 1, "edited".into())]);
+        t.move_column(2, 0);
+        let (_, b) = crate::save::save_indexed(&t.st, &p, &crate::save::SaveOptions { backup: false, ..Default::default() }, t.st.base.stamp.map(Into::into), &mut false).unwrap();
+        let new = Arc::new(b.unwrap());
+        carry(&t.st, &new);
+        let fresh = Table::new(new.clone(), None);
+        // Columns now: note (moved, carried), city (carried), n (edited: not carried).
+        assert!(get_field(&new, 2).folded.is_none() && get_field(&new, 2).dict.is_none());
+        for c in [0, 1] {
+            let col = get_field(&new, c);
+            assert!(col.has(Need::Text) && col.has(Need::Num), "column {c}");
+            for id in 0..new.n {
+                assert_eq!(col.folded(id), Some(crate::text::fold(&fresh.st.cell(id as RowId, c)).as_str()), "{c} {id}");
+            }
+        }
+        drop((t, fresh, new));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
