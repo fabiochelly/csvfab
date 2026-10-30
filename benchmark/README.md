@@ -132,7 +132,7 @@ As of 2026-10-30, no published import time was found for Google Sheets, nor any 
 
 ## The video
 
-[Watch it](csvfab-demo.mp4). `benchmark/video.py` puts together a title card, the film of the app, the results above as bars, and a closing card. `app/examples/film.rs` films the real app on the 5 M-row file, off screen, at 1920 × 1080 — open, scroll, sort, sort again, filter:
+[Watch it on YouTube](https://youtu.be/h-6QeIcTGmo). `benchmark/video.py` puts together a title card, the film of the app, the results above as bars, and a closing card. `app/examples/film.rs` films the real app on the 5 M-row file, off screen, at 1920 × 1080 — open, scroll, sort, sort again, filter:
 
 - The app's clock is the wall clock. Each frame is rendered through wgpu and kept with the moment it shows, and the film is built from those moments at 30 frames a second: an operation of 40 ms lasts 40 ms on screen, to within a frame (33 ms).
 - A timed operation runs as in `bench_ui`, and no frame is rendered during it, so capturing costs it nothing: the frame before it holds for the time measured, and the result is stamped with the moment the clock stopped.

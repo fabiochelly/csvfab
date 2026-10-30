@@ -6,11 +6,11 @@
 
 **The CSV editor for files spreadsheets can't open.** csvfab opens, filters and sorts 5 million rows in about a tenth of a second each, and **edits the file in place** — on Linux, macOS and Windows, as one native program with nothing else to install.
 
-[![csvfab opening, sorting and filtering 5 million rows, in real time](benchmark/demo.gif)](benchmark/csvfab-demo.mp4)
+[![csvfab opening, sorting and filtering 5 million rows, in real time](benchmark/demo.gif)](https://youtu.be/h-6QeIcTGmo)
 
 ![csvfab 2.1 showing 5 million customer rows filtered to the 75,010 in Lyon and sorted by amount, with a chart of each column above its values](benchmark/screenshot.png)
 
-▶ **[Watch the 1-minute demo](benchmark/csvfab-demo.mp4)** — filmed in real time, nothing sped up.
+▶ **[Watch the 1-minute demo on YouTube](https://youtu.be/h-6QeIcTGmo)** — filmed in real time, nothing sped up.
 
 ## Speed
 
