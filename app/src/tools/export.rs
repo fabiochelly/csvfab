@@ -1,12 +1,12 @@
 //! Save as, export and extract (14-save-export.js): the save dialog — a file
 //! name, a format (CSV with its delimiter and encoding, an Excel workbook, a
-//! SQLite database), only the rows shown — written in a job; Extract (the
+//! SQLite database, a Parquet file), only the rows shown — written in a job; Extract (the
 //! rows shown to a new file beside the source, opened as a tab); Discard (the
 //! edits dropped, the file read again).
 //!
 //! A new CSV name is a save-as: the tab moves onto the new file and the
-//! source keeps its last saved content. A workbook or a database is a second
-//! artefact and never takes the tab over.
+//! source keeps its last saved content. A workbook, a database or a Parquet
+//! file is a second artefact and never takes the tab over.
 
 use super::form::{self, Alert, Answer, Ask, Btn};
 use super::{has_table, Cmd, Command, Cx, Tool};
@@ -25,6 +25,7 @@ pub fn commands() -> Vec<Command> {
     vec![
         Command { name: "Save as Excel workbook", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Xlsx)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Save as SQLite database", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Sqlite)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Save as Parquet file", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Parquet)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Extract the rows shown to a new file", group: "Save", keys: None, enabled: has_table, run: |cx| cx.out.push(Cmd::Tool(extract())) },
         Command { name: "Discard all edits and reload from disk", group: "Save", keys: None, enabled: |t| t.dirty() && t.path.is_some(), run: |cx| cx.out.push(Cmd::Tool(discard())) },
     ]
@@ -54,6 +55,7 @@ enum Fmt {
     Csv(u8),
     Xlsx,
     Sqlite,
+    Parquet,
 }
 
 const DELIMS: [(u8, &str, &str); 4] = [(b';', "CSV — semicolon", ";"), (b',', "CSV — comma", ","), (b'\t', "CSV — tab", "\\t"), (b'|', "CSV — pipe", "|")];
@@ -210,6 +212,7 @@ impl SaveAs {
         let name = match fmt {
             Fmt::Xlsx => convert::export_name(&tab.name, Format::Xlsx),
             Fmt::Sqlite => convert::export_name(&tab.name, Format::Sqlite),
+            Fmt::Parquet => convert::export_name(&tab.name, Format::Parquet),
             _ => tab.name.clone(),
         };
         let name = if name.is_empty() { "table.csv".into() } else { name };
@@ -224,8 +227,8 @@ impl SaveAs {
     fn note(&self, tab: &Tab, st: &State) -> String {
         let name = self.name.trim();
         let where_ = if tab.path.is_some() { "beside the source" } else { "where you choose" };
-        if let Fmt::Xlsx | Fmt::Sqlite = self.fmt {
-            let what = if self.fmt == Fmt::Xlsx { "workbook" } else { "database" };
+        if let Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet = self.fmt {
+            let what = match self.fmt { Fmt::Xlsx => "workbook", Fmt::Sqlite => "database", _ => "Parquet file" };
             return format!("Writes the {what} {where_}. {} is left as it is{}.", tab.name, if tab.dirty() { " and keeps its pending edits" } else { "" });
         }
         if self.subset(tab) {
@@ -265,6 +268,7 @@ impl SaveAs {
         match self.fmt {
             Fmt::Xlsx if !lower.ends_with(".xlsx") => name.push_str(".xlsx"),
             Fmt::Sqlite if ![".sqlite", ".sqlite3", ".db", ".db3"].iter().any(|e| lower.ends_with(e)) => name.push_str(".sqlite"),
+            Fmt::Parquet if ![".parquet", ".parq", ".pqt"].iter().any(|e| lower.ends_with(e)) => name.push_str(".parquet"),
             Fmt::Csv(_) | Fmt::Text if Path::new(&name).extension().is_none() => name.push_str(".csv"),
             _ => {}
         }
@@ -322,8 +326,8 @@ impl SaveAs {
         let total = plan.rows.as_ref().map_or(st.len(), |r| r.len());
         let (fmt, dest, rows) = (plan.fmt, plan.dest.clone(), plan.rows.clone());
         let job = match fmt {
-            Fmt::Xlsx | Fmt::Sqlite => {
-                let f = if fmt == Fmt::Xlsx { Format::Xlsx } else { Format::Sqlite };
+            Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet => {
+                let f = match fmt { Fmt::Xlsx => Format::Xlsx, Fmt::Sqlite => Format::Sqlite, _ => Format::Parquet };
                 let sheet = convert::export_sheet_name(&form::file_name(&dest));
                 Job::spawn(cx.ctx, move |cancel, progress| {
                     convert::export(f, &st, rows.as_deref().map(|v| v.as_slice()), &dest, &sheet, Some(progress), cancel).map(Done::Workbook).map_err(|e| (false, e))
@@ -353,7 +357,7 @@ impl SaveAs {
         let tab = &mut *cx.tab;
         match d {
             Done::Workbook(j) => {
-                let what = if plan.fmt == Fmt::Xlsx { "Workbook" } else { "Database" };
+                let what = match plan.fmt { Fmt::Xlsx => "Workbook", Fmt::Sqlite => "Database", _ => "Parquet file" };
                 let limits = if j.truncated_rows || j.truncated_cols { " · truncated to Excel's limits" } else { "" };
                 // A cell holds 32 767 characters at most in a workbook: the rest is not written.
                 let cut = match j.truncated_cells {
@@ -430,6 +434,7 @@ impl SaveAs {
             }
             choices.push((Fmt::Xlsx, "Excel workbook".into(), ".xlsx"));
             choices.push((Fmt::Sqlite, "SQLite database — one table, typed columns".into(), ".sqlite"));
+            choices.push((Fmt::Parquet, "Parquet file — typed columns, compressed".into(), ".parquet"));
             for (f, l, k) in &choices {
                 if form::radio_key(ui, &p, self.fmt == *f, l, k) { pick = Some(*f); }
                 ui.add_space(6.0);
@@ -441,7 +446,8 @@ impl SaveAs {
                 match f {
                     Fmt::Xlsx => self.name = format!("{stem}.xlsx"),
                     Fmt::Sqlite => self.name = format!("{stem}.sqlite"),
-                    _ if matches!(ext.as_deref(), Some("xlsx" | "sqlite")) => self.name = format!("{stem}{}", csv_ext(&tab_name)),
+                    Fmt::Parquet => self.name = format!("{stem}.parquet"),
+                    _ if matches!(ext.as_deref(), Some("xlsx" | "sqlite" | "parquet")) => self.name = format!("{stem}{}", csv_ext(&tab_name)),
                     _ => {}
                 }
                 self.fmt = f;
@@ -547,7 +553,7 @@ impl Tool for SaveAs {
                 Some(Err((true, _))) => self.stage = Stage::Changed(plan),
                 Some(Err((_, e))) if e == convert::CANCELLED => {}
                 Some(Err((_, e))) => {
-                    let what = match plan.fmt { Fmt::Xlsx => "Could not build the workbook:".into(), Fmt::Sqlite => "Could not build the database:".into(), _ => format!("Could not write \"{}\":", plan.dest.display()) };
+                    let what = match plan.fmt { Fmt::Xlsx => "Could not build the workbook:".into(), Fmt::Sqlite => "Could not build the database:".into(), Fmt::Parquet => "Could not build the Parquet file:".into(), _ => format!("Could not write \"{}\":", plan.dest.display()) };
                     // Written beside, then renamed: a failed save leaves the file as it was.
                     let safe = if plan.in_place { "\n\nThe original file is untouched." } else { "" };
                     self.stage = Stage::Failed(Alert::new(format!("{what}\n\n{e}{safe}")));
@@ -555,7 +561,7 @@ impl Tool for SaveAs {
                 None => {
                     // A big file takes a moment: say so, and let it be stopped.
                     if job.elapsed().as_millis() > 300 && !self.quiet {
-                        let book = matches!(plan.fmt, Fmt::Xlsx | Fmt::Sqlite);
+                        let book = matches!(plan.fmt, Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet);
                         let k = job.progress.load(Ordering::Relaxed);
                         let sub = if book { format!("{} %", (k as f32 / (2 * total.max(1)) as f32 * 100.0).min(100.0) as u32) } else { format!("{} rows.", form::n(total)) };
                         // A workbook can be stopped; a CSV save is atomic and short: only hidden.

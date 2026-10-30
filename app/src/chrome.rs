@@ -827,7 +827,7 @@ fn command_icon(name: &str) -> Option<Icon> {
         "Mark duplicates…" | "Remove duplicates…" | "Show only the duplicate rows" => Icon::Duplicates,
         "Discard all edits and reload from disk" => Icon::Discard,
         "Extract the rows shown to a new file" => Icon::Extract,
-        "Save as Excel workbook" | "Save as SQLite database" => Icon::File,
+        "Save as Excel workbook" | "Save as SQLite database" | "Save as Parquet file" => Icon::File,
         "Anonymise…" => Icon::Anonymise,
         "Clean up…" => Icon::Clean,
         "Combine files…" => Icon::CombineFiles,
@@ -1745,6 +1745,7 @@ fn about(name: &str) -> Option<&'static str> {
         "Follow the end of the file (tail -f)" => "new lines as they are written",
         "Save as Excel workbook" => "an .xlsx beside the file",
         "Save as SQLite database" => "one table, typed columns",
+        "Save as Parquet file" => "typed columns, compressed",
         "Delete hidden rows" => "the rows the filters hide go from the file",
         _ => return None,
     })
@@ -2229,7 +2230,7 @@ pub fn drop_overlay(app: &App, ctx: &egui::Context) {
     icons::paint(&pt, Icon::Upload, disc.shrink(16.0), p.on_prim);
     let what = if n == 1 { "Drop the file to open it".to_string() } else { format!("Drop the {n} files to open them") };
     pt.text(pos2(c.x, c.y + 18.0), Align2::CENTER_TOP, what, crate::grid::semibold(16.0), p.txt_hi);
-    pt.text(pos2(c.x, c.y + 44.0), Align2::CENTER_TOP, "Each opens in its own tab — CSV, TSV, Excel, JSON, SQLite or a folder", ui_font(12.5), p.txt_mut);
+    pt.text(pos2(c.x, c.y + 44.0), Align2::CENTER_TOP, "Each opens in its own tab — CSV, TSV, Excel, JSON, SQLite, Parquet or a folder", ui_font(12.5), p.txt_mut);
     ctx.request_repaint();
 }
 
@@ -2464,7 +2465,7 @@ pub fn welcome(app: &mut App, ui: &mut Ui) {
     pt.circle_filled(c, 25.0, p.prim);
     icons::paint(&pt, Icon::Upload, Rect::from_center_size(c - vec2(0.0, 2.0 * h), vec2(23.0, 23.0)), p.on_prim);
     pt.text(pos2(card.center().x, c.y + 25.0 + 22.0), Align2::CENTER_CENTER, if dropping { "Drop to open" } else { "Drop files to open them" }, semibold(15.5), p.txt_hi);
-    pt.text(pos2(card.center().x, c.y + 25.0 + 43.0), Align2::CENTER_CENTER, "CSV, TSV, Excel or JSON — or click to choose", ui_font(12.5), p.txt_mut);
+    pt.text(pos2(card.center().x, c.y + 25.0 + 43.0), Align2::CENTER_CENTER, "CSV, TSV, Excel, JSON or Parquet — or click to choose", ui_font(12.5), p.txt_mut);
     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         open = true;
     }

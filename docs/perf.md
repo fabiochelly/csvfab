@@ -273,6 +273,58 @@ crate (5–6 min here, 20 min for the instrumented build plus its runs).
   marked ids when the table has its file's order, else one parallel pass (was one pass with a
   hash lookup per row, on the UI thread).
 
+## Parquet (2026-10-30, the user's 2 GB file: 5.3M rows × 38 columns)
+
+`cargo test --profile fast -p csvfab-engine --lib bench_parquet -- --ignored --nocapture`,
+with `CSVFAB_BENCH` (the CSV) and `CSVFAB_BENCH_OUT` (a folder), the export first. Outputs to tmpfs;
+the machine in use.
+
+| op | 4 threads | 16 threads |
+|---|---|---|
+| export: 1,910 MiB of CSV → 615 MiB (32 %) | 2.97 s, 450 MB private | 1.98 s, 1.8 GB private |
+| open: back to the same CSV, byte for byte (`cmp`) | 1.55 s, 359 MB private | 1.13 s, 1.5 GB private |
+| open, the text thrown away | | 1.00 s: the writer is not what bounds it |
+| half the file: export / open | | 0.72 s, 1.3 GB / 0.53 s, 1.4 GB private |
+
+The open's private memory follows the threads, not the table: half the rows, the same memory
+(not broken down further). The bound on queued
+text went from 1 GB to 512 MB with no loss of time; counted by capacity, not length (a String
+doubling hid half of it: 2.1 GB private before). This CPU's cores are of two kinds, so
+16 threads are not 4 × 4.
+
+Compared at 4 threads, one run each, export then open of what it wrote:
+
+| codec | export | size | open |
+|---|---|---|---|
+| zstd 1 (kept) | 2.97 s | 614 MiB | 1.55 s |
+| snappy | 2.70 s | 904 MiB | 1.44 s |
+| zstd 3 | 3.50 s | 622 MiB | 1.63 s |
+| zstd 1, 524,288 rows a group | 3.07 s | 594 MiB | 1.65 s |
+
+zstd 1 costs 10 % over snappy and saves 32 %. zstd 3 was no smaller here. Groups four times longer
+save 3 % and hold more in memory: 122,880 rows kept.
+
+- **Open**: the file is mapped; a thread per core takes the next row group, decodes it in batches
+  (about 16 MB, by the group's own byte count) and queues its text; the caller writes the queues
+  in file order. The text waiting is bounded (`Gate`, 512 MB): past it only the group next in the
+  file goes on, which rules out a deadlock whatever the sizes. Private memory does not grow with
+  the file: the map is page cache.
+- **Export**: a sample settles most columns (a text column dies at its first value), the others are
+  read whole; row groups are filled and encoded in waves of as many groups as threads, each
+  group's columns in parallel, one thread writing the wave before.
+- A `-0.00` fits no number (it would come back `0.00`). On this file 1 to 5 such cells among
+  5.3M rows leave `montant`, `solde`, `prix_unitaire` and `longitude` as strings: nothing is lost,
+  the columns are just not typed. Typed here: 11 of 38 columns.
+- Not done: a file of one huge row group decodes on one thread (a group is the unit of work):
+  parallel by column would need readers kept in step. A group whose text passes the bound
+  makes the threads ahead of it wait: slower, never more memory.
+- Binary (stripped, fat LTO): 26.66 → 34.16 MB, +7.50 MB. By symbols: parquet 2.5, the arrow crates
+  2.7 (arrow-select 1.2, arrow-cmp 0.6, arrow-array 0.5), zstd's C 0.6, the rest generics
+  inlined into the callers. brotli was 1.2 MB more and was left out (`engine/Cargo.toml`).
+  `opt-level = "s"` on parquet and the arrow crates gives 32.80 MB (−1.36 MB), speed not measured;
+  not applied, the release profile being left as it is. No crate of these can go:
+  parquet's `arrow` feature requires them, arrow-ipc and flatbuffers included.
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

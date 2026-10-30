@@ -1,7 +1,8 @@
 //! Conversions between CSV and other formats. The editor only edits CSV: an
-//! Excel workbook, a SQLite database or a JSON file is first written as a CSV
-//! beside it (`<name>.csv`, `<name> - <sheet>.csv`), and that CSV is what
-//! opens; a table is exported as a formatted workbook or a typed database.
+//! Excel workbook, a SQLite database, a JSON or a Parquet file is first written
+//! as a CSV beside it (`<name>.csv`, `<name> - <sheet>.csv`), and that CSV is
+//! what opens; a table is exported as a formatted workbook, a typed database
+//! or a typed Parquet file.
 //!
 //! Ported from the web app's bridge (`xlsx_reader.py`, `xlsx_writer.py`,
 //! `xlsx_columns.py`, `sqlite_io.py`) and its JSON import (`27-import.js`),
@@ -11,6 +12,8 @@
 
 mod columns;
 pub mod json;
+pub mod parquet_read;
+pub mod parquet_write;
 pub mod sqlite;
 pub mod xlsx_read;
 pub mod xlsx_write;
@@ -31,6 +34,7 @@ pub enum Format {
     Xlsx,
     Sqlite,
     Json,
+    Parquet,
 }
 
 impl Format {
@@ -48,6 +52,7 @@ pub fn import_format(path: &Path) -> Option<Format> {
         "xlsx" | "xlsm" => Format::Xlsx,
         "json" | "jsonl" | "ndjson" => Format::Json,
         "sqlite" | "sqlite3" | "db" | "db3" => Format::Sqlite,
+        "parquet" | "parq" | "pqt" => Format::Parquet,
         _ => return None,
     })
 }
@@ -134,9 +139,9 @@ pub fn fallback_dir() -> Option<PathBuf> {
 }
 
 /// The stem of a table's file name, without the extension of a CSV, a text
-/// file, a workbook or a database.
+/// file, a workbook, a database or a Parquet file.
 fn stem_of(name: &str) -> &str {
-    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite"] {
+    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet"] {
         if name.len() > ext.len() && name.is_char_boundary(name.len() - ext.len()) && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext) {
             return &name[..name.len() - ext.len()];
         }
@@ -146,7 +151,7 @@ fn stem_of(name: &str) -> &str {
 
 /// The file name an export suggests for the table file `name`: `clients.csv` → `clients.xlsx`.
 pub fn export_name(name: &str, to: Format) -> String {
-    let ext = match to { Format::Xlsx => ".xlsx", Format::Sqlite => ".sqlite", Format::Json => ".json" };
+    let ext = match to { Format::Xlsx => ".xlsx", Format::Sqlite => ".sqlite", Format::Json => ".json", Format::Parquet => ".parquet" };
     format!("{}{ext}", stem_of(name))
 }
 
@@ -164,7 +169,7 @@ pub fn export_sheet_name(file_name: &str) -> String {
 /// What an import wrote.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Imported {
-    /// The sheet or table converted (None for JSON).
+    /// The sheet or table converted (None for JSON and Parquet).
     pub sheet: Option<String>,
     /// Other sheets or tables holding data, not converted.
     pub others: usize,
@@ -215,6 +220,7 @@ pub fn import(format: Format, src: &Path, sheet: Option<&str>, delim: u8, dest: 
         Format::Xlsx => xlsx_read::to_csv(src, sheet, delim, w, progress, cancel),
         Format::Sqlite => sqlite::to_csv(src, sheet, delim, w, progress, cancel),
         Format::Json => json::to_csv(src, delim, w, progress, cancel),
+        Format::Parquet => parquet_read::to_csv(src, delim, w, progress, cancel),
     })?;
     info.size = size;
     info.backup = bak;
@@ -232,18 +238,20 @@ pub struct Exported {
     pub truncated_cols: bool,
     /// Cells cut to Excel's 32,767 characters.
     pub truncated_cells: u64,
-    /// SQLite: each column's name and type.
+    /// SQLite, Parquet: each column's name and type.
     pub types: Vec<(String, &'static str)>,
 }
 
 /// Exports the table to `dest` (atomically), as a workbook (one sheet named
-/// `name`) or a database (one table named `name`). `rows`: the data rows to
+/// `name`), a database (one table named `name`) or a Parquet file (`name` has
+/// no use there). `rows`: the data rows to
 /// write, in order (None: all of them); the header row is the table's own.
 /// Progress: rows done, twice over (columns are typed in a first pass).
 pub fn export(format: Format, st: &State, rows: Option<&[RowId]>, dest: &Path, name: &str, progress: Option<&AtomicUsize>, cancel: &AtomicBool) -> Result<Exported, String> {
     match format {
         Format::Xlsx => xlsx_write::write(st, rows, dest, name, progress, cancel),
         Format::Sqlite => sqlite::write(st, rows, dest, name, progress, cancel),
+        Format::Parquet => parquet_write::write(st, rows, dest, progress, cancel),
         Format::Json => Err("no JSON export".into()),
     }
 }
@@ -661,9 +669,13 @@ mod tests {
         assert_eq!(import_format(Path::new("a.XLSX")), Some(Format::Xlsx));
         assert_eq!(import_format(Path::new("a.ndjson")), Some(Format::Json));
         assert_eq!(import_format(Path::new("a.db3")), Some(Format::Sqlite));
+        assert_eq!(import_format(Path::new("a.PARQUET")), Some(Format::Parquet));
+        assert_eq!(import_format(Path::new("a.pqt")), Some(Format::Parquet));
         assert_eq!(import_format(Path::new("a.csv")), None);
         assert_eq!(export_name("clients.csv", Format::Xlsx), "clients.xlsx");
         assert_eq!(export_name("notes", Format::Sqlite), "notes.sqlite");
+        assert_eq!(export_name("clients.csv", Format::Parquet), "clients.parquet");
+        assert_eq!(export_name("clients.parquet", Format::Parquet), "clients.parquet");
         assert_eq!(export_sheet_name("clients.xlsx"), "clients");
         assert_eq!(export_sheet_name("base.db"), "base");
         let j = Imported { sheet: Some("Data".into()), others: 2, rows: 1234, cols: 6, ..Default::default() };
@@ -750,6 +762,48 @@ mod tests {
         let t0 = std::time::Instant::now();
         let info = import(Format::Sqlite, &out.join("customers.sqlite"), None, b',', &dest, false, None, &AtomicBool::new(false)).unwrap();
         report("SQLite → CSV", t0, &dest, info.rows);
+    }
+
+    /// The most private memory seen while `f` runs: RSS counts the mapped file too.
+    fn peak_anon<R>(f: impl FnOnce() -> R) -> (R, u64) {
+        let (stop, top) = (AtomicBool::new(false), AtomicUsize::new(0));
+        let r = std::thread::scope(|s| {
+            s.spawn(|| while !stop.load(Ordering::Relaxed) {
+                let t = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+                let kb = t.lines().find(|l| l.starts_with("RssAnon:")).and_then(|l| l.split_whitespace().nth(1)).and_then(|k| k.parse::<usize>().ok()).unwrap_or(0);
+                top.fetch_max(kb, Ordering::Relaxed);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            });
+            let r = f();
+            stop.store(true, Ordering::Relaxed);
+            r
+        });
+        (r, top.into_inner() as u64 / 1024)
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_parquet_export() {
+        let t = bench_table();
+        let dest = bench_paths().1.join("bench.parquet");
+        let t0 = std::time::Instant::now();
+        let (info, anon) = peak_anon(|| export(Format::Parquet, &t.st, None, &dest, "", None, &AtomicBool::new(false)).unwrap());
+        report("CSV → Parquet", t0, &dest, info.rows);
+        eprintln!("  private memory at most {anon} MB; types: {:?}", info.types);
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_parquet_import() {
+        let out = bench_paths().1;
+        let t0 = std::time::Instant::now();
+        parquet_read::to_csv(&out.join("bench.parquet"), b',', io::sink(), None, &AtomicBool::new(false)).unwrap();
+        eprintln!("Parquet → nowhere (what the writer costs): {:.2} s", t0.elapsed().as_secs_f64());
+        let dest = out.join("bench-from-parquet.csv");
+        let t0 = std::time::Instant::now();
+        let (info, anon) = peak_anon(|| import(Format::Parquet, &out.join("bench.parquet"), None, b',', &dest, false, None, &AtomicBool::new(false)).unwrap());
+        report("Parquet → CSV", t0, &dest, info.rows);
+        eprintln!("  private memory at most {anon} MB");
     }
 
     #[test]

@@ -109,7 +109,7 @@ pub fn safe_file_name(s: &str) -> String {
 /// The name without its table extension.
 pub fn stem_of(name: &str) -> &str {
     let lower = name.to_ascii_lowercase();
-    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite"] {
+    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet"] {
         if lower.ends_with(ext) && name.is_char_boundary(name.len() - ext.len()) {
             return &name[..name.len() - ext.len()];
         }

@@ -392,7 +392,7 @@ impl App {
             files.sort();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             match files.len() {
-                0 => self.toast(format!("No table in the folder {name}: CSV, TSV, text, Excel or JSON files"), ctx),
+                0 => self.toast(format!("No table in the folder {name}: CSV, TSV, text, Excel, JSON or Parquet files"), ctx),
                 n if n > 40 => self.toast(format!("The folder {name} holds {n} tables: open them from the file dialog instead (Ctrl+O)"), ctx),
                 _ => for f in files { self.open(f, ctx); },
             }
@@ -404,7 +404,7 @@ impl App {
         }
         self.config.add_recent(&path);
         self.config.save();
-        // A workbook, a database or JSON: converted to a CSV beside it first (tools::import).
+        // A workbook, a database, JSON or Parquet: converted to a CSV beside it first (tools::import).
         if csvfab_engine::convert::import_format(&path).is_some() {
             if let Some(t) = crate::tools::import::open(path) { self.tools.push((0, t)); }
             return;
@@ -423,11 +423,12 @@ impl App {
         // The system dialog blocks its thread: never the UI's.
         self.picking = Some(Job::spawn(ctx, |_, _| {
             rfd::FileDialog::new()
-                .add_filter("Tables: CSV, text, Excel, JSON, SQLite", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3"])
+                .add_filter("Tables: CSV, text, Excel, JSON, SQLite, Parquet", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3", "parquet", "parq", "pqt"])
                 .add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log"])
                 .add_filter("Excel", &["xlsx", "xlsm"])
                 .add_filter("JSON", &["json", "jsonl", "ndjson"])
                 .add_filter("SQLite", &["sqlite", "sqlite3", "db", "db3"])
+                .add_filter("Parquet", &["parquet", "parq", "pqt"])
                 .add_filter("All files", &["*"])
                 .pick_files()
                 .unwrap_or_default()

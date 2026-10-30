@@ -151,7 +151,7 @@ fn stringify(v: &Val, out: &mut String) {
     }
 }
 
-fn quote(s: &str, out: &mut String) {
+pub(super) fn quote(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
         match c {

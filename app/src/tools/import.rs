@@ -1,7 +1,7 @@
-//! Opening an Excel workbook, a SQLite database or a JSON file (27-import.js):
-//! it is first written as a CSV beside it — choosing the sheet or table when
-//! several hold data, and for JSON whether to flatten it or read it as raw
-//! text — then that CSV opens. The conversion runs in a job, cancellable.
+//! Opening an Excel workbook, a SQLite database, a JSON or a Parquet file
+//! (27-import.js): it is first written as a CSV beside it — choosing the sheet
+//! or table when several hold data, and for JSON whether to flatten it or read
+//! it as raw text — then that CSV opens. The conversion runs in a job, cancellable.
 //! See engine/src/convert.
 
 use super::form::{self, Alert, Answer, Ask};
@@ -56,7 +56,7 @@ pub fn take_text_opens() -> Vec<PathBuf> {
     TEXT_OPENS.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
 }
 
-/// The tool that converts `path` (a workbook, a database or JSON), None if it is none of them.
+/// The tool that converts `path` (a workbook, a database, JSON or Parquet), None if it is none of them.
 pub fn open(path: PathBuf) -> Option<Box<dyn Tool>> {
     let format = convert::import_format(&path)?;
     let name = file_name(&path);
@@ -140,6 +140,8 @@ impl Tool for Import {
                     None => {}
                 }
             }
+            // One table: nothing to list, nothing to ask.
+            Stage::Start if self.format == Format::Parquet => self.go(None, cx),
             Stage::Start => {
                 let (path, f) = (self.path.clone(), self.format);
                 self.stage = Stage::Listing(Job::spawn(cx.ctx, move |_, _| if f == Format::Sqlite { convert::sqlite::tables(&path) } else { convert::xlsx_read::sheets(&path) }));

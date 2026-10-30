@@ -108,6 +108,28 @@ cancel on close. Never block the UI thread on anything that grows with the file.
   the CSV goes to the documents folder (`convert::fallback_dir`: XDG's, else ~/Documents,
   else home) and the toast names both folders.
 
+## Parquet (`engine/src/convert/parquet_read.rs`, `parquet_write.rs`)
+
+- **Open**: as the other imports (`.parquet`, `.parq`, `.pqt`): a CSV beside the file or in the
+  fallback folder, the same questions and toast, no sheet to pick. The file is mapped, row groups
+  are decoded by several threads, their text written in file order; at most 512 MB of text waits
+  (`Gate`), past it only the next group in the file goes on, so a file of any size fits.
+- **Cells**: null is empty; floats in their shortest digits, an exponent only beyond 10^±21;
+  decimals with all their digits; binary as `0x…` (as the SQLite import); dates ISO; lists, maps
+  and structs as JSON text. A decimal comma in a `;` CSV, as every import.
+- **Timestamps**: without a zone, as stored (`2024-03-01 10:30:15.123`); an instant
+  (`isAdjustedToUTC`) always in UTC with a `Z` (`2024-03-01T10:30:15Z`), never in the machine's
+  zone. Arrow's metadata in the file is not read: a zone name there is a display hint.
+- **Export**: the same rows as the other exports. A column is typed only if **every** value comes
+  back as the same cell, the decimal mark aside; one value that does not fit and the column is a
+  string (the rules: top of `parquet_write.rs`). The detected kind (`view::detect_kinds`) picks
+  the candidates, the whole column is then read. `31/12/2024`, `35,61 €`, `12 %`, `10:15` are
+  strings. How booleans and timestamps were written (capitals, `T`, digits of a second) is kept
+  in the file's metadata (`csvfab.cells`), so `.000` or `TRUE` reopen as they were; other readers
+  see plain types.
+- **Refused, with a message**: LZO and brotli (the crate's codec weighs 1.1 MB), encrypted files,
+  INTERVAL columns (Arrow's reading would drop their months). A panic in the decoder on a damaged file is caught and told as a damaged file.
+
 ## Filters (choices that differ from a plain reading)
 
 - **Value filters** (`FilterSpec::hidden`, `picks`): values hidden from a column's panel or a

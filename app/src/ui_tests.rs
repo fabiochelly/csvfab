@@ -853,3 +853,41 @@ fn duplicate_marks_follow_edits() {
     assert_eq!(m.group(t.shown_id(2)), m.group(t.shown_id(0)), "the renamed row joined the group");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Save as Parquet from the dialog, then the file opened as the other imports: its CSV beside
+/// it, in a tab of its own, the toast of a conversion, a damaged file told.
+#[test]
+fn parquet_saved_and_opened() {
+    let (mut h, dir) = app_on("a;b\n1;x\n2;y\n", "parquet");
+    let ctx = h.ctx.clone();
+    let settle = |h: &mut egui_kittest::Harness<'static, App>, done: &dyn Fn(&App) -> bool| for _ in 0..400 {
+        h.run_steps(1);
+        if done(h.state()) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let c = crate::tools::commands().into_iter().find(|c| c.name == "Save as Parquet file").unwrap();
+    h.state_mut().run_command(c.run, &ctx);
+    h.run_steps(4);
+    key(&mut h, egui::Key::Enter, Default::default());
+    let saved = dir.join("t.parquet");
+    settle(&mut h, &|a| a.toasts.iter().any(|t| t.text.contains("Parquet file written")));
+    assert!(h.state().toasts.iter().any(|t| t.text.contains("Parquet file written: t.parquet — 2 rows")), "{:?}", h.state().toasts.iter().map(|t| &t.text).collect::<Vec<_>>());
+    // A second artefact: the tab stays on its CSV.
+    assert_eq!(h.state().tabs[0].name, "t.csv");
+
+    let copy = dir.join("p.parquet");
+    std::fs::copy(&saved, &copy).unwrap();
+    h.state_mut().open(copy, &ctx);
+    settle(&mut h, &|a| a.tabs.len() == 2 && a.tabs[1].table.is_some() && !a.tabs[1].busy());
+    assert_eq!(h.state().tabs[1].name, "p.csv");
+    assert!(h.state().toasts.iter().any(|t| t.text.contains("p.parquet → p.csv: 2 rows, 2 columns.")));
+    assert_eq!(std::fs::read_to_string(dir.join("p.csv")).unwrap(), "a;b\n1;x\n2;y\n");
+
+    let bad = dir.join("bad.parquet");
+    std::fs::write(&bad, "not parquet at all").unwrap();
+    h.state_mut().open(bad, &ctx);
+    h.run_steps(30);
+    assert_eq!(h.state().tabs.len(), 2);
+    assert!(!dir.join("bad.csv").exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
