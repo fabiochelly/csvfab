@@ -167,6 +167,7 @@ mod tests {
     /// Every kind of edit written and replayed over the file: the same table, the same bytes
     /// saved; a file changed since, or a journal cut short, refused.
     #[test]
+    #[cfg_attr(windows, ignore = "rewrites the file while it is mapped, to be refused: Windows forbids it to anyone")]
     fn round_trip_and_refusals() {
         let dir = std::env::temp_dir().join(format!("csvfab-journal-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

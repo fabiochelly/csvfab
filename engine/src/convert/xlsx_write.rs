@@ -959,7 +959,7 @@ mod tests {
         let texts = ["a & b < c > d", "_x0041_ et _x00e9", " espace ", "tab\tici", "ligne\nsuite", "cr\rici", "ctl\u{1}\u{1f}x", "é ü 漢字 🎉", "\u{FFFE}\u{FFFF}", "", "\"q\"", "=1+1"];
         for i in 0..5000 {
             let t = texts[i % texts.len()].replace('"', "\"\"");
-            let amount = if i % 13 == 0 { String::new() } else { format!("{},{:02}", i * 7 - 9000, i % 100) };
+            let amount = if i % 13 == 0 { String::new() } else { format!("{},{:02}", i as i64 * 7 - 9000, i % 100) };
             let when = if i % 17 == 0 { "pas une date".into() } else { format!("{:02}/{:02}/20{:02} {:02}:{:02}", i % 28 + 1, i % 12 + 1, i % 30, i % 24, i % 60) };
             let row = format!("{i};{amount};{when};{},{}%;\"{t}\";;{:05};{}\n", i % 100, i % 10, i * 3, if i % 7 == 0 { "" } else { "1e5" });
             csv.push_str(if i % 997 == 5 { ";;;;;;;\n" } else { &row });

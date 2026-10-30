@@ -1096,6 +1096,7 @@ mod tests {
     /// Another program writes the file while a save is under way: found right before the
     /// rename, refused — their version stays, nothing left behind.
     #[test]
+    #[cfg_attr(windows, ignore = "writes the file while it is mapped: Windows forbids it to anyone (as Excel's lock)")]
     fn changed_during_the_save() {
         let dir = std::env::temp_dir().join(format!("csvfab-save-late-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
