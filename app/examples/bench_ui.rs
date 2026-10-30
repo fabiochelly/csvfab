@@ -339,6 +339,14 @@ impl Bench {
         self.h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
     }
 
+    /// Frames until the pop is over and the box has its place.
+    fn settle(&mut self) {
+        for _ in 0..30 {
+            self.frame();
+            self.idle_wait(Duration::from_millis(16));
+        }
+    }
+
     /// Moves to `label` (the topmost text equal to it) and presses: the release is `release`.
     fn press_text(&mut self, label: &str) -> Result<Pos2, String> {
         let r = texts(&self.h).into_iter().rev().find(|(t, _)| t == label).map(|x| x.1).ok_or_else(|| {
@@ -628,6 +636,51 @@ impl Bench {
                 let groups = note.split(" rows in ").nth(1).and_then(|x| x.split(" groups").next()).unwrap_or("");
                 let del = note.rsplit(": ").next().and_then(|x| x.split(" deleted").next()).unwrap_or("");
                 Ok((d, obj(&[("text", esc(&note)), ("rows", num(rows)), ("groups", num(groups)), ("removable", num(del))])))
+            }
+            "dupes_delete" => {
+                // Set up as "dupes"; then the button, the rows gone from the table.
+                let found = |t: &str| (t.contains(" groups") && t.contains("deleted")) || t.starts_with("No duplicate among");
+                self.command("Remove duplicates…")?;
+                self.until("dupes_delete setup", |h| has_text(h, found))?;
+                let before = self.shown();
+                if has_text(&self.h, |t| t.starts_with("No duplicate among")) {
+                    say("@op dupes_delete");
+                    return Ok((Duration::ZERO, obj(&[("deleted", "0".into()), ("rows", before.to_string())])));
+                }
+                // The box is centred by its last size, and the result just made it taller: pressed
+                // now, the click lands where the button was, beside the box, which closes it.
+                self.settle();
+                let p = self.press_text("Delete duplicates")?;
+                let t0 = self.mark(op);
+                self.release(p);
+                self.until(op, |h| Self::loaded(h) && h.state_mut().tabs.iter().all(|t| t.shown() != before))?;
+                let d = t0.elapsed();
+                let n = self.shown();
+                Ok((d, obj(&[("deleted", (before - n).to_string()), ("rows", n.to_string())])))
+            }
+            "replace_all" => {
+                // The find bar with its text in (it counts the matches, untimed), then Apply: every
+                // match in the rows shown, in the table's layers, nothing written (`CSVFAB_BENCH_CASE`:
+                // Match case on).
+                let case = std::env::var_os("CSVFAB_BENCH_CASE").is_some();
+                let t = self.tab();
+                t.find.open = true;
+                t.find.match_case = case;
+                t.find.text = "abc".into();
+                t.find.replace = "---".into();
+                let t0 = Instant::now();
+                self.until("find abc", |h| { let a = h.state_mut(); !a.tabs[a.active].find.matches.is_empty() })?;
+                let counted = t0.elapsed().as_secs_f64() * 1e3;
+                self.quiesce();
+                let p = self.press_text("Apply")?;
+                let t0 = self.mark(op);
+                self.release(p);
+                let done = |t: &str| t.contains(" cells replaced") || t.contains(" cell replaced");
+                self.until(op, |h| has_text(h, done) && Self::loaded(h))?;
+                let d = t0.elapsed();
+                let note = find_text(&self.h, done).unwrap_or_default();
+                self.tab().find.open = false;
+                Ok((d, obj(&[("text", esc(&note)), ("cells", digits(&note).map_or("null".to_string(), |n| n.to_string())), ("match_case", case.to_string()), ("count_ms", format!("{counted:.1}"))])))
             }
             "insights" => {
                 self.reopen()?; // its report is cached per tab

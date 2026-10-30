@@ -2,6 +2,14 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.1.2 · 31 October 2026
+
+- **Sorting huge text columns no longer runs out of memory.** A column of 128 million long values sorts in 1.75 s with 3.3 GB of memory, where it passed 16 GB before. Only the start of each value is held in memory; ties are read from the file. Everyday sorts are a little faster too, in the same order as before.
+- **Finding duplicates is faster and lighter**: rows that can't be duplicates are set aside early, and plain rows are read straight from the file. On a 1 GB file with 12.6 million rows the search itself takes 119 ms instead of 377, and the whole operation in the app 0.67 s instead of 0.93. A column where most rows are grouped, such as e-mail, can be slightly slower.
+- **Exact comparison**: a new option in Duplicates counts case and spaces.
+- **Deleting duplicates runs in the background**, and Undo brings the rows back.
+- **The Duplicates dialog** has one scroll for its keys, and its keys, options, results and buttons are clearly apart.
+
 ## 2.1.1 · 30 October 2026
 
 - **Histograms and column charts filter.** Click or drag across bars to keep exactly the values they hold, with a chip; a second click brings them back.

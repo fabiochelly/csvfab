@@ -211,6 +211,17 @@ fn agree(t: &Table, r: &mut Rng, rounds: usize) {
         same(filter(st, &f, &no).unwrap(), old::filter(st, &fo, &no).unwrap(), &format!("{sp:?}"));
         same(filter_ids(st, &f, &subset, &no).unwrap(), old::filter_ids(st, &fo, &subset, &no).unwrap(), &format!("{sp:?} (subset)"));
     }
+    // A column's sort read from the file is the one read from its fold.
+    if !st.base.partial {
+        for f in 0..st.base.width {
+            let [a, b] = colcache::sorted_both_ways(&st.base, f);
+            if a != b {
+                let k = (0..a.0.len()).find(|&k| a.0[k] != b.0[k]);
+                let show = |p: u32| { let mut v = Vec::new(); st.base.fields(p as usize, &mut v); format!("{:?} raw {:?}", v.get(f), String::from_utf8_lossy(st.base.span(p as usize))) };
+                panic!("field {f} {:?} first diff {k:?}: {} / {}; d {} {}", st.base.dialect, k.map_or(String::new(), |k| show(a.0[k])), k.map_or(String::new(), |k| show(b.0[k])), a.2, b.2);
+            }
+        }
+    }
     let detected = detect_kinds(st);
     for _ in 0..rounds {
         let kinds: Vec<Kind> = if r.chance(50) { detected.clone() } else { (0..cols).map(|_| [Kind::Text, Kind::Number, Kind::Date][r.below(3)]).collect() };
@@ -308,6 +319,76 @@ fn fast_paths_agree_big() {
     agree(&t, &mut r, 12);
     edit(&mut t, &mut r);
     agree(&t, &mut r, 6);
+}
+
+/// Cuts through a key's first bytes (`text::HEAD`): nothing changes the order.
+#[test]
+fn heads_cut_anywhere() {
+    let x = "x".repeat(11);
+    let col = |v: &[String]| format!("a,b\n{}", v.iter().enumerate().map(|(i, s)| format!("\"{s}\",{i}\n")).collect::<String>());
+    // Digit runs across the cut: numbers, leading zeros aside, ties in file order.
+    let v: Vec<String> = ["9a", "10", "09", "9", "0009", "100", "2", "9A", "ab", ""].iter().map(|s| format!("{x}{s}")).collect();
+    let t = table(&col(&v));
+    let no = AtomicBool::new(false);
+    let mut ids: Vec<RowId> = (1..=v.len() as RowId).collect();
+    assert!(sort(&t.st, &mut ids, &[SortKey { col: 0, desc: false }], &[Kind::Text, Kind::Number], &no));
+    let want = ["", "2", "9", "09", "0009", "9a", "9A", "10", "100", "ab"].map(|s| format!("{x}{s}"));
+    assert_eq!(cells(&t, &ids, 0), want);
+    // Accents, two-byte folds and capitals at the cut; equal keys: accents, then case.
+    let y = "y".repeat(10);
+    let v: Vec<String> = ["Éa", "ea", "éa", "Ea", "èa", "eb", "œ", "oe", "Oe", "ß", "ss", "SS", "日本", "日", "e"].iter().map(|s| format!("{y}{s}")).collect();
+    let t = table(&col(&v));
+    let mut ids: Vec<RowId> = (1..=v.len() as RowId).collect();
+    assert!(sort(&t.st, &mut ids, &[SortKey { col: 0, desc: false }], &[Kind::Text, Kind::Number], &no));
+    let want = ["e", "ea", "Ea", "éa", "Éa", "èa", "eb", "oe", "Oe", "œ", "ss", "SS", "ß", "日", "日本"].map(|s| format!("{y}{s}"));
+    assert_eq!(cells(&t, &ids, 0), want);
+    // Many rows, sharing heads of every length, against the reference.
+    let mut r = Rng(0xC0FF_EE00_1234_5677);
+    let mut csv = String::from("text,n\n");
+    let long = "the same words for forty bytes and more, ".repeat(2);
+    let number = |r: &mut Rng| match r.below(5) {
+        0 => r.below(10).to_string(),
+        1 => format!("{:04}", r.below(10000)),
+        2 => format!("{}{}", "0".repeat(r.below(30)), r.below(1000)),
+        3 => format!("{}{}{}", r.below(1_000_000_000), r.below(1_000_000_000), r.below(1_000_000_000)),
+        _ => "9".repeat(1 + r.below(40)),
+    };
+    let tails = ["", "é", "É", "e", "E", "è", "œ", "oe", "OE", "ß", "ss", "日", "a b", "a-b", "ab", " ", "  x", "\u{a0}", "~", "_", "\0"];
+    for i in 0..150_000 {
+        let k = r.below(16);
+        let lead = match r.below(5) {
+            0 => "a".repeat(k),
+            1 => "é".repeat(k / 2 + 1),
+            2 => format!("{}{}", &long[..k * 3], r.below(40)),
+            3 => format!("{long}{}", r.below(300)),
+            _ => format!("w{}", r.below(1 << 20)),
+        };
+        let n = number(&mut r);
+        let tail = r.pick(&tails);
+        let s = match r.below(3) { 0 => format!("{lead}{n}{tail}"), 1 => format!("{lead}{tail}{n}"), _ => format!("{lead}{tail}") };
+        let s = if r.chance(10) { s.to_uppercase() } else { s };
+        csv += &format!("\"{s}\",{i}\n");
+    }
+    let t = table(&csv);
+    let all: Vec<RowId> = (1..t.st.len() as RowId + 1).collect();
+    let kinds = [Kind::Text, Kind::Number];
+    for pass in 0..2 {
+        for desc in [false, true] {
+            let keys = [SortKey { col: 0, desc }];
+            let (mut a, mut b) = (all.clone(), all.clone());
+            assert!(sort(&t.st, &mut a, &keys, &kinds, &no));
+            assert!(old::sort(&t.st, &mut b, &keys, &kinds, &no));
+            same(a, b, &format!("pass {pass} desc {desc}"));
+            let some: Vec<RowId> = all.iter().copied().filter(|id| id % 3 != 0).collect();
+            let (mut a, mut b) = (some.clone(), some);
+            assert!(sort(&t.st, &mut a, &keys, &kinds, &no));
+            assert!(old::sort(&t.st, &mut b, &keys, &kinds, &no));
+            same(a, b, &format!("pass {pass} desc {desc}, some rows"));
+        }
+        cache_all(&t);
+    }
+    let [a, b] = colcache::sorted_both_ways(&t.st.base, 0);
+    assert!(a == b);
 }
 
 fn table_with(s: &str) -> Table {

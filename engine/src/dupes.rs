@@ -7,10 +7,22 @@
 //! e-mail, B and C a phone, so A, B and C are one group.
 //!
 //! Each key is one parallel pass: every row's cleaned key is hashed (no
-//! allocation: cleaned into a reused buffer), the (hash, position) pairs are
-//! sorted, and each run of equal hashes is checked on the cleaned texts
-//! themselves before its rows are joined — a hash collision never merges two
-//! different keys. Memory: 16 bytes a row for the pass, 9 for the union-find.
+//! allocation: cleaned into a reused buffer) and goes through a bit table of
+//! 2 bytes a row that says which hashes were seen: a row only makes a (hash,
+//! position) pair when its hash was seen before, and a second look at the
+//! rows' prints (4 bytes a row) adds the first row of those hashes. So rows
+//! without a duplicate are neither sorted nor kept; a false "seen" only costs
+//! a pair. The pairs are sorted, and each run of equal hashes is checked on
+//! the cleaned texts themselves before its rows are joined — a hash collision
+//! never merges two different keys. No pair, no union-find (9 bytes a row).
+//! The cross-check passes, several keys a row, sort all their pairs.
+//!
+//! The whole row reads the record's bytes where it can (a row no layer
+//! touches): as ASCII without quotes they give the cells' cleaned text
+//! without splitting them (`loose_direct`). `find_exact` compares values as
+//! they are: the record itself is the key (`bare_record`), and any other row
+//! writes the same text from its cells (`whole_exact`). Cells, not bytes,
+//! decide: `"a",b` and `a,b` are one row, whatever the quoting.
 //!
 //! Cross-checks (`Rule`, `Part`): a key's part may also be several columns
 //! read alike (`Part::Any`: a mobile in "phone" meets the same number in
@@ -26,11 +38,11 @@
 //! rows score 100. Each group keeps which rules tied it: its reasons.
 
 use crate::group::{HashMap, Hasher};
-use crate::table::{RowId, State};
+use crate::table::{RowId, RowMask, State};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::hash::BuildHasher;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use unicode_normalization::char::decompose_canonical;
 
@@ -203,7 +215,7 @@ pub fn combine(s: impl IntoIterator<Item = f32>) -> f32 {
 
 /// How the passes of `find_rules` are counted in `progress`: rows × this.
 pub fn passes(rules: &[Rule]) -> usize {
-    plan(rules).len().max(1)
+    plan(rules, false).len().max(1)
 }
 
 /// The order groups are listed in.
@@ -350,6 +362,15 @@ impl Dupes {
         out
     }
 
+    /// `to_delete` as a bit per row (millions of rows: no hash set).
+    pub fn delete_mask(&self, keep_last: bool) -> RowMask {
+        RowMask::new((0..self.groups() as u32).flat_map(|g| {
+            let m = self.members(g);
+            let keep = if keep_last { m.len() - 1 } else { 0 };
+            m.iter().enumerate().filter(move |&(k, _)| k != keep).map(|(_, &id)| id)
+        }))
+    }
+
     /// The duplicates view: the rows of `view` that are in a group, groups side
     /// by side in group order, each group's rows in their view order.
     pub fn only_dups(&self, view: &[RowId]) -> Vec<RowId> {
@@ -485,10 +506,28 @@ struct Scratch {
     row: Vec<String>,
 }
 
+/// What a pass reads of a row.
+#[derive(Clone, Copy)]
+enum Key<'a> {
+    /// Every cell, case and spaces ignored.
+    Whole,
+    /// Every cell as it is.
+    WholeExact,
+    Fields(&'a [Field]),
+}
+
 /// Row `id`'s cleaned key in `s.buf`; false when it does not count.
-fn key_text(st: &State, id: RowId, key: Option<&[Field]>, s: &mut Scratch) -> bool {
+fn key_text(st: &State, id: RowId, key: Key, s: &mut Scratch) -> bool {
     s.buf.clear();
-    let Some(fields) = key else { return whole_row(st, id, s) };
+    let fields = match key {
+        Key::Whole => return whole_row(st, id, s),
+        Key::WholeExact => {
+            let Some(rec) = bare_record(st, id) else { return whole_exact(st, id, s) };
+            s.buf.push_str(&st.base.text(rec));
+            return true;
+        }
+        Key::Fields(f) => f,
+    };
     for f in fields {
         s.buf.push('\u{1}');
         let start = s.buf.len();
@@ -501,12 +540,28 @@ fn key_text(st: &State, id: RowId, key: Option<&[Field]>, s: &mut Scratch) -> bo
     true
 }
 
+/// Row `id`'s key hashed; None when it does not count.
+#[inline]
+fn key_hash(st: &State, id: RowId, key: Key, hasher: &Hasher, s: &mut Scratch) -> Option<u64> {
+    if let Key::WholeExact = key {
+        if let Some(rec) = bare_record(st, id) { return Some(hasher.hash_one(rec)) }
+    }
+    key_text(st, id, key, s).then(|| hasher.hash_one(s.buf.as_bytes()))
+}
+
 /// Every cell, case and spaces ignored; false when all are empty.
 fn whole_row(st: &State, id: RowId, s: &mut Scratch) -> bool {
     fn add(buf: &mut String, n: &mut usize, v: &str) {
         if *n > 0 { buf.push('\u{1}') }
         loose_into(v, buf);
         *n += 1;
+    }
+    let b = &*st.base;
+    if b.utf8() && st.pristine(id) {
+        // SAFETY: it writes ASCII only.
+        if loose_direct(b.record(id as usize), b.dialect.delim, b.dialect.lines, st.ncols, unsafe { s.buf.as_mut_vec() }) {
+            return s.buf.bytes().any(|b| b != 1);
+        }
     }
     let (buf, mut n) = (&mut s.buf, 0);
     st.visit(id, |_, v| add(buf, &mut n, v));
@@ -515,11 +570,131 @@ fn whole_row(st: &State, id: RowId, s: &mut Scratch) -> bool {
     buf.bytes().any(|b| b != 1)
 }
 
+/// What `loose_into` skips in ASCII.
+#[inline]
+fn ascii_space(b: u8) -> bool {
+    matches!(b, 9..=13 | b' ')
+}
+
+/// A record's text in `out` as `whole_row` writes it from its cells, 32 bytes at a time where
+/// it holds no space; false (nothing written) when it is not ASCII or has a quote: the cells
+/// are read then. Only the record's own delimiters cut it, a line of a `lines` file is one cell.
+fn loose_direct(rec: &[u8], delim: u8, lines: bool, ncols: usize, out: &mut Vec<u8>) -> bool {
+    // (Above any ASCII byte: no delimiter, no quote, in a line.)
+    let (d, q) = if lines { (0x80, 0x80) } else { (delim, b'"') };
+    let (mut high, mut quote, mut low, mut cuts) = (0u8, false, false, 0);
+    for block in rec.chunks(32) {
+        let (mut h, mut k, mut l, mut c) = (0u8, 0u8, 0u8, 0u8);
+        for &b in block {
+            h |= b;
+            k |= (b == q) as u8;
+            l |= (b <= b' ') as u8;
+            c += (b == d) as u8;
+        }
+        high |= h;
+        quote |= k != 0;
+        low |= l != 0;
+        cuts += c as usize;
+        if high >= 0x80 || quote { return false }
+    }
+    if low {
+        let mut first = true;
+        for field in rec.split(|&b| b == d) {
+            if !first { out.push(1) }
+            first = false;
+            let (mut a, mut z) = (0, field.len());
+            while a < z && ascii_space(field[a]) { a += 1 }
+            while z > a && ascii_space(field[z - 1]) { z -= 1 }
+            let mut gap = false;
+            for &b in &field[a..z] {
+                if ascii_space(b) { gap = true; continue }
+                if gap { out.push(b' '); gap = false }
+                out.push(b.to_ascii_lowercase());
+            }
+        }
+    } else {
+        let at = out.len();
+        out.resize(at + rec.len(), 0);
+        for (o, &b) in out[at..].iter_mut().zip(rec) {
+            let upper = b.wrapping_sub(b'A') < 26;
+            let lower = b | (upper as u8) << 5;
+            *o = if b == d { 1 } else { lower };
+        }
+    }
+    out.resize(out.len() + ncols.saturating_sub(cuts + 1), 1);
+    true
+}
+
+/// The key of `Key::WholeExact`: every cell as it is, in the file's delimiter, with \u{1} before
+/// a delimiter or a \u{1} inside a cell, so that the text is the cells' and no others'; short
+/// rows padded. False when all are empty. The text of a plain record is the record.
+fn whole_exact(st: &State, id: RowId, s: &mut Scratch) -> bool {
+    let sep = st.base.dialect.delim as char;
+    // A line of a `lines` file holds its delimiter as a character like any.
+    let one = st.base.dialect.lines && st.ncols <= 1;
+    let (buf, mut filled) = (&mut s.buf, false);
+    let mut add = |k: usize, v: &str| {
+        if k > 0 { buf.push(sep) }
+        filled |= !v.is_empty();
+        for c in v.chars() {
+            if c == '\u{1}' || (c == sep && !one) { buf.push('\u{1}') }
+            buf.push(c);
+        }
+    };
+    let mut n = 0;
+    st.visit(id, |k, v| { add(k, v); n = k + 1 });
+    for k in n..st.ncols { add(k, "") }
+    filled
+}
+
+/// The record of row `id` when it is `whole_exact`'s text itself: read as it is, in UTF-8, without
+/// a quote, as long as the table is wide and not all delimiters. Else None: the cells are read.
+#[inline]
+fn bare_record(st: &State, id: RowId) -> Option<&[u8]> {
+    let b = &*st.base;
+    if !b.utf8() || !st.pristine(id) { return None }
+    let rec = b.record(id as usize);
+    let (d, q) = if b.dialect.lines {
+        if st.ncols > 1 { return None }
+        (1, 1)
+    } else if b.dialect.delim >= 0x80 {
+        return None;
+    } else {
+        (b.dialect.delim, b'"')
+    };
+    let (mut cuts, mut odd) = (0, 0u8);
+    for block in rec.chunks(64) {
+        let (mut c, mut o) = (0u8, 0u8);
+        for &b in block {
+            c += (b == d) as u8;
+            o |= (b == q) as u8 | (b == 1) as u8;
+        }
+        cuts += c as usize;
+        odd |= o;
+    }
+    (odd == 0 && cuts + 1 >= st.ncols && cuts < rec.len()).then_some(rec)
+}
+
 /// The duplicate groups among `ids` (all the table's rows, in file order, for
 /// the app's behaviour: filtered or not, every row is checked). None if cancelled.
 /// `progress` counts rows read, once per key.
 pub fn find(st: &State, ids: &[RowId], spec: &DupSpec, cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Dupes> {
     find_rules(st, ids, &spec.rules(), &[], cancel, progress)
+}
+
+/// The rules with every value read as it is: no cleaning, no formula, the columns of a name
+/// each on its own.
+pub fn exact_rules(rules: &[Rule]) -> Vec<Rule> {
+    let exact = |col| Part::Field(Field { col, clean: Clean::Exact });
+    rules.iter().map(|r| Rule {
+        parts: r.parts.iter().flat_map(|p| match p {
+            Part::Field(f) => vec![exact(f.col)],
+            Part::Any { cols, .. } => vec![Part::Any { cols: cols.clone(), clean: Clean::Exact, country: None }],
+            Part::Name(n) => n.cols.iter().map(|&c| exact(c)).collect(),
+        }).collect(),
+        label: r.label.clone(),
+        strength: r.strength,
+    }).collect()
 }
 
 /// How a cross-check pass reads names.
@@ -532,6 +707,7 @@ enum Via {
 
 enum PassKind<'a> {
     Whole,
+    WholeExact,
     /// Fields only: the plain passes of before, tuned for one key a row.
     Fields(Vec<Field>),
     SoundFields(Vec<Field>),
@@ -546,8 +722,8 @@ struct Pass<'a> {
     label: String,
 }
 
-/// The passes of the rules, strongest first (no rule: the whole row).
-fn plan(rules: &[Rule]) -> Vec<Pass<'_>> {
+/// The passes of the rules, strongest first (no rule: the whole row, `exact`: as it is).
+fn plan(rules: &[Rule], exact: bool) -> Vec<Pass<'_>> {
     let mut v = Vec::new();
     for (r, rule) in rules.iter().enumerate().filter(|(_, r)| !r.parts.is_empty()) {
         let s = (rule.strength.clamp(0.0, 1.0) * 100.0).round();
@@ -569,7 +745,11 @@ fn plan(rules: &[Rule]) -> Vec<Pass<'_>> {
         }
     }
     if v.is_empty() {
-        v.push(Pass { rule: None, kind: PassKind::Whole, strength: 100, weak: false, label: "same row (case and spaces ignored)".into() });
+        v.push(if exact {
+            Pass { rule: None, kind: PassKind::WholeExact, strength: 100, weak: false, label: "same row".into() }
+        } else {
+            Pass { rule: None, kind: PassKind::Whole, strength: 100, weak: false, label: "same row (case and spaces ignored)".into() }
+        });
     }
     v.sort_by_key(|p| std::cmp::Reverse(p.strength));   // stable
     v
@@ -580,23 +760,35 @@ fn plan(rules: &[Rule]) -> Vec<Pass<'_>> {
 /// names), against which every group is cross-checked — a phone shared by
 /// rows of different names is a switchboard, not one person: to review.
 pub fn find_rules(st: &State, ids: &[RowId], rules: &[Rule], names: &[usize], cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Dupes> {
+    find_how(st, ids, rules, false, names, cancel, progress)
+}
+
+/// `find_rules` on values as they are (`exact_rules`; no rule: the whole row's cells): rows
+/// that differ by a capital or a space are not duplicates.
+pub fn find_exact(st: &State, ids: &[RowId], rules: &[Rule], names: &[usize], cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Dupes> {
+    find_how(st, ids, &exact_rules(rules), true, names, cancel, progress)
+}
+
+fn find_how(st: &State, ids: &[RowId], rules: &[Rule], exact: bool, names: &[usize], cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Dupes> {
     let n = ids.len();
     assert!(n < SAME as usize);
-    let passes = plan(rules);
+    let passes = plan(rules, exact);
     let timing = std::env::var_os("CSVFAB_DUPES_TIMING").is_some();
     let t0 = std::time::Instant::now();
     let single = passes.len() == 1;
-    let mut uf = Uf::new(n, !single);
+    // Made by the first pair: rows without a duplicate need none.
+    let mut uf: Option<Uf> = None;
     let words = n.div_ceil(64);
     let mut tied: Vec<Vec<u64>> = vec![Vec::new(); rules.len()];
     for (k, pass) in passes.iter().enumerate() {
         let mut pairs = match &pass.kind {
-            PassKind::Whole => exact_pass(st, ids, None, cancel, progress)?,
-            PassKind::Fields(f) => exact_pass(st, ids, Some(f), cancel, progress)?,
+            PassKind::Whole => exact_pass(st, ids, Key::Whole, cancel, progress)?,
+            PassKind::WholeExact => exact_pass(st, ids, Key::WholeExact, cancel, progress)?,
+            PassKind::Fields(f) => exact_pass(st, ids, Key::Fields(f), cancel, progress)?,
             PassKind::SoundFields(f) => sound_pass(st, ids, f, cancel, progress)?,
             PassKind::Cross(parts, via) => cross_pass(st, ids, parts, *via, cancel, progress)?,
         };
-        if !matches!(pass.kind, PassKind::Whole | PassKind::Fields(_)) { mark_same(st, ids, &mut pairs) }
+        if !matches!(pass.kind, PassKind::Whole | PassKind::WholeExact | PassKind::Fields(_)) { mark_same(st, ids, &mut pairs) }
         // (One pass ties every row of every group: counted below.)
         if let Some(r) = pass.rule.filter(|_| !single) {
             let t = &mut tied[r];
@@ -609,11 +801,19 @@ pub fn find_rules(st: &State, ids: &[RowId], rules: &[Rule], names: &[usize], ca
         }
         let b = bit(k);
         let np: usize = pairs.iter().map(Vec::len).sum();
-        for (x, y) in pairs.into_iter().flatten() { uf.join(x, y, b, pass.strength, pass.weak) }
+        if np > 0 {
+            let uf = uf.get_or_insert_with(|| Uf::new(n, !single));
+            for (x, y) in pairs.into_iter().flatten() { uf.join(x, y, b, pass.strength, pass.weak) }
+        }
         if timing { eprintln!("dupes: pass {k} ({}) {np} pairs, at {:.0?}", pass.label, t0.elapsed()) }
     }
     if cancel.load(Ordering::Relaxed) { return None; }
     let mut hits: Vec<usize> = if passes.iter().any(|p| p.rule.is_some()) { tied.iter().map(|t| t.iter().map(|w| w.count_ones() as usize).sum()).collect() } else { Vec::new() };
+    let Some(mut uf) = uf else {
+        if timing { eprintln!("dupes: no pair, at {:.0?}", t0.elapsed()) }
+        let implied = vec![0; passes.len()];
+        return Some(Dupes { group_of: Vec::new(), starts: vec![0], members: Vec::new(), hits, score: Vec::new(), why: Vec::new(), labels: passes.into_iter().map(|p| p.label).collect(), implied });
+    };
     // Number the groups of two rows or more in the order of their roots (first rows).
     // A parent is always before its child (unions keep the smaller root, halving
     // only shortens): in file order each row's root is its parent's, known already.
@@ -700,7 +900,7 @@ pub fn find_rules(st: &State, ids: &[RowId], rules: &[Rule], names: &[usize], ca
 fn implies(p: &Pass, q: &Pass) -> bool {
     let parts = |x: &Pass| -> Vec<String> {
         match &x.kind {
-            PassKind::Whole => vec!["whole".into()],
+            PassKind::Whole | PassKind::WholeExact => vec!["whole".into()],
             PassKind::Fields(f) | PassKind::SoundFields(f) => f.iter().map(|f| format!("{f:?}")).collect(),
             PassKind::Cross(parts, _) => parts.iter().map(|p| format!("{p:?}")).collect(),
         }
@@ -795,27 +995,101 @@ fn runs(hs: &[(u64, u32)]) -> Vec<std::ops::Range<usize>> {
     runs
 }
 
-/// One key (None: the whole row) through hashes: the pairs of rows (positions) it ties.
-fn exact_pass(st: &State, ids: &[RowId], key: Option<&[Field]>, cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Pairs> {
-    let hasher = Hasher::default();
-    let mut hs: Vec<(u64, u32)> = ids
-        .par_chunks(CH)
+/// A table of bits read and set by all threads, a value's slot given by a row's print (scaled
+/// to any size: its top bits).
+struct Bits {
+    words: Vec<AtomicU64>,
+    slots: u64,
+}
+
+impl Bits {
+    fn new(slots: u64) -> Bits {
+        Bits { words: (0..slots.div_ceil(64)).into_par_iter().map(|_| AtomicU64::new(0)).collect(), slots }
+    }
+
+    #[inline]
+    fn at(&self, print: u32) -> (&AtomicU64, u64) {
+        let slot = print as u64 * self.slots >> 32;
+        (&self.words[(slot / 64) as usize], 1 << (slot % 64))
+    }
+
+    /// Sets the bit; whether it was set already. Of two threads on one bit, one is told so.
+    #[inline]
+    fn set(&self, print: u32) -> bool {
+        let (w, m) = self.at(print);
+        // (Looked at first: most writes need no cache line taken.)
+        w.load(Ordering::Relaxed) & m != 0 || w.fetch_or(m, Ordering::Relaxed) & m != 0
+    }
+
+    #[inline]
+    fn get(&self, print: u32) -> bool {
+        let (w, m) = self.at(print);
+        w.load(Ordering::Relaxed) & m != 0
+    }
+}
+
+/// Bits a row of the "seen" table, and of it for each of "seen twice".
+const SEEN_BITS: u64 = 16;
+const TWICE_SHARE: u64 = 4;
+/// A print's "nothing to look at again": a row without a key, or with its pair made.
+const DONE: u32 = 0;
+
+/// The (hash, position) pairs of the rows whose hash another row has too, some others (a false
+/// "seen") among them, sorted. `hash` gives a row's: None, the row has no key. Every row of a
+/// repeated hash is here: the first of them finds its bit free and leaves its print, each next
+/// makes its pair and marks the "seen twice" table, in which the prints are looked up after.
+fn repeated(ids: &[RowId], hash: impl Fn(RowId, &mut Scratch) -> Option<u64> + Sync, cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Vec<(u64, u32)>> {
+    let slots = (ids.len() as u64 * SEEN_BITS).clamp(1 << 12, 1 << 32);
+    let (seen, twice) = (Bits::new(slots), Bits::new((slots / TWICE_SHARE).max(1 << 10)));
+    let mut prints = vec![DONE; ids.len()];
+    let again: Vec<Vec<(u64, u32)>> = prints
+        .par_chunks_mut(CH)
+        .zip(ids.par_chunks(CH))
         .enumerate()
-        .map_init(Scratch::default, |s, (ci, chunk)| {
-            let mut out = Vec::with_capacity(chunk.len());
+        .map_init(Scratch::default, |s, (ci, (prints, chunk))| {
+            let mut out = Vec::new();
             if cancel.load(Ordering::Relaxed) { return out; }
             for (k, &id) in chunk.iter().enumerate() {
-                if key_text(st, id, key, s) {
-                    out.push((hasher.hash_one(s.buf.as_bytes()), (ci * CH + k) as u32));
+                let Some(h) = hash(id, s) else { continue };
+                let print = ((h >> 32) as u32).max(1);
+                if seen.set(print) {
+                    twice.set(print);
+                    out.push((h, (ci * CH + k) as u32));
+                } else {
+                    prints[k] = print;
                 }
             }
             if let Some(p) = progress { p.fetch_add(chunk.len(), Ordering::Relaxed); }
             out
         })
-        .flat_map_iter(|v| v)
         .collect();
     if cancel.load(Ordering::Relaxed) { return None; }
+    drop(seen);
+    let firsts: Vec<Vec<(u64, u32)>> = prints
+        .par_chunks(CH)
+        .enumerate()
+        .map_init(Scratch::default, |s, (ci, prints)| {
+            let mut out = Vec::new();
+            for (k, &print) in prints.iter().enumerate() {
+                if print == DONE || !twice.get(print) { continue }
+                let pos = ci * CH + k;
+                if let Some(h) = hash(ids[pos], s) { out.push((h, pos as u32)) }
+            }
+            out
+        })
+        .collect();
+    drop((twice, prints));
+    let mut hs = Vec::with_capacity(again.iter().chain(&firsts).map(Vec::len).sum());
+    for v in again.into_iter().chain(firsts) { hs.extend_from_slice(&v) }
+    if cancel.load(Ordering::Relaxed) { return None; }
     crate::radix::sort_pairs(&mut hs);
+    Some(hs)
+}
+
+/// One key through hashes: the pairs of rows (positions) it ties.
+fn exact_pass(st: &State, ids: &[RowId], key: Key, cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Option<Pairs> {
+    let hasher = Hasher::default();
+    let hs = repeated(ids, |id, s| key_hash(st, id, key, &hasher, s), cancel, progress)?;
     let runs = runs(&hs);
     let joined: Vec<Vec<(u32, u32)>> = runs
         .par_iter()
@@ -873,22 +1147,7 @@ fn sound_pass(st: &State, ids: &[RowId], key: &[Field], cancel: &AtomicBool, pro
         }
         true
     };
-    let mut hs: Vec<(u64, u32)> = ids
-        .par_chunks(CH)
-        .enumerate()
-        .map_init(Scratch::default, |s, (ci, chunk)| {
-            let mut out = Vec::with_capacity(chunk.len());
-            if cancel.load(Ordering::Relaxed) { return out; }
-            for (k, &id) in chunk.iter().enumerate() {
-                if keyed(id, s, &mut |_| {}) { out.push((hasher.hash_one(s.buf.as_bytes()), (ci * CH + k) as u32)) }
-            }
-            if let Some(p) = progress { p.fetch_add(chunk.len(), Ordering::Relaxed); }
-            out
-        })
-        .flat_map_iter(|v| v)
-        .collect();
-    if cancel.load(Ordering::Relaxed) { return None; }
-    crate::radix::sort_pairs(&mut hs);
+    let hs = repeated(ids, |id, s| keyed(id, s, &mut |_| {}).then(|| hasher.hash_one(s.buf.as_bytes())), cancel, progress)?;
     let runs = runs(&hs);
     let joined: Vec<Vec<(u32, u32)>> = runs
         .par_iter()
@@ -2194,5 +2453,200 @@ mod tests {
         let spec = DupSpec { keys: vec![key(&[(1, Clean::Loose)])] };
         let d = find(&t.st, &all(&t), &spec, &AtomicBool::new(false), None).unwrap();
         assert_eq!(d.groups(), 1);
+    }
+
+    /// Random records with what can trip a direct read: quotes, delimiters inside them,
+    /// spaces of all kinds, capitals, empty cells, control bytes, non-ASCII, short and long rows.
+    fn tricky(seed: u64, rows: usize, sep: char) -> String {
+        // (An odd seed: stray quotes too, which may run over the next rows.)
+        const CELLS: &[&str] = &["", " ", "  ", "a", "A", "b c", "b  C", " x ", "\tq\t", "é", "É", "\u{a0}z\u{a0}", "\u{1}", "1\u{1}2", "\u{b}v\u{c}", "\"a\"", "\" a \"", "\"a,b\"", "\"a;b\"", "\"l1\nl2\"", "\"a\"\"b\"", "\"\"", "\"\u{1}\"", "ß", "\u{feff}k", "~", "Z", "\"", "a\"b", "\"open"];
+        let kinds = if seed % 2 == 1 { CELLS.len() } else { CELLS.len() - 3 };
+        let mut x = seed;
+        let mut next = |n: usize| { x = x.wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(0x1234567); ((x >> 33) as usize) % n };
+        let mut out = format!("c1{sep}c2{sep}c3\n");
+        for _ in 0..rows {
+            let cells = 1 + next(5);
+            let row: Vec<&str> = (0..cells).map(|_| CELLS[next(kinds)]).collect();
+            out += &row.join(&sep.to_string());
+            out.push('\n');
+        }
+        out
+    }
+
+    /// What the cells alone give, without a direct read: `whole_row` and `whole_exact` as if edited.
+    fn slow_texts(st: &State, id: RowId) -> (String, bool, String, bool) {
+        fn loose(st: &State, id: RowId) -> (String, bool) {
+            let (mut buf, mut n) = (String::new(), 0);
+            let add = |buf: &mut String, n: &mut usize, v: &str| { if *n > 0 { buf.push('\u{1}') } loose_into(v, buf); *n += 1 };
+            st.visit(id, |_, v| add(&mut buf, &mut n, v));
+            while n < st.ncols { add(&mut buf, &mut n, "") }
+            let keep = buf.bytes().any(|b| b != 1);
+            (buf, keep)
+        }
+        let (a, ka) = loose(st, id);
+        let mut s = Scratch::default();
+        let kb = whole_exact(st, id, &mut s);
+        (a, ka, s.buf, kb)
+    }
+
+    #[test]
+    fn direct_reads_are_the_cells() {
+        let mut direct = 0;
+        for (seed, sep) in [(1, ','), (2, ','), (3, '\t'), (4, ';'), (5, ' '), (6, '\t'), (8, ' '), (10, '\0')] {
+            let opts = OpenOptions { delim: Some(sep as u8), ..Default::default() };
+            let t = Table::new(Arc::new(Base::from_bytes(tricky(seed, 4000, sep).into_bytes(), opts)), None);
+            let (st, mut s) = (&t.st, Scratch::default());
+            for id in all(&t) {
+                let (a, ka, b, kb) = slow_texts(st, id);
+                s.buf.clear();
+                assert_eq!(whole_row(st, id, &mut s), ka, "{:?}", st.base.record(id as usize));
+                assert_eq!(s.buf, a, "{:?}", st.base.record(id as usize));
+                if let Some(rec) = bare_record(st, id) {
+                    assert!(kb);
+                    assert_eq!(rec, b.as_bytes(), "{:?}", st.base.record(id as usize));
+                    direct += 1;
+                }
+            }
+        }
+        assert!(direct > 100, "{direct}");
+        // The other shapes: one column, a line break in \\r\\n, lines of a text file, a short row.
+        for csv in ["a\n B \n", "x,y\r\nA  b,\r\nA B,  \r\n", "x,y,z\na\n,,\n", "a,b\n,\n ,\n"] {
+            let t = table(csv);
+            let mut s = Scratch::default();
+            for id in all(&t) {
+                let (a, ka, b, kb) = slow_texts(&t.st, id);
+                s.buf.clear();
+                assert_eq!((whole_row(&t.st, id, &mut s), s.buf.as_str()), (ka, a.as_str()), "{csv:?}");
+                if let Some(rec) = bare_record(&t.st, id) { assert_eq!((rec, kb), (b.as_bytes(), true), "{csv:?}") }
+            }
+        }
+    }
+
+    /// The groups, as (position in the table's rows) lists, from a brute reading of the keys.
+    fn brute(t: &Table, key: Key) -> Vec<Vec<RowId>> {
+        let mut by: std::collections::BTreeMap<String, Vec<RowId>> = Default::default();
+        let mut s = Scratch::default();
+        for id in all(t) {
+            if key_text(&t.st, id, key, &mut s) { by.entry(s.buf.clone()).or_default().push(id) }
+        }
+        let mut v: Vec<Vec<RowId>> = by.into_values().filter(|r| r.len() > 1).collect();
+        v.sort();
+        v
+    }
+
+    fn listed(d: &Dupes) -> Vec<Vec<RowId>> {
+        (0..d.groups() as u32).map(|g| d.members(g).to_vec()).collect()
+    }
+
+    #[test]
+    fn whole_row_groups_as_brute_force() {
+        for seed in 10..16 {
+            let mut t = table(&tricky(seed, 3000, ','));
+            assert!(t.st.base.utf8());
+            let no = AtomicBool::new(false);
+            for round in 0..2 {
+                let ids = all(&t);
+                assert_eq!(listed(&find(&t.st, &ids, &DupSpec::default(), &no, None).unwrap()), brute(&t, Key::Whole), "{seed}/{round}");
+                assert_eq!(listed(&find_exact(&t.st, &ids, &[], &[], &no, None).unwrap()), brute(&t, Key::WholeExact), "{seed}/{round}");
+                // Edited rows read through their cells must meet the others.
+                let changes: Vec<(RowId, usize, String)> = ids.iter().step_by(7).map(|&id| (id, 0, t.st.cell(id, 1))).collect();
+                t.set_cells(&changes);
+            }
+        }
+    }
+
+    #[test]
+    fn filter_keeps_every_repeated_hash() {
+        // Hashes from a small range or sharing their top bits: every row of a repeated hash is
+        // given, whatever the table says of the others.
+        for (rows, bits, shift) in [(5000u64, 20, 0), (40_000, 40, 0), (40_000, 12, 44), (200_000, 62, 0), (3000, 5, 59)] {
+            let hash = |i: u64| {
+                let h = (i * 7 % 65_521).wrapping_mul(0x9E3779B97F4A7C15).wrapping_mul(0xD6E8FEB86659FD93);
+                (h >> (64 - bits)) << shift
+            };
+            let ids: Vec<RowId> = (0..rows as RowId).collect();
+            let got = repeated(&ids, |id, _| (id % 11 != 0).then(|| hash(id as u64)), &AtomicBool::new(false), None).unwrap();
+            let mut count: HashMap<u64, u32> = HashMap::default();
+            for id in 0..rows { if id % 11 != 0 { *count.entry(hash(id)).or_default() += 1 } }
+            let set: std::collections::HashSet<(u64, u32)> = got.iter().copied().collect();
+            assert_eq!(set.len(), got.len(), "each row once");
+            assert!(got.windows(2).all(|w| w[0] < w[1]), "sorted");
+            for id in 0..rows {
+                if id % 11 != 0 && count[&hash(id)] > 1 { assert!(set.contains(&(hash(id), id as u32)), "{id}") } else { assert!(!set.contains(&(hash(id), id as u32)) || id % 11 != 0) }
+            }
+        }
+        // Nothing repeated: few rows come out (false "seen" and their first rows).
+        let ids: Vec<RowId> = (0..100_000).collect();
+        let h = Hasher::default();
+        let got = repeated(&ids, |id, _| Some(h.hash_one(id)), &AtomicBool::new(false), None).unwrap();
+        assert!(got.len() < 12_000, "{}", got.len());
+    }
+
+    #[test]
+    fn exact_comparison() {
+        let no = AtomicBool::new(false);
+        // Case or spaces: one row loosely, two exactly.
+        let t = table("a,b\nAna,Lyon\nana,lyon\nAna , Lyon\nBob,Nice\nBob,Nice\n");
+        let ids = all(&t);
+        let loose = find(&t.st, &ids, &DupSpec::default(), &no, None).unwrap();
+        assert_eq!(listed(&loose), [vec![1, 2, 3], vec![4, 5]]);
+        let d = find_exact(&t.st, &ids, &[], &[], &no, None).unwrap();
+        assert_eq!(listed(&d), [vec![4, 5]]);
+        assert_eq!((d.confidence(0), d.reason(0).as_str()), (100, "identical rows · same row"));
+        // Cells decide, not bytes: quoted or not, short or padded; a delimiter in a cell is no cut.
+        let t = table("a,b,c\n\"x\",y,z\nx,\"y\",\"z\"\nx,y,z\n\"p,q\",r,\nr,\"p,q\",\np,q,r\n\"p\nq\",r\nu\nu,,\n\"\u{1},\",v,w\n\",\",v,w\n");
+        let d = find_exact(&t.st, &all(&t), &[], &[], &no, None).unwrap();
+        assert_eq!(listed(&d), [vec![1, 2, 3], vec![8, 9]]);
+        assert_eq!(d.reason(0), "same row");
+        // With keys: the fields' values as they are; a name's columns each on its own.
+        let t = table("n,m\nAna,a@x\nana,a@x\nAna ,A@x\nAna,b@x\n");
+        let rules = |parts| vec![Rule::new(parts, "key")];
+        let field = |c, clean| Part::Field(Field { col: c, clean });
+        let d = find_rules(&t.st, &all(&t), &rules(vec![field(0, Clean::Loose)]), &[], &no, None).unwrap();
+        assert_eq!(listed(&d), [vec![1, 2, 3, 4]]);
+        let d = find_exact(&t.st, &all(&t), &rules(vec![field(0, Clean::Loose)]), &[], &no, None).unwrap();
+        assert_eq!(listed(&d), [vec![1, 4]]);
+        let d = find_exact(&t.st, &all(&t), &rules(vec![Part::Any { cols: vec![1], clean: Clean::Email, country: None }]), &[], &no, None).unwrap();
+        assert_eq!(listed(&d), [vec![1, 2]]);
+        let d = find_exact(&t.st, &all(&t), &rules(vec![Part::Name(Names { cols: vec![0, 1], ..Default::default() })]), &[], &no, None).unwrap();
+        assert_eq!(d.groups(), 0);
+        // An edit is read as its value: the row meets its twin, or leaves it.
+        let mut t = table("a,b\nAna,Lyon\nana,Lyon\n");
+        assert_eq!(find_exact(&t.st, &all(&t), &[], &[], &no, None).unwrap().groups(), 0);
+        t.set_cells(&[(2, 0, "Ana".into())]);
+        assert_eq!(listed(&find_exact(&t.st, &all(&t), &[], &[], &no, None).unwrap()), [vec![1, 2]]);
+        t.set_cells(&[(2, 1, "lyon".into())]);
+        assert_eq!(find_exact(&t.st, &all(&t), &[], &[], &no, None).unwrap().groups(), 0);
+    }
+
+    #[test]
+    fn no_pair_keeps_nothing() {
+        let t = table("a\nx\ny\nz\n");
+        let d = find(&t.st, &all(&t), &DupSpec::default(), &AtomicBool::new(false), None).unwrap();
+        assert_eq!((d.groups(), d.rows(), d.removable(), d.group(2), d.group_of.capacity()), (0, 0, 0, None, 0));
+    }
+
+    #[test]
+    fn deleted_mask_and_undo() {
+        let mut t = table("a\nx\nx\ny\nx\ny\nz\n");
+        let d = find(&t.st, &all(&t), &DupSpec::default(), &AtomicBool::new(false), None).unwrap();
+        let before = all(&t);
+        let gone = d.delete_mask(false);
+        for keep_last in [false, true] {
+            let set = d.to_delete(keep_last);
+            let mask = d.delete_mask(keep_last);
+            assert!(before.iter().all(|&id| set.contains(&id) == mask.contains(id)));
+        }
+        let order = t.st.without(&gone);
+        t.keep_rows(order);
+        assert_eq!(all(&t), [1, 3, 6]);
+        t.undo();
+        assert_eq!(all(&t), before);
+        // A second cut, on an order of its own: the title stays.
+        let again = RowMask::new([0, 2, 5]);
+        let order = t.st.without(&again);
+        t.keep_rows(order);
+        assert_eq!(t.st.all_len(), 5);
+        assert_eq!(t.st.all_id(0), 0);
     }
 }

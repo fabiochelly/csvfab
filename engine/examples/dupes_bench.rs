@@ -1,7 +1,7 @@
 //! Duplicates timings: `cargo run --release -p csvfab-engine --example dupes_bench -- customers-5m.csv`
 //! (customers files: first/last name 1/2, e-mail 3, phone 4, postal code 7, city 8, country 9;
 //! another file's columns by `COLS=email,phone,last,first,postal`, e.g. `COLS=4,5,1,2,9`).
-//! `CROSS=1`: the cross-checks suggested for the file instead, timed, with
+//! `ONLY=` a spec's first words (`ONLY=exact`: the whole row, `find_exact`). `CROSS=1`: the cross-checks suggested for the file instead, timed, with
 //! `EXAMPLES=n` groups of each shown (their name, e-mail and phone columns).
 
 use csvfab_engine::dupes::{self, Clean, DupSpec, Field};
@@ -29,6 +29,13 @@ fn main() {
         ("last (sound) + first + postal", DupSpec { keys: vec![vec![f(last, Clean::Sound { tol: 0.8 }), f(first, Clean::Loose), f(postal, Clean::Digits)]] }),
     ];
     let only = std::env::var("ONLY").unwrap_or_default();
+    // `ONLY=exact`: the whole row as `find_exact` reads it.
+    if only == "exact" {
+        let t0 = Instant::now();
+        let d = dupes::find_exact(st, &ids, &[], &[], &no, None).unwrap();
+        println!("whole row, exact {:>7.0} ms   {} groups, {} rows, digest {:016x}", t0.elapsed().as_secs_f64() * 1000.0, d.groups(), d.rows(), digest(&d));
+        return;
+    }
     for (what, spec) in specs {
         if !what.starts_with(only.as_str()) { continue }
         let mut ts = Vec::new();
@@ -41,8 +48,21 @@ fn main() {
         }
         ts.sort_by(f64::total_cmp);
         let d = last.unwrap();
-        println!("{what:<46} median {:>7.0} ms   {} groups, {} rows, hits {:?}", ts[ts.len() / 2], d.groups(), d.rows(), d.hits);
+        println!("{what:<46} median {:>7.0} ms   {} groups, {} rows, hits {:?}, digest {:016x}", ts[ts.len() / 2], d.groups(), d.rows(), d.hits, digest(&d));
     }
+}
+
+/// The groups, their rows, scores and reasons in one number: two runs compared.
+fn digest(d: &dupes::Dupes) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    let mut add = |x: u64| h = (h ^ x).wrapping_mul(0x100000001b3);
+    for g in 0..d.groups() as u32 {
+        add(g as u64);
+        add(d.confidence(g) as u64);
+        d.members(g).iter().for_each(|&id| add(id as u64));
+        d.reason(g).bytes().for_each(|b| add(b as u64));
+    }
+    h
 }
 
 fn cross(st: &csvfab_engine::State, ids: &[RowId], reps: usize) {
@@ -65,7 +85,7 @@ fn cross(st: &csvfab_engine::State, ids: &[RowId], reps: usize) {
         ts.sort_by(f64::total_cmp);
         let d = last.unwrap();
         let (hi, mid, lo) = (d.count_scored(90, 101), d.count_scored(70, 90), d.count_scored(0, 70));
-        println!("\n{:<58} median {:>6.0} ms  {} groups, {} rows (sure {hi} · likely {mid} · review {lo}), hits {:?}", sg.title, ts[ts.len() / 2], d.groups(), d.rows(), d.hits);
+        println!("\n{:<58} median {:>6.0} ms  {} groups, {} rows (sure {hi} · likely {mid} · review {lo}), hits {:?}, digest {:016x}", sg.title, ts[ts.len() / 2], d.groups(), d.rows(), d.hits, digest(&d));
         let mut by_reason: std::collections::BTreeMap<String, Vec<u32>> = Default::default();
         for g in d.order(dupes::Order::LeastSure) { by_reason.entry(d.reason(g)).or_default().push(g) }
         for (why, gs) in &by_reason {

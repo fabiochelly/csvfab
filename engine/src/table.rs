@@ -354,6 +354,18 @@ impl State {
         self.all_id(pos + self.header as usize)
     }
 
+    /// Every row left once those of `gone` are out, the title row kept: the new order in one
+    /// pass over the old (shared with the undo step: not copied first), a bit per row instead
+    /// of a hash lookup — a few rows or millions alike.
+    pub fn without(&self, gone: &RowMask) -> Vec<RowId> {
+        let head = self.header.then(|| self.all_id(0));
+        let keep = |id: &RowId| !gone.contains(*id) || Some(*id) == head;
+        match &self.order {
+            Some(o) => o.par_iter().copied().filter(keep).collect(),
+            None => (0..self.base.n as RowId).into_par_iter().filter(keep).collect(),
+        }
+    }
+
     /// The data rows of `rows` in the table's order: sorted, without an order of its own (the
     /// file's); else one parallel pass over it.
     pub fn in_order(&self, rows: &std::collections::HashSet<RowId>) -> Vec<RowId> {
@@ -951,17 +963,14 @@ impl Table {
     /// `delete_rows` of the rows set in `gone` (millions selected: no hash set of them made);
     /// the title row stays.
     pub fn delete_mask(&mut self, gone: &RowMask) {
+        let order = self.st.without(gone);
+        self.keep_rows(order);
+    }
+
+    /// Takes the rows a `State::without` made ready (often in a job, on this same state): one
+    /// undo step, which brings the others back.
+    pub fn keep_rows(&mut self, order: Vec<RowId>) {
         let c = self.snapshot_change();
-        let head = self.st.header.then(|| self.st.all_id(0));
-        // The new order in one pass over the old (shared with the undo step: not copied
-        // first), a bit per row instead of a hash lookup — a few rows or millions alike.
-        // On the calling thread: a few ms for millions, whatever the machine is busy with.
-        let keep = |id: &RowId| !gone.contains(*id) || Some(*id) == head;
-        let mut order = Vec::with_capacity(self.st.all_len());
-        match &self.st.order {
-            Some(o) => order.extend(o.iter().copied().filter(keep)),
-            None => order.extend((0..self.st.base.n as RowId).filter(keep)),
-        }
         self.st.order = Some(Arc::new(order));
         self.push(c);
     }

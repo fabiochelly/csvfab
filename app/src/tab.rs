@@ -886,7 +886,6 @@ impl Tab {
         // The column caches these read, built in the background for the next keystroke.
         q.values.warm(&st, &self.kinds);
         q.texts.warm(&st, &self.kinds);
-        view::warm_sort(&st, &self.sort, &self.kinds);
         let (sort, kinds) = (self.sort.clone(), self.kinds.clone());
         let mut spec = self.filter.clone();
         if self.expr_mode { spec.global.clear(); }

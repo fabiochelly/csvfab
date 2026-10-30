@@ -2,8 +2,15 @@
 //! the keys' high bits (a counting sort when the keys are few), then each
 //! bucket sorted on its own, in cache. Ties keep their order, so sorting by
 //! several keys is sorting by each, last key first.
+//!
+//! Text (`text_sort`) holds 16 bytes a row whatever its length: the first bytes
+//! of each key and the row's position. Rows go straight to buckets of a sample's
+//! making, each bucket is sorted in cache; only rows whose first bytes tie have
+//! their whole keys made, on demand, from the file or the fold.
 
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// Positions 0..w.len() ordered by their key, ties in position order.
 pub fn sort_perm(w: &[u64]) -> Vec<u32> {
@@ -20,29 +27,38 @@ pub fn sort_perm(w: &[u64]) -> Vec<u32> {
         return (0..n as u32).collect();
     }
     let width = 64 - (hi - lo).leading_zeros();
+    if width <= 32 {
+        return sort_narrow(n, width, |i| w[i] - lo);
+    }
     if n < 1 << 15 {
-        // Small: one sort of (key, position) pairs; positions are distinct, so unstable is stable.
-        if width <= 32 {
-            let mut v: Vec<u64> = w.iter().enumerate().map(|(i, &x)| ((x - lo) << 32) | i as u64).collect();
-            v.sort_unstable();
-            return v.into_iter().map(|x| x as u32).collect();
-        }
         let mut v: Vec<(u64, u32)> = w.iter().enumerate().map(|(i, &x)| (x, i as u32)).collect();
         v.sort_unstable();
         return v.into_iter().map(|x| x.1).collect();
     }
-    // Bucket on the top bits: about 512 rows a bucket, at most 2^16 buckets.
-    let bits = (usize::BITS - (n >> 9).leading_zeros()).clamp(4, 16).min(width);
-    let shift = width - bits;
-    if width <= 32 {
-        let items = |i: usize| ((w[i] - lo) << 32) | i as u64;
-        let pairs = scatter(n, 1 << bits, |i| ((w[i] - lo) >> shift) as usize, items);
-        finish(pairs, shift, n, |x: &u64| *x as u32)
-    } else {
-        let items = |i: usize| (w[i], i as u32);
-        let pairs = scatter(n, 1 << bits, |i| ((w[i] - lo) >> shift) as usize, items);
-        finish(pairs, shift, n, |x: &(u64, u32)| x.1)
+    let (bits, shift) = spread(n, width);
+    let items = |i: usize| (w[i], i as u32);
+    let pairs = scatter(n, 1 << bits, |i| ((w[i] - lo) >> shift) as usize, items);
+    finish(pairs, shift, n, |x: &(u64, u32)| x.1)
+}
+
+/// `sort_perm` of keys of `width` bits at most (32 or fewer), given by `word`.
+pub fn sort_narrow(n: usize, width: u32, word: impl Fn(usize) -> u64 + Sync) -> Vec<u32> {
+    let items = |i: usize| (word(i) << 32) | i as u64;
+    if n < 1 << 15 {
+        // Small: one sort of (key, position) pairs; positions are distinct, so unstable is stable.
+        let mut v: Vec<u64> = (0..n).map(items).collect();
+        v.sort_unstable();
+        return v.into_iter().map(|x| x as u32).collect();
     }
+    let (bits, shift) = spread(n, width.max(1));
+    let pairs = scatter(n, 1 << bits, |i| (word(i) >> shift) as usize, items);
+    finish(pairs, shift, n, |x: &u64| *x as u32)
+}
+
+/// Bucket on the top bits: about 512 rows a bucket, at most 2^16 buckets. (Bits, their shift.)
+fn spread(n: usize, width: u32) -> (u32, u32) {
+    let bits = (usize::BITS - (n >> 9).leading_zeros()).clamp(4, 16).min(width);
+    (bits, width - bits)
 }
 
 /// The items in bucket order, each bucket's items in position order (a stable
@@ -140,152 +156,372 @@ pub fn prefix(k: &[u8]) -> u64 {
     u64::from_be_bytes(b)
 }
 
-/// Byte keys end to end, in arenas of `KEYS_CH` keys (no allocation per key).
-pub struct Keys(Vec<(Vec<u8>, Vec<u32>)>);
+/// A row while its text is sorted: its key's head in the top 96 bits (`text::head_of`), its
+/// position in the low 32. Sorted as numbers, equal heads stay in position order.
+type Item = u128;
 
-const KEYS_CH: usize = 1 << 14;
-
-impl Keys {
-    /// Key `i` of `n`, each written by `put(i, out)` (in parallel, by arena).
-    pub fn build(n: usize, put: impl Fn(usize, &mut Vec<u8>) + Sync) -> Keys {
-        Keys((0..n.div_ceil(KEYS_CH)).into_par_iter().map(|c| {
-            let r = c * KEYS_CH..((c + 1) * KEYS_CH).min(n);
-            let mut arena = Vec::with_capacity(r.len() * 12);
-            let mut offs = Vec::with_capacity(r.len() + 1);
-            offs.push(0u32);
-            for i in r {
-                put(i, &mut arena);
-                offs.push(arena.len() as u32);
-            }
-            (arena, offs)
-        }).collect())
-    }
-
-    #[inline]
-    pub fn get(&self, i: usize) -> &[u8] {
-        let (a, o) = &self.0[i / KEYS_CH];
-        let k = i % KEYS_CH;
-        &a[o[k] as usize..o[k + 1] as usize]
-    }
+#[inline]
+fn pos(x: Item) -> usize {
+    x as u32 as usize
 }
 
-/// The order of n text keys (byte order, empty keys last, ties in position
-/// order) and each one's dense rank in it (equal keys share a rank; empty:
-/// the number of distinct non-empty keys).
-pub fn text_order<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync) -> (Vec<u32>, Vec<u32>, u32) {
-    let (perm, rank, distinct, _) = order_ranks(n, &key, false);
-    (perm, rank, distinct)
+/// Equal heads.
+#[inline]
+fn same(a: Item, b: Item) -> bool {
+    (a ^ b) >> 32 == 0
 }
 
-/// As `text_order`, equal keys then ordered (and ranked apart) by the bytes `tie(i, out)` writes:
-/// asked only of the items whose keys are equal (`text::tie_key_into`: the cells as written), and
-/// not of a run whose items are all `plain` (their ties known equal).
-pub fn text_order_ties<'a>(n: usize, key: impl Fn(usize) -> &'a [u8] + Sync, plain: impl Fn(usize) -> bool + Sync, tie: impl Fn(usize, &mut Vec<u8>) + Sync) -> (Vec<u32>, Vec<u32>, u32) {
-    let (mut perm, mut rank, distinct, runs) = order_ranks(n, &key, true);
-    if runs.is_empty() {
-        return (perm, rank, distinct);
-    }
-    // Each run of equal keys sorted on its ties (stably); its items' places among them.
-    let mut slices = Vec::with_capacity(runs.len());
-    let mut rest = &mut perm[..];
-    let mut at = 0;
-    for &(s, len) in &runs {
-        let (_, b) = rest.split_at_mut(s as usize - at);
-        let (run, b) = b.split_at_mut(len as usize);
-        slices.push(run);
-        rest = b;
-        at = (s + len) as usize;
-    }
-    let subs: Vec<(u32, Vec<(u32, u32)>)> = slices
-        .into_par_iter()
-        .with_min_len(64)
-        .map_init(|| (Vec::new(), Vec::new(), Vec::new()), |(arena, offs, idx), run| {
-            if run.iter().all(|&p| plain(p as usize)) { return (0, Vec::new()); }
-            arena.clear();
-            offs.clear();
-            offs.push(0usize);
-            for &p in run.iter() {
-                tie(p as usize, arena);
-                offs.push(arena.len());
-            }
-            let k = |j: usize| &arena[offs[j]..offs[j + 1]];
-            idx.clear();
-            idx.extend(0..run.len() as u32);
-            idx.sort_by(|&a, &b| k(a as usize).cmp(k(b as usize)));
-            let mut sub = 0u32;
-            let mut moved = Vec::new();
-            for w in 1..idx.len() {
-                if k(idx[w] as usize) != k(idx[w - 1] as usize) { sub += 1; }
-                if sub > 0 { moved.push((run[idx[w] as usize], sub)); }
-            }
-            if sub > 0 {
-                let items: Vec<u32> = idx.iter().map(|&j| run[j as usize]).collect();
-                run.copy_from_slice(&items);
-            }
-            (sub, moved)
-        })
-        .collect();
-    let total: u32 = subs.iter().map(|s| s.0).sum();
-    if total == 0 {
-        return (perm, rank, distinct);
-    }
-    // Ranks after a run move up by the places its ties took.
-    let mut shift = vec![0u32; distinct as usize + 1];
-    let mut cum = 0;
-    let mut next = 0;
-    for (&(s, _), &(extra, _)) in runs.iter().zip(&subs) {
-        let r = rank[perm[s as usize] as usize] as usize;
-        shift[next..=r].fill(cum);
-        cum += extra;
-        next = r + 1;
-    }
-    shift[next..].fill(cum);
-    rank.par_iter_mut().with_min_len(1 << 14).for_each(|x| *x += shift[*x as usize]);
-    for (_, moved) in &subs {
-        for &(p, sub) in moved { rank[p as usize] += sub; }
-    }
-    (perm, rank, distinct + total)
+/// The head holds the end of the key: heads equal, keys equal.
+#[inline]
+fn ended(x: Item) -> bool {
+    x >> 32 & 0xFF == 0
 }
 
-/// `text_order`, and the runs of equal non-empty keys in the order (start, length) if `runs`.
-fn order_ranks<'a>(n: usize, key: &(impl Fn(usize) -> &'a [u8] + Sync), runs: bool) -> (Vec<u32>, Vec<u32>, u32, Vec<(u32, u32)>) {
-    let words: Vec<u64> = (0..n).into_par_iter().with_min_len(1 << 14).map(|i| {
-        let k = key(i);
-        // Text is UTF-8: no byte is 0xFF, so no prefix of a key reaches u64::MAX.
-        if k.is_empty() { u64::MAX } else { prefix(k) }
-    }).collect();
-    let mut perm = sort_perm(&words);
-    // Equal first 8 bytes: ordered on the next 8, and so on.
-    perm.par_chunk_by_mut(|&a, &b| words[a as usize] == words[b as usize])
-        .for_each(|run| {
-            if run.len() > 1 && words[run[0] as usize] != u64::MAX {
-                refine(run, 8, key);
+/// Keys a run of this many bytes at most are held at once to be compared, per thread; a run
+/// with more is sorted in place, `HEAD` more bytes at a time.
+const RUN_BYTES: usize = if cfg!(test) { 1 << 12 } else { 1 << 26 };
+
+/// Items in a bucket, about: in a core's cache.
+const BUCKET: usize = 1 << 15;
+const MAX_BUCKETS: usize = 1 << 12;
+/// Items per block of a bucket, and per thread and bucket before they go there.
+const BLOCK: usize = 1 << 12;
+const LOCAL: usize = 1 << 6;
+
+/// What a text sort reads of item `i`, on demand: `head`, its key's head (of all of them,
+/// once); `key`, the whole key (when heads tie); `tie`, what tells equal keys apart
+/// (`text::tie_key_into`); `alike`: of equal keys, those of one non-zero number tie as equals,
+/// not read.
+pub struct Text<H, K, A, T> {
+    pub head: H,
+    pub key: K,
+    pub alike: A,
+    pub tie: T,
+}
+
+/// The sorted items of a text sort, ties in position order, empty keys last.
+pub struct Sorted {
+    pub perm: Vec<u32>,
+    /// A bit per place of `perm`: an item unlike the one before (its key, or its ties).
+    new: Vec<u64>,
+    /// Items with a key, before the empty ones.
+    filled: usize,
+    /// Values told apart among them.
+    pub distinct: u32,
+}
+
+impl Sorted {
+    /// Each item's dense rank: equal keys of equal ties share one, the empty ones have `distinct`.
+    pub fn ranks(&self) -> Vec<u32> {
+        let n = self.perm.len();
+        let mut rank = vec![0; n];
+        let out = SendPtr(rank.as_mut_ptr());
+        const WORDS: usize = 1 << 12;
+        let before: Vec<u32> = self.new.chunks(WORDS).scan(0, |r, c| {
+            let at = *r;
+            *r += c.iter().map(|w| w.count_ones()).sum::<u32>();
+            Some(at)
+        }).collect();
+        self.new.par_chunks(WORDS).zip(before).enumerate().for_each(|(c, (words, mut r))| {
+            let out = &out;
+            let at = c * WORDS * 64;
+            for k in at..(at + words.len() * 64).min(self.filled) {
+                r += (words[(k - at) / 64] >> (k % 64) & 1) as u32;
+                // SAFETY: positions are distinct and below n; r ≥ 1 from the first item on.
+                unsafe { out.0.add(self.perm[k] as usize).write(r - 1) };
             }
         });
-    // Ranks: a new one where the key changes.
-    let mut rank = vec![0u32; n];
-    let mut r = 0u32;
-    let mut prev: Option<&[u8]> = None;
-    let mut found = Vec::new();
-    let mut start = 0;
-    for (i, &p) in perm.iter().enumerate() {
-        let k = key(p as usize);
-        if k.is_empty() { break; }
-        if prev.is_some_and(|q| q != k) {
-            r += 1;
-            if runs && i - start > 1 { found.push((start as u32, (i - start) as u32)); }
-            start = i;
+        for &p in &self.perm[self.filled..] { rank[p as usize] = self.distinct; }
+        rank
+    }
+
+    /// The order the other way round: the values reversed, each one's items still in position
+    /// order, the empty ones still last.
+    pub fn reversed(mut self) -> Vec<u32> {
+        let filled = self.filled;
+        self.perm[..filled].reverse();
+        if self.distinct as usize != filled {
+            // Runs of equal values turned back.
+            let mut start = 0;
+            for k in (1..=filled).filter(|&k| k == filled || self.new[k / 64] >> (k % 64) & 1 == 1) {
+                self.perm[filled - k..filled - start].reverse();
+                start = k;
+            }
         }
-        prev = Some(k);
-        rank[p as usize] = r;
+        self.perm
     }
-    let distinct = if prev.is_some() { r + 1 } else { 0 };
-    let filled = perm.iter().rev().position(|&p| !key(p as usize).is_empty()).map_or(0, |e| n - e);
-    if runs && filled - start > 1 { found.push((start as u32, (filled - start) as u32)); }
-    for &p in &perm[filled..] {
-        rank[p as usize] = distinct;
+}
+
+/// Where the items of a sort too large for one go wait for their bucket: blocks taken from
+/// one allocation, a little more than the items' size, nothing copied twice as a bucket grows.
+struct Pool {
+    _mem: Vec<Item>,
+    base: SendPtr<Item>,
+    next: AtomicUsize,
+    buckets: Vec<Mutex<Bucket>>,
+}
+
+#[derive(Default)]
+struct Bucket {
+    blocks: Vec<u32>,
+    /// Items in all, the last block taking the ones past the others' full `BLOCK`.
+    len: usize,
+}
+
+impl Pool {
+    fn new(n: usize, nb: usize) -> Pool {
+        let mut mem = Vec::with_capacity((n / BLOCK + nb + 1) * BLOCK);
+        let base = SendPtr(mem.as_mut_ptr());
+        Pool { _mem: mem, base, next: AtomicUsize::new(0), buckets: (0..nb).map(|_| Mutex::default()).collect() }
     }
-    (perm, rank, distinct, found)
+
+    fn add(&self, bucket: usize, mut items: &[Item]) {
+        let mut b = self.buckets[bucket].lock().unwrap_or_else(|e| e.into_inner());
+        while !items.is_empty() {
+            let used = b.len % BLOCK;
+            if used == 0 { b.blocks.push(self.next.fetch_add(1, Ordering::Relaxed) as u32); }
+            let k = items.len().min(BLOCK - used);
+            let block = *b.blocks.last().unwrap() as usize;
+            // SAFETY: a block goes to one bucket, under its lock; the blocks a bucket needs are
+            // its items' number over BLOCK, rounded up: within the capacity asked in `new`.
+            unsafe { std::ptr::copy_nonoverlapping(items.as_ptr(), self.base.0.add(block * BLOCK + used), k) };
+            b.len += k;
+            items = &items[k..];
+        }
+    }
+
+    /// Bucket `b`'s items, copied to `out`.
+    fn take(&self, b: &Bucket, out: &mut Vec<Item>) {
+        out.clear();
+        out.reserve(b.len);
+        for (k, &block) in b.blocks.iter().enumerate() {
+            let m = (b.len - k * BLOCK).min(BLOCK);
+            // SAFETY: the first `m` items of this block were written by `add`, its writers done.
+            out.extend_from_slice(unsafe { std::slice::from_raw_parts(self.base.0.add(block as usize * BLOCK), m) });
+        }
+    }
+}
+
+/// A thread's items on their way to the pool's buckets, handed over when `LOCAL` wait.
+struct Local<'a> {
+    pool: &'a Pool,
+    items: Vec<Item>,
+    len: Vec<u8>,
+}
+
+impl Local<'_> {
+    #[inline]
+    fn push(&mut self, bucket: usize, x: Item) {
+        let k = self.len[bucket] as usize;
+        self.items[bucket * LOCAL + k] = x;
+        if k + 1 == LOCAL {
+            self.pool.add(bucket, &self.items[bucket * LOCAL..(bucket + 1) * LOCAL]);
+            self.len[bucket] = 0;
+        } else {
+            self.len[bucket] = k as u8 + 1;
+        }
+    }
+}
+
+impl Drop for Local<'_> {
+    fn drop(&mut self) {
+        for (bucket, &k) in self.len.iter().enumerate() {
+            self.pool.add(bucket, &self.items[bucket * LOCAL..bucket * LOCAL + k as usize]);
+        }
+    }
+}
+
+/// Heads' first 8 bytes that split a sample of the items in `nb` (a power of 2) parts of equal
+/// size, as a binary tree in an array (`bucket_of`): equal heads go together, however many.
+fn splitters(n: usize, nb: usize, head: &(impl Fn(usize) -> u128 + Sync)) -> Vec<u64> {
+    // Neighbours taken together: a file not yet in memory is read at few places.
+    const NEAR: usize = 8;
+    let places = (nb * 32 / NEAR).min(n / NEAR).max(1);
+    let mut s: Vec<u64> = (0..places).into_par_iter().flat_map_iter(|p| {
+        let at = p * (n - NEAR) / places;
+        (at..at + NEAR).map(|i| (head(i) >> 64) as u64)
+    }).collect();
+    s.par_sort_unstable();
+    let mut tree = vec![0; nb];
+    fn fill(tree: &mut [u64], s: &[u64], node: usize, lo: usize, hi: usize) {
+        if node >= tree.len() { return; }
+        let mid = (lo + hi) / 2;
+        tree[node] = s[mid * s.len() / tree.len()];
+        fill(tree, s, node * 2, lo, mid);
+        fill(tree, s, node * 2 + 1, mid, hi);
+    }
+    fill(&mut tree, &s, 1, 0, nb);
+    tree
+}
+
+/// The bucket of a head: heads up to a splitter on its left, no branch to mispredict.
+#[inline]
+fn bucket_of(tree: &[u64], h: u128) -> usize {
+    let h = (h >> 64) as u64;
+    let mut i = 1;
+    while i < tree.len() {
+        i = i * 2 + (h > tree[i]) as usize;
+    }
+    i - tree.len()
+}
+
+/// Gives the items of equal keys and equal ties one mark, unlike all others' in the sort: the
+/// first one's position, in a head of zeros (a key's starts with a byte + 1).
+fn mark(run: &mut [Item]) {
+    let m = (pos(run[0]) as Item) << 32;
+    for x in run { *x = m | pos(*x) as Item; }
+}
+
+#[derive(Default)]
+struct Scratch {
+    keys: Vec<u8>,
+    ends: Vec<usize>,
+    idx: Vec<u32>,
+    items: Vec<Item>,
+}
+
+thread_local! {
+    static SCRATCH: std::cell::Cell<Option<Box<Scratch>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Orders a run of items whose keys agree on their first `d` bytes (in position order), each set
+/// of equal keys handed to `done`, every other item marked. Keys come on demand.
+fn settle<K, D>(run: &mut [Item], d: usize, key: &K, done: &D)
+where K: Fn(usize, &mut Vec<u8>) + Sync, D: Fn(&mut [Item]) + Sync {
+    if run.len() * 8 <= RUN_BYTES {
+        let mut s = SCRATCH.take().unwrap_or_default();
+        let held = settle_held(run, d, key, done, &mut s);
+        // A large run's room is not kept on the thread.
+        if s.keys.capacity() <= 1 << 20 { SCRATCH.set(Some(s)); }
+        if held { return; }
+    }
+    // Too much to hold: the next bytes of each key take the head's place.
+    run.par_iter_mut().with_min_len(1 << 10).for_each_init(Vec::new, |buf, x| {
+        buf.clear();
+        key(pos(*x), buf);
+        *x = crate::text::head_of(&buf[d.min(buf.len())..]) | pos(*x) as Item;
+    });
+    run.par_sort_unstable();
+    run.par_chunk_by_mut(|a, b| same(*a, *b)).for_each(|g| {
+        if g.len() == 1 {
+            mark(g);
+        } else if ended(g[0]) {
+            done(g);
+        } else {
+            settle(g, d + crate::text::HEAD, key, done);
+        }
+    });
+}
+
+/// `settle` with the run's keys side by side. False: they take too much room, nothing done.
+fn settle_held<K, D>(run: &mut [Item], d: usize, key: &K, done: &D, s: &mut Scratch) -> bool
+where K: Fn(usize, &mut Vec<u8>) + Sync, D: Fn(&mut [Item]) + Sync {
+    let Scratch { keys, ends, idx, items } = s;
+    keys.clear();
+    ends.clear();
+    ends.push(0);
+    for x in run.iter() {
+        key(pos(*x), keys);
+        ends.push(keys.len());
+        if keys.len() > RUN_BYTES { return false; }
+    }
+    let (keys, ends) = (&*keys, &*ends);
+    let k = |j: usize| &keys[(ends[j] + d).min(ends[j + 1])..ends[j + 1]];
+    idx.clear();
+    idx.extend(0..run.len() as u32);
+    refine(idx, 0, &k);
+    items.clear();
+    items.extend(idx.iter().map(|&j| run[j as usize]));
+    run.copy_from_slice(items);
+    let mut start = 0;
+    for e in 1..=run.len() {
+        if e < run.len() && k(idx[e] as usize) == k(idx[e - 1] as usize) { continue; }
+        let g = &mut run[start..e];
+        if g.len() == 1 { mark(g); } else { done(g); }
+        start = e;
+    }
+    true
+}
+
+/// The order of n text keys: byte order, empty keys last, equal keys ordered by their ties, then
+/// by position. Memory: 16 bytes an item, however long the keys. None if cancelled.
+pub fn text_sort<H, K, A, T>(n: usize, t: &Text<H, K, A, T>, cancel: &AtomicBool) -> Option<Sorted>
+where
+    H: Fn(usize) -> u128 + Sync,
+    K: Fn(usize, &mut Vec<u8>) + Sync,
+    A: Fn(usize) -> usize + Sync,
+    T: Fn(usize, &mut Vec<u8>) + Sync,
+{
+    let mut perm = vec![0u32; n];
+    let new: Vec<AtomicU64> = (0..n.div_ceil(64)).map(|_| AtomicU64::new(0)).collect();
+    let ties = |g: &mut [Item]| {
+        let a = (t.alike)(pos(g[0]));
+        if a != 0 && g.iter().all(|x| (t.alike)(pos(*x)) == a) { mark(g); } else { settle(g, 0, &t.tie, &mark); }
+    };
+    // Sorts a bucket's items, first place `at` in the whole order; gives what it found: values
+    // and empty keys.
+    let sort = |v: &mut [Item], out: &mut [u32], at: usize| -> (u32, usize) {
+        if v.len() > 1 << 20 { v.par_sort_unstable() } else { v.sort_unstable() }
+        let run = |r: &mut [Item]| {
+            if r.len() < 2 || r[0] >> 32 == crate::text::EMPTY_HEAD >> 32 { return; }
+            if ended(r[0]) { ties(r); } else { settle(r, crate::text::HEAD, &t.key, &ties); }
+        };
+        if v.len() > 1 << 18 {
+            v.par_chunk_by_mut(|a, b| same(*a, *b)).for_each(run);
+        } else {
+            v.chunk_by_mut(|a, b| same(*a, *b)).for_each(run);
+        }
+        for (o, x) in out.iter_mut().zip(v.iter()) { *o = pos(*x) as u32; }
+        let filled = v.partition_point(|x| *x >> 32 != crate::text::EMPTY_HEAD >> 32);
+        let (mut values, mut bits) = (0, 0u64);
+        for k in 0..filled {
+            let place = at + k;
+            if k == 0 || !same(v[k - 1], v[k]) {
+                bits |= 1 << (place % 64);
+                values += 1;
+            }
+            if place % 64 == 63 {
+                new[place / 64].fetch_or(bits, Ordering::Relaxed);
+                bits = 0;
+            }
+        }
+        if bits != 0 { new[(at + filled - 1) / 64].fetch_or(bits, Ordering::Relaxed); }
+        (values, v.len() - filled)
+    };
+    let (distinct, empty) = if n < 1 << 14 {
+        let mut v: Vec<Item> = (0..n).map(|i| (t.head)(i) | i as Item).collect();
+        sort(&mut v, &mut perm, 0)
+    } else {
+        let nb = (n / BUCKET).max(rayon::current_num_threads() * 8).next_power_of_two().min(MAX_BUCKETS);
+        let tree = splitters(n, nb, &t.head);
+        let pool = Pool::new(n, nb);
+        const CHUNK: usize = 1 << 14;
+        (0..n.div_ceil(CHUNK)).into_par_iter().for_each_init(|| Local { pool: &pool, items: vec![0; nb * LOCAL], len: vec![0; nb] }, |l, c| {
+            if cancel.load(Ordering::Relaxed) { return; }
+            for i in c * CHUNK..((c + 1) * CHUNK).min(n) {
+                let h = (t.head)(i);
+                l.push(bucket_of(&tree, h), h | i as Item);
+            }
+        });
+        if cancel.load(Ordering::Relaxed) { return None; }
+        let buckets: Vec<Bucket> = pool.buckets.iter().map(|b| std::mem::take(&mut *b.lock().unwrap_or_else(|e| e.into_inner()))).collect();
+        let mut rest = perm.as_mut_slice();
+        let mut parts = Vec::with_capacity(nb);
+        let mut at = 0;
+        for b in &buckets {
+            let (out, r) = rest.split_at_mut(b.len);
+            parts.push((b, out, at));
+            at += b.len;
+            rest = r;
+        }
+        parts.into_par_iter().map_init(Vec::new, |v, (b, out, at)| {
+            if cancel.load(Ordering::Relaxed) { return (0, 0); }
+            pool.take(b, v);
+            sort(v, out, at)
+        }).reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+    };
+    if cancel.load(Ordering::Relaxed) { return None; }
+    Some(Sorted { perm, new: new.into_iter().map(AtomicU64::into_inner).collect(), filled: n - empty, distinct })
 }
 
 /// Orders a run of keys equal on their first `d` bytes (in stable order) on
@@ -321,6 +557,15 @@ fn refine<'a>(run: &mut [u32], d: usize, key: &(impl Fn(usize) -> &'a [u8] + Syn
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `text_sort` of keys held as strings: the order, the ranks, the values.
+    fn order(keys: &[String], alike: impl Fn(usize) -> usize + Sync, tie: impl Fn(usize, &mut Vec<u8>) + Sync) -> (Vec<u32>, Vec<u32>, u32) {
+        let head = |i: usize| if keys[i].is_empty() { crate::text::EMPTY_HEAD } else { crate::text::head_of(keys[i].as_bytes()) };
+        let key = |i: usize, out: &mut Vec<u8>| out.extend_from_slice(keys[i].as_bytes());
+        let s = text_sort(keys.len(), &Text { head, key, alike, tie }, &AtomicBool::new(false)).unwrap();
+        let (rank, d) = (s.ranks(), s.distinct);
+        (s.perm, rank, d)
+    }
 
     fn check(w: &[u64]) {
         let mut want: Vec<u32> = (0..w.len() as u32).collect();
@@ -366,7 +611,7 @@ mod tests {
             k => { let c = (b'a' + (next() % (1 + k * 40) % 26) as u8) as char; if next() % 3 == 0 { c.to_ascii_uppercase().to_string() } else { c.to_string() } }
         }).collect();
         let low: Vec<String> = cells.iter().map(|c| c.to_lowercase()).collect();
-        let (perm, rank, d) = text_order_ties(cells.len(), |i| low[i].as_bytes(), |i| cells[i] == low[i] && i % 2 == 0, |i, out| out.extend_from_slice(cells[i].as_bytes()));
+        let (perm, rank, d) = order(&low, |i| (cells[i] == low[i] && i % 2 == 0) as usize, |i, out| out.extend_from_slice(cells[i].as_bytes()));
         let mut want: Vec<u32> = (0..cells.len() as u32).collect();
         want.sort_by(|&a, &b| {
             let (x, y) = (a as usize, b as usize);
@@ -380,7 +625,7 @@ mod tests {
             assert_eq!(rank[a] == rank[b], cells[a] == cells[b] || cells[b].is_empty() && cells[a].is_empty());
             assert!(rank[a] <= rank[b]);
         }
-        let (p2, _, _) = text_order_ties(3, |i| ["b", "a", "c"][i].as_bytes(), |_| false, |_, _| unreachable!());
+        let (p2, _, _) = order(&["b".to_string(), "a".to_string(), "c".to_string()], |_| 0, |_, _| unreachable!());
         assert_eq!(p2, [1, 0, 2]);
     }
 
@@ -391,7 +636,7 @@ mod tests {
         let mut next = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
         let parts = ["", "a", "ab", "\0", "abcdefgh", "zz", "abcdefghabcdefgh"];
         let keys: Vec<String> = (0..20_000).map(|_| (0..1 + next() % 5).map(|_| parts[(next() % 7) as usize]).collect()).collect();
-        let (perm, _, _) = text_order(keys.len(), |i| keys[i].as_bytes());
+        let (perm, _, _) = order(&keys, |_| 1, |_, _| ());
         let mut want: Vec<u32> = (0..keys.len() as u32).collect();
         want.sort_by(|&a, &b| {
             let (x, y) = (&keys[a as usize], &keys[b as usize]);
@@ -403,7 +648,7 @@ mod tests {
     #[test]
     fn text() {
         let keys = ["b", "", "ab", "a", "ab\0", "b", "", "abcdefghij", "abcdefghi"];
-        let (perm, rank, d) = text_order(keys.len(), |i| keys[i].as_bytes());
+        let (perm, rank, d) = order(&keys.map(String::from), |_| 1, |_, _| ());
         let got: Vec<&str> = perm.iter().map(|&p| keys[p as usize]).collect();
         assert_eq!(got, ["a", "ab", "ab\0", "abcdefghi", "abcdefghij", "b", "b", "", ""]);
         assert_eq!(perm[5..7], [0, 5]);

@@ -10,6 +10,7 @@
 //! (`allowed`), on demand (`ensure`) or in the background at low priority (`warm`).
 
 use crate::base::Base;
+use crate::radix::{self, Sorted, Text};
 use crate::table::{RowId, State};
 use crate::text::{fold_into, parse_date, parse_number};
 use rayon::prelude::*;
@@ -42,9 +43,12 @@ impl Folded {
         self.changed[id / 64] >> (id % 64) & 1 == 0
     }
 
-    /// Whether every record's text is its own fold (equal keys are then equal texts).
-    pub fn all_plain(&self) -> bool {
-        self.changed.par_iter().with_min_len(1 << 12).all(|&w| w == 0)
+    /// `radix::Text::alike`: the length of a plain ASCII text (its ties are all alike but for
+    /// how many there are), read for records of equal keys.
+    #[inline]
+    pub fn alike(&self, id: usize) -> usize {
+        let s = self.get(id).trim();
+        if self.plain(id) && s.is_ascii() { s.len() + 1 } else { 0 }
     }
 
     pub fn bytes(&self) -> usize {
@@ -124,11 +128,15 @@ impl Col {
         self.folded.as_ref().map(|f| f.get(id))
     }
 
-    /// Whether record `id`'s text is known to be its own fold (false: not known).
+    /// `Folded::alike` of record `id`, 0 if nothing cached says.
     #[inline]
-    pub fn plain(&self, id: usize) -> bool {
-        if let Some(d) = &self.dict { let c = d.codes[id] as usize; return d.folded[c] == d.values[c]; }
-        self.folded.as_ref().is_some_and(|f| f.plain(id))
+    pub fn alike(&self, id: usize) -> usize {
+        if let Some(d) = &self.dict {
+            let c = d.codes[id] as usize;
+            let s = d.folded[c].trim();
+            return if d.folded[c] == d.values[c] && s.is_ascii() { s.len() + 1 } else { 0 };
+        }
+        self.folded.as_ref().map_or(0, |f| f.alike(id))
     }
 
     /// parse_number(cell) of record `id` (NaN: not a number), if cached.
@@ -329,6 +337,19 @@ fn with_raw<R>(b: &Base, id: usize, field: usize, tmp: &mut Vec<u8>, f: impl FnO
     }
 }
 
+/// A record's bytes from the start of this field on, when no quote comes first (the end of the
+/// field is not looked for). None: read it properly (`with_base_cell`).
+#[inline]
+fn field_at(b: &Base, id: usize, field: usize) -> Option<&[u8]> {
+    let mut rec = b.span(id);
+    if b.dialect.lines { return (field == 0).then_some(rec); }
+    for _ in 0..field {
+        if rec.first() == Some(&b'"') { return None; }
+        rec = &rec[memchr::memchr(b.dialect.delim, rec)? + 1..];
+    }
+    (rec.first() != Some(&b'"')).then_some(rec)
+}
+
 /// Average bytes of this field, from a sample of records.
 fn avg_len(b: &Base, field: usize) -> usize {
     let n = b.n;
@@ -351,6 +372,18 @@ pub fn ensure(st: &State, col: usize, need: Need, cancel: &AtomicBool) -> Option
 /// worker has not started yet is taken over (here, on the caller's pool, all its cores);
 /// one it is running is waited for (the caller cancelled: None at once).
 pub fn ensure_field(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Option<Col> {
+    ensure_with(base, field, need, cancel, None)
+}
+
+/// `ensure` of a column's sort ranks. When they are made here the sort's order comes with them
+/// (`Sorted::perm`: the file's records), nothing left to sort.
+pub fn ensure_sorted(st: &State, col: usize, cancel: &AtomicBool) -> (Option<Col>, Option<Sorted>) {
+    let mut order = None;
+    let c = field_of(st, col).and_then(|f| ensure_with(&st.base, f, Need::Rank, cancel, Some(&mut order)));
+    (c, order)
+}
+
+fn ensure_with(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool, order: Option<&mut Option<Sorted>>) -> Option<Col> {
     let key = (Arc::as_ptr(base) as usize, field, need);
     let running = {
         let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
@@ -371,10 +404,38 @@ pub fn ensure_field(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicB
         let col = get_field(base, field);
         if col.has(need) { return Some(col); }
     }
-    build(base, field, need, cancel)
+    build(base, field, need, cancel, order)
 }
 
-fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Option<Col> {
+/// Text past which a sort does not keep a column's fold: it would hold the file twice over
+/// for the sort's sake (`Need::Text` still builds it, memory allowing).
+const SORT_FOLD: usize = 1 << 30;
+
+/// The field's records in text sort order, each read when it is needed: from its fold if there
+/// is one (the file's cells are slower to get at), else from the file.
+fn sort_field(b: &Base, field: usize, fold: Option<&Folded>, cancel: &AtomicBool) -> Option<Sorted> {
+    use crate::text::{cell_head, cell_key_into, folded_head, open_head, sort_key_into, tie_key_into};
+    let tie = |i: usize, out: &mut Vec<u8>| TMP.with_borrow_mut(|tmp| with_base_cell(b, i, field, tmp, |v| tie_key_into(v.trim(), out)));
+    match fold {
+        // Equal keys ("Émile", "emile") told apart by the cells as written, read again. A run of
+        // plain texts (most e-mails) is equal as written: not read.
+        Some(f) => radix::text_sort(b.n, &Text {
+            head: |i: usize| folded_head(f.get(i).trim()),
+            key: |i: usize, out: &mut Vec<u8>| sort_key_into(f.get(i).trim().as_bytes(), out),
+            alike: |i: usize| f.alike(i),
+            tie: |i: usize, out: &mut Vec<u8>| if f.plain(i) { tie_key_into(f.get(i).trim(), out) } else { tie(i, out) },
+        }, cancel),
+        None => radix::text_sort(b.n, &Text {
+            head: |i: usize| field_at(b, i, field).and_then(|c| open_head(c, b.dialect.delim)).unwrap_or_else(|| TMP.with_borrow_mut(|tmp| with_base_cell(b, i, field, tmp, |v| cell_head(v.trim())))),
+            key: |i: usize, out: &mut Vec<u8>| TMP.with_borrow_mut(|tmp| with_base_cell(b, i, field, tmp, |v| cell_key_into(v.trim(), out))),
+            alike: |_: usize| 0,
+            tie,
+        }, cancel),
+    }
+}
+
+/// `order`: a text sort made here leaves its order there.
+fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool, order: Option<&mut Option<Sorted>>) -> Option<Col> {
     let (col, no_dict) = {
         let r = reg();
         r.iter()
@@ -409,10 +470,12 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
     if need == Need::Dict {
         return None;
     }
-    let needs_text = matches!(need, Need::Text | Need::Rank) && col.folded.is_none();
+    let text = n * (avg_len(b, field) + 4);
+    // A sort reads the file itself: past `SORT_FOLD` the folded text is not kept for it.
+    let folds = col.folded.is_none() && (need == Need::Text || need == Need::Rank && text <= SORT_FOLD);
     let extra = match need {
-        Need::Text => n * (avg_len(b, field) + 4),
-        Need::Rank => (if needs_text { n * (avg_len(b, field) + 4) } else { 0 }) + n * 4 + n * 28,
+        Need::Text => text,
+        Need::Rank => (if folds { text } else { 0 }) + n * 20,
         Need::Num | Need::Date => n * 8,
         Need::Dict => 0,
     };
@@ -421,31 +484,21 @@ fn build(base: &Arc<Base>, field: usize, need: Need, cancel: &AtomicBool) -> Opt
     }
     match need {
         Need::Text | Need::Rank => {
-            let folded = match &col.folded {
-                Some(f) => f.clone(),
-                None => {
+            let fold = match &col.folded {
+                Some(f) => Some(f.clone()),
+                None if folds => {
                     let f = Arc::new(build_folded(b, field, cancel)?);
                     update(base, field, |s| s.col.folded = Some(f.clone()));
-                    f
+                    Some(f)
                 }
+                None => None,
             };
             if need == Need::Rank {
-                // The sort compares keys many times: made once (`text::sort_key_into`), end to end.
-                let keys = crate::radix::Keys::build(n, |i, out| crate::text::sort_key_into(folded.get(i).trim().as_bytes(), out));
-                // Equal keys ("Émile", "emile") told apart by the cells as written, read again.
-                // A run of plain texts (most e-mails) is equal as written: not read; a column of
-                // nothing but plain texts has no ties to tell apart.
-                let (_, rank, nranks) = if folded.all_plain() {
-                    crate::radix::text_order(n, |i| keys.get(i))
-                } else {
-                    crate::radix::text_order_ties(n, |i| keys.get(i), |i| folded.plain(i), |i, out| {
-                        if folded.plain(i) { return crate::text::tie_key_into(folded.get(i).trim(), out); }
-                        TMP.with_borrow_mut(|tmp| with_base_cell(b, i, field, tmp, |v| crate::text::tie_key_into(v.trim(), out)))
-                    })
-                };
-                drop(keys);
-                // Kept even if the sort that asked was cancelled meanwhile: the next one uses it.
+                let sorted = sort_field(b, field, fold.as_deref(), cancel)?;
+                let rank = sorted.ranks();
+                let nranks = sorted.distinct;
                 update(base, field, |s| s.col.ranks = Some(Arc::new(Ranks { rank, nranks })));
+                if let Some(out) = order { *out = Some(sorted); }
             }
         }
         Need::Num | Need::Date => {
@@ -583,8 +636,13 @@ fn build_dict(b: &Base, field: usize, sure: bool, cancel: &AtomicBool) -> Result
     let folded: Vec<Box<str>> = values.par_iter().map(|v| crate::text::fold(v).into()).collect();
     let num: Vec<f64> = values.par_iter().map(|v| parse_number(v).unwrap_or(f64::NAN)).collect();
     let date: Vec<f64> = values.par_iter().map(|v| parse_date(v).unwrap_or(f64::NAN)).collect();
-    let keys = crate::radix::Keys::build(values.len(), |i, out| crate::text::sort_key_into(folded[i].trim().as_bytes(), out));
-    let (_, rank, nranks) = crate::radix::text_order_ties(values.len(), |i| keys.get(i), |_| false, |i, out| crate::text::tie_key_into(values[i].trim(), out));
+    let sorted = radix::text_sort(values.len(), &Text {
+        head: |i: usize| crate::text::folded_head(folded[i].trim()),
+        key: |i: usize, out: &mut Vec<u8>| crate::text::sort_key_into(folded[i].trim().as_bytes(), out),
+        alike: |_: usize| 0,
+        tie: |i: usize, out: &mut Vec<u8>| crate::text::tie_key_into(values[i].trim(), out),
+    }, cancel).ok_or(false)?;
+    let (rank, nranks) = (sorted.ranks(), sorted.distinct);
     let (num_rank, date_rank) = (num_ranks(&num), num_ranks(&date));
     Ok(Dict { codes, values, folded, num, date, rank, nranks, num_rank, date_rank })
 }
@@ -605,6 +663,8 @@ pub fn warm(st: &State, col: usize, need: Need) {
     if st.base.n < 1 << 14 || st.base.partial || get_field(&st.base, field).has(need) {
         return;
     }
+    // Past `SORT_FOLD` a sort's memory is spent only for a sort waited for, one at a time.
+    if need == Need::Rank && st.base.n * (avg_len(&st.base, field) + 4) > SORT_FOLD { return; }
     let key = (Arc::as_ptr(&st.base) as usize, field, need);
     {
         let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
@@ -650,8 +710,8 @@ fn worker() -> mpsc::Sender<Option<Job>> {
                     // Last user gone (file closed): nothing to warm.
                     if ours && Arc::strong_count(&base) > 1 {
                         match &pool {
-                            Some(p) => { p.install(|| build(&base, field, need, &no)); }
-                            None => { build(&base, field, need, &no); }
+                            Some(p) => { p.install(|| build(&base, field, need, &no, None)); }
+                            None => { build(&base, field, need, &no, None); }
                         }
                     }
                     PENDING.lock().unwrap_or_else(|e| e.into_inner()).retain(|(k, _)| *k != key);
@@ -755,6 +815,18 @@ pub fn dict_counts(st: &State, col: usize, ids: &[RowId], cancel: &AtomicBool) -
         live.extend(l);
     }
     Some(DictCounts { dict, count, first, live })
+}
+
+/// A field's sort read from the file and from its fold: (order, ranks, values) of each.
+#[cfg(test)]
+pub(crate) fn sorted_both_ways(b: &Base, field: usize) -> [(Vec<u32>, Vec<u32>, u32); 2] {
+    let no = AtomicBool::new(false);
+    let fold = build_folded(b, field, &no);
+    [None, fold.as_ref()].map(|f| {
+        let s = sort_field(b, field, f, &no).unwrap();
+        let (rank, d) = (s.ranks(), s.distinct);
+        (s.perm, rank, d)
+    })
 }
 
 #[cfg(test)]

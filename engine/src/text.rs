@@ -134,7 +134,7 @@ const DIGITS: u8 = 0x41;
 /// the web app's French numeric collator gave — accents and case ignored (the fold), digit runs
 /// compared as numbers ("lot 2" < "lot 10", leading zeros aside), spaces and punctuation before
 /// digits, digits before letters. A digit run is the marker, its length, its digits. No key
-/// byte is 0xFF (`radix::text_order` keeps that for the empty key).
+/// byte is 0xFF, none starts a key with 0xFE (`HEAD`).
 pub fn sort_key_into(f: &[u8], out: &mut Vec<u8>) {
     let mut i = 0;
     while i < f.len() {
@@ -159,6 +159,137 @@ pub fn sort_key_into(f: &[u8], out: &mut Vec<u8>) {
         });
         i += 1;
     }
+}
+
+/// The sort key bytes a head holds.
+pub const HEAD: usize = 12;
+
+/// The head of the empty key, which sorts last. No other reaches it: a key starts with neither
+/// 0xFE nor 0xFF.
+pub const EMPTY_HEAD: u128 = !0 << 32;
+
+/// Part of a sort key as a number, its first `HEAD` bytes in the top 96 bits (the low 32 are
+/// free): each byte + 1 (no key byte is 0xFF), zeros past the key's end. Heads that differ
+/// compare as their keys do, however the cut falls; a head ending in a zero is a whole key.
+pub fn head_of(k: &[u8]) -> u128 {
+    let mut o = [0u8; 16];
+    for (a, b) in o[..HEAD].iter_mut().zip(k) { *a = b + 1; }
+    u128::from_be_bytes(o)
+}
+
+/// A byte's key byte + 1, as `sort_key_into` maps it (0: a digit). Capitals as lower case, for
+/// cells not yet folded; above ASCII, for folded text (0xFF is in neither).
+const KEY_BYTE: [u8; 256] = {
+    let mut t = [0u8; 256];
+    let mut c = 0;
+    while c < 256 {
+        let b = c as u8;
+        t[c] = match b.to_ascii_lowercase() {
+            b'0'..=b'9' => 0,
+            x @ 0x3A..=0x40 => x - 0x3A + 0x31,
+            x @ 0x5B..=0x60 => x - 0x5B + 0x38,
+            x @ 0x7B..=0x7E => x - 0x7B + 0x3E,
+            0xFF => 0xFF,
+            x => x + 1,
+        };
+        c += 1;
+    }
+    t
+};
+
+/// `head_of` the key of ASCII text, read only as far as the head goes (a digit run to its end,
+/// for its length). None: a character to fold came first (`FOLDED` false). `stop`: with `OPEN`,
+/// the text runs on past the cell, which ends at `stop` or a control byte: None if it does before
+/// the head is full (its end may be spaces to trim).
+#[inline]
+fn ascii_head<const FOLDED: bool, const OPEN: bool>(b: &[u8], stop: u8) -> Option<u128> {
+    let mut o = [0u8; 16];
+    let (mut i, mut k) = (0, 0);
+    while i < b.len() && k < HEAD {
+        let c = b[i];
+        let m = KEY_BYTE[c as usize];
+        if m != 0 {
+            if !FOLDED && c >= 0x80 || OPEN && (c == stop || c < 0x20) { return None; }
+            o[k] = m;
+            k += 1;
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i < b.len() && b[i].is_ascii_digit() { i += 1; }
+        let mut d = &b[s..i];
+        while d.len() > 1 && d[0] == b'0' { d = &d[1..]; }
+        o[k] = DIGITS + 1;
+        k += 1;
+        if k < HEAD {
+            o[k] = d.len().min(0xFE) as u8 + 1;
+            k += 1;
+        }
+        let m = d.len().min(HEAD - k);
+        for j in 0..m { o[k + j] = d[j] + 1; }
+        k += m;
+    }
+    if OPEN && (k < HEAD || b[i - 1] == b' ') { return None; }
+    Some(u128::from_be_bytes(o))
+}
+
+/// `cell_head` of the cell at the start of `b`, which runs on past it, its end not looked for:
+/// None unless its first `HEAD` key bytes are there, plain ASCII. In a file, the cell's bytes
+/// are read and nothing else (the record's end, the next fields, ...).
+#[inline]
+pub fn open_head(b: &[u8], stop: u8) -> Option<u128> {
+    if b.first().is_none_or(|&c| c <= b' ') { return None; }
+    ascii_head::<false, true>(b, stop)
+}
+
+thread_local! {
+    /// A cell's fold and key, while a head or a key is made of it.
+    static FOLD: std::cell::RefCell<(String, Vec<u8>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) };
+}
+
+/// The head of a folded, trimmed text's key.
+#[inline]
+pub fn folded_head(f: &str) -> u128 {
+    if f.is_empty() { return EMPTY_HEAD; }
+    ascii_head::<true, false>(f.as_bytes(), 0).unwrap_or(0)
+}
+
+/// The head of a trimmed cell's key, as written, with no more of the cell read than it takes.
+#[inline]
+pub fn cell_head(s: &str) -> u128 {
+    if s.is_empty() { return EMPTY_HEAD; }
+    ascii_head::<false, false>(s.as_bytes(), 0).unwrap_or_else(|| fold_head(s))
+}
+
+/// `cell_head`, characters to fold met. The cell is folded a piece at a time: fold and key work
+/// piece by piece, a piece never ending inside a character or a digit run.
+#[cold]
+fn fold_head(s: &str) -> u128 {
+    FOLD.with_borrow_mut(|(f, k)| {
+        let b = s.as_bytes();
+        k.clear();
+        let mut at = 0;
+        while at < b.len() && k.len() < HEAD {
+            let mut end = (at + 2 * HEAD).min(b.len());
+            while !s.is_char_boundary(end) { end += 1; }
+            while end < b.len() && b[end].is_ascii_digit() { end += 1; }
+            f.clear();
+            fold_into(&s[at..end], f);
+            sort_key_into(f.as_bytes(), k);
+            at = end;
+        }
+        head_of(k)
+    })
+}
+
+/// `sort_key_into` of a trimmed cell as written, appended to `out`.
+#[inline]
+pub fn cell_key_into(s: &str, out: &mut Vec<u8>) {
+    FOLD.with_borrow_mut(|(f, _)| {
+        f.clear();
+        fold_into(s, f);
+        sort_key_into(f.as_bytes(), out);
+    })
 }
 
 /// What tells apart texts of equal sort keys, as the web's collator did (ICU, French): accents
@@ -381,6 +512,41 @@ mod tests {
         assert_eq!(fold("Müller"), "muller");
     }
 
+    /// Heads against whole keys, the cut falling everywhere: through digit runs, accents,
+    /// folds of two bytes (œ), leading zeros, spaces.
+    #[test]
+    fn heads_are_the_keys_cut() {
+        let parts = ["", "a", "B", "é", "È", "œ", "ß", "ẞ", "日", "😀", " ", "\u{a0}", "-", "_", "~", ":", "0", "00", "007", "9", "12345678901", "000000000000000", "z"];
+        let mut x = 0x9E37_79B9u64;
+        let mut next = move || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let want = |s: &str| if s.is_empty() { EMPTY_HEAD } else { head_of(&sort_key(s)) };
+        for _ in 0..200_000 {
+            let s: String = (0..next() % 12).map(|_| parts[(next() % parts.len() as u64) as usize]).collect();
+            let t = s.trim();
+            assert_eq!(cell_head(t), want(t), "{t:?}");
+            assert_eq!(folded_head(fold(t).as_str()), want(t), "{t:?}");
+            for tail in [",next", ",", "\n", "\r\n", " ,x", ""] {
+                let open = format!("{s}{tail}");
+                let cell = open.split(',').next().unwrap().trim_end_matches(['\r', '\n']).trim();
+                if let Some(h) = open_head(open.as_bytes(), b',') { assert_eq!(h, want(cell), "{open:?}"); }
+            }
+        }
+        let long = "9".repeat(300);
+        assert_eq!(cell_head(&long), want(&long));
+        assert_eq!(head_of(&sort_key("abc")) & 0xFFFF_FFFF, 0);
+        // A head that does not end in a zero leaves the rest of the key unknown; order on heads
+        // never goes against order on keys.
+        for _ in 0..200_000 {
+            let mut v = [String::new(), String::new()];
+            for s in &mut v { *s = (0..next() % 10).map(|_| parts[(next() % parts.len() as u64) as usize]).collect::<String>().trim().to_string(); }
+            let (a, b) = (&v[0], &v[1]);
+            if a.is_empty() || b.is_empty() { continue; }
+            let (ka, kb, ha, hb) = (sort_key(a), sort_key(b), cell_head(a), cell_head(b));
+            if ha != hb { assert_eq!(ha < hb, ka < kb, "{a:?} {b:?}"); }
+            if ha == hb && ha >> 32 & 0xFF == 0 { assert_eq!(ka, kb, "{a:?} {b:?}"); }
+        }
+    }
+
     /// The old fold, character by character: the fast one must agree on every character.
     fn fold_ref(s: &str) -> String {
         let mut out = String::new();
@@ -400,6 +566,8 @@ mod tests {
             // holds when every whitespace folds to whitespace and nothing else folds to a
             // string with whitespace at either end.
             let f = fold(&c.to_string());
+            // `fold_head` cuts cells beside ASCII digits only: no other character folds to one.
+            assert!(c.is_ascii_digit() || !f.bytes().any(|b| b.is_ascii_digit()), "U+{u:04X}");
             if c.is_whitespace() {
                 assert!(!f.is_empty() && f.chars().all(char::is_whitespace), "U+{u:04X}");
             } else {

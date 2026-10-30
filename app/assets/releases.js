@@ -3,6 +3,9 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.1.2', date: '2026-10-31', items: [
+        ['Exact duplicates', 'A new option counts case and spaces when comparing rows.'],
+    ] },
     { v: '2.1.1', date: '2026-10-30', items: [
         ['Charts that filter', 'Click or drag across a histogram to keep exactly the values of those bars, a second click brings them back.'],
         ['Extreme values set apart', 'Charts and histograms show the real shape of a column, with the far-out values in a marked bar of their own.'],

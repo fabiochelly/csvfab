@@ -153,6 +153,8 @@ pub struct DupMarks {
     /// The name columns the groups were cross-checked against.
     pub names: Vec<String>,
     pub dupes: Arc<Dupes>,
+    /// Values compared as they are.
+    pub exact: bool,
     /// The groups' order in the duplicates view.
     pub order: Order,
     /// Per group, the columns that differ (computed when the group is drawn).
@@ -175,7 +177,7 @@ impl KeyDraft {
 #[cfg(test)]
 impl DupMarks {
     pub fn new(keys: Vec<KeyDraft>, rules: Vec<Rule>, d: Dupes) -> DupMarks {
-        DupMarks { keys, rules, names: Vec::new(), dupes: Arc::new(d), order: Order::File, diff: Default::default(), shown: Default::default() }
+        DupMarks { keys, rules, names: Vec::new(), dupes: Arc::new(d), exact: false, order: Order::File, diff: Default::default(), shown: Default::default() }
     }
 }
 
@@ -199,7 +201,7 @@ impl DupMarks {
 
     /// The spec in words: `Email OR Last name + First name (slug)`.
     pub fn spec_text(&self) -> String {
-        spec_text(&self.keys)
+        if self.exact { format!("{} (exact comparison)", spec_text(&self.keys)) } else { spec_text(&self.keys) }
     }
 
     /// Why group g's rows are duplicates, and how sure: "97 % — same e-mail · same phone".
@@ -225,6 +227,17 @@ fn spec_text(keys: &[KeyDraft]) -> String {
         format!("{}{how}", f.col)
     }).collect::<Vec<_>>().join(" + ")).filter(|s| !s.is_empty()).collect();
     if ks.is_empty() { "the whole row".into() } else { ks.join(" OR ") }
+}
+
+/// `compile`, the rules reading values as they are when `exact`.
+fn rules_of(headers: &[String], keys: &[KeyDraft], exact: bool) -> Result<Option<Vec<Rule>>, String> {
+    Ok(compile(headers, keys)?.map(|r| if exact { eng::exact_rules(&r) } else { r }))
+}
+
+/// The groups of these rules among all the rows.
+fn count(st: &State, rules: &[Rule], names: &[usize], exact: bool, cancel: &std::sync::atomic::AtomicBool, progress: Option<&std::sync::atomic::AtomicUsize>) -> Option<Dupes> {
+    let find = if exact { eng::find_exact } else { eng::find_rules };
+    find(st, &all_ids(st), rules, names, cancel, progress)
 }
 
 /// The keys against the tab's columns, as rules: Err(message) for a formula
@@ -369,7 +382,7 @@ fn shared(st: &State, col: usize) -> bool {
 
 thread_local! {
     /// The dialog's state between openings, per tab.
-    static DRAFTS: RefCell<HashMap<u64, (Vec<KeyDraft>, bool, Order)>> = RefCell::default();
+    static DRAFTS: RefCell<HashMap<u64, (Vec<KeyDraft>, bool, Order, bool)>> = RefCell::default();
     /// The suggestions of a tab and their counts, while its rows are the same.
     static SMART: RefCell<HashMap<u64, (Fingerprint, Arc<Mutex<Smart>>)>> = RefCell::default();
 }
@@ -432,6 +445,7 @@ fn smart_job(ctx: &egui::Context, st: State, shared: Arc<Mutex<Smart>>) -> Job<(
 /// The count of the dialog's spec, run in the background.
 struct Count {
     keys: Vec<KeyDraft>,
+    exact: bool,
     job: Job<Option<Dupes>>,
     units: usize,
 }
@@ -440,9 +454,17 @@ struct Count {
 #[derive(Clone)]
 struct Found {
     keys: Vec<KeyDraft>,
+    exact: bool,
     dupes: Arc<Dupes>,
     rules: Vec<Rule>,
     names: Vec<String>,
+}
+
+/// A deletion made ready in a job: the rows left, and those of a view a tool restricted to.
+struct Cut {
+    order: Vec<RowId>,
+    view: Option<Vec<RowId>>,
+    deleted: usize,
 }
 
 /// The preview's lines: (group, row; None: "+n more rows"), for one count and order.
@@ -458,10 +480,14 @@ const PREVIEW_ROWS: usize = 4;
 struct Dialog {
     keys: Vec<KeyDraft>,
     keep_last: bool,
+    /// Values compared as they are, case and spaces included.
+    exact: bool,
     order: Order,
     /// When the keys last changed: counted 150 ms later.
     changed: Option<Instant>,
     count: Option<Count>,
+    /// "Delete duplicates" under way, and the table it is for.
+    cutting: Option<(Job<Option<Cut>>, (usize, u64))>,
     /// The last count and the keys it is for.
     result: Option<Found>,
     error: Option<String>,
@@ -486,12 +512,15 @@ impl Dialog {
         let saved = DRAFTS.with(|d| d.borrow().get(&tab.uid).cloned());
         let keys = match (&tab.marks.dups, &saved) {
             (Some(m), _) if ok(&m.keys) => m.keys.clone(),
-            (_, Some((k, _, _))) if ok(k) => k.clone(),
+            (_, Some((k, ..))) if ok(k) => k.clone(),
             _ => vec![KeyDraft { fields: vec![new_field(None, None)] }],
         };
-        let (keep_last, mut order) = saved.map_or((false, Order::LeastSure), |x| (x.1, x.2));
-        if let Some(m) = &tab.marks.dups { order = m.order; }
+        let (keep_last, mut order, mut exact) = saved.map_or((false, Order::LeastSure, false), |x| (x.1, x.2, x.3));
+        if let Some(m) = &tab.marks.dups { (order, exact) = (m.order, m.exact); }
         let keys = match (crate::shot::take("dupes-suggest"), st) { (Some(_), Some(st)) => suggest(st), _ => keys };
+        // Screenshot hooks: `dupes-keys:N` the first key N times, `dupes-exact` the option on.
+        let keys = match crate::shot::take("dupes-keys").and_then(|n| n.parse::<usize>().ok()) { Some(n) => vec![keys[0].clone(); n], _ => keys };
+        exact |= crate::shot::take("dupes-exact").is_some();
         // The suggestions: kept while the rows are the same, else looked for anew.
         let (smart, smart_job) = match st {
             Some(st) => {
@@ -510,7 +539,7 @@ impl Dialog {
             None => (Arc::new(Mutex::new(Smart::default())), None),
         };
         Dialog {
-            keys, keep_last, order, changed: Some(Instant::now() - Duration::from_secs(1)), count: None, result: None, error: None,
+            keys, keep_last, exact, order, changed: Some(Instant::now() - Duration::from_secs(1)), count: None, cutting: None, result: None, error: None,
             rows: st.map_or(0, |s| s.len()), smart, smart_job, opened: Instant::now(), preview: None,
             pending_smart: crate::shot::take("dupes-smart").and_then(|s| s.parse().ok()),
         }
@@ -533,24 +562,25 @@ impl Dialog {
             None => Vec::new(),
         };
         self.changed = None;
-        match compile(&headers, &self.keys) {
+        match rules_of(&headers, &self.keys, self.exact) {
             Err(e) => { self.error = Some(e); self.count = None; }
             Ok(None) => { self.error = Some("A column of the keys is gone.".into()); self.count = None; }
             Ok(Some(rules)) => {
                 self.error = None;
-                if self.result.as_ref().is_some_and(|r| r.keys == self.keys) { self.count = None; return; }
+                if self.current().is_some() { self.count = None; return; }
                 let st = st.clone();
                 let units = st.len() * eng::passes(&rules);
                 let cols: Vec<usize> = names.iter().filter_map(|n| headers.iter().position(|h| h == n)).collect();
-                let job = Job::spawn(cx.ctx, move |cancel, progress| eng::find_rules(&st, &all_ids(&st), &rules, &cols, cancel, Some(progress)));
-                self.count = Some(Count { keys: self.keys.clone(), job, units });
+                let exact = self.exact;
+                let job = Job::spawn(cx.ctx, move |cancel, progress| count(&st, &rules, &cols, exact, cancel, Some(progress)));
+                self.count = Some(Count { keys: self.keys.clone(), exact, job, units });
             }
         }
     }
 
     /// The result for the keys as they are now, if counted.
     fn current(&self) -> Option<&Found> {
-        self.result.as_ref().filter(|r| r.keys == self.keys && self.error.is_none())
+        self.result.as_ref().filter(|r| r.keys == self.keys && r.exact == self.exact && self.error.is_none())
     }
 
     fn key_box(&mut self, ui: &mut Ui, cx: &Cx, ki: usize, edit: &mut Option<Edit>) {
@@ -808,10 +838,18 @@ impl Tool for Dialog {
                 let c = self.count.take().unwrap();
                 if let Some(d) = r {
                     let headers = cx.tab.st().map(|s| s.headers()).unwrap_or_default();
-                    let rules = compile(&headers, &c.keys).ok().flatten().unwrap_or_default();
+                    let rules = rules_of(&headers, &c.keys, c.exact).ok().flatten().unwrap_or_default();
                     let names = self.name_cols(&headers).unwrap_or_default();
-                    self.result = Some(Found { keys: c.keys, dupes: Arc::new(d), rules, names });
+                    self.result = Some(Found { keys: c.keys, exact: c.exact, dupes: Arc::new(d), rules, names });
                 }
+            }
+        }
+        // A deletion made ready: the table takes it, the dialog is done.
+        if let Some(cut) = self.cutting.as_mut().and_then(|c| c.0.poll()) {
+            let (_, key) = self.cutting.take().unwrap();
+            if let Some(c) = cut.filter(|_| cx.tab.table_key() == key) {
+                remove(cx, c);
+                return false;
             }
         }
         if self.changed.is_some_and(|t| t.elapsed() >= Duration::from_millis(150)) {
@@ -834,35 +872,42 @@ impl Tool for Dialog {
         let (_, open) = kit::modal(cx, "dedupe", 760.0, |ui, cx| {
             kit::title(ui, p, "Duplicates");
             kit::note_colored(ui, p, "Rows are duplicates when **any** key matches; within a key, **every** field must match once cleaned. A key whose fields are not all filled is ignored for that row. Groups chain: rows sharing an e-mail with one and a phone with another are one group. No field: the whole row. A **cross-check** reads several columns alike (a name in any order, any phone or e-mail column); each group says how sure it is.", p.txt_mut, p.txt_hi, 12.0);
-            ui.add_space(10.0);
+            ui.add_space(14.0);
+            // The keys: the suggestions, the keys themselves. In the dialog's own scroll.
             self.smart_list(ui, p, &mut edit);
-            ui.add_space(10.0);
-            let maxh = (ui.ctx().content_rect().height() * 0.3).min(300.0);
-            egui::ScrollArea::vertical().id_salt("dk-keys").max_height(maxh).auto_shrink([false, true]).show(ui, |ui| {
-                for ki in 0..self.keys.len() {
-                    if ki > 0 {
-                        ui.add_space(4.0);
-                        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
-                        ui.painter().text(r.center(), Align2::CENTER_CENTER, "OR", crate::grid::semibold(11.0), p.accent_2);
-                        ui.add_space(4.0);
-                    }
-                    self.key_box(ui, cx, ki, &mut edit);
+            ui.add_space(14.0);
+            for ki in 0..self.keys.len() {
+                if ki > 0 {
+                    ui.add_space(4.0);
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, "OR", crate::grid::semibold(11.0), p.accent_2);
+                    ui.add_space(4.0);
                 }
-            });
-            ui.add_space(8.0);
+                self.key_box(ui, cx, ki, &mut edit);
+            }
+            ui.add_space(10.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 if kit::button(ui, p, "+ Key (or)", Btn::Outline, true).clicked() { edit = Some(Edit::AddKey); }
                 if kit::button(ui, p, "Suggest keys", Btn::Outline, true).clicked() { edit = Some(Edit::Suggest); }
-                ui.add_space(12.0);
+            });
+            group_rule(ui, p);
+            // The options.
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
                 ui.label(egui::RichText::new("Delete keeps, in each group:").font(kit::ui(12.0)).color(p.txt_mut));
                 if kit::radio(ui, p, !self.keep_last, "Its first row").clicked() { self.keep_last = false; }
                 if kit::radio(ui, p, self.keep_last, "Its last row").clicked() { self.keep_last = true; }
             });
-            ui.add_space(12.0);
+            ui.add_space(8.0);
+            if kit::checkbox(ui, p, &mut self.exact, "Exact comparison (case and spaces count)").on_hover_text("Every value as it is written: no cleaning. Rows differing by a capital or a space are not duplicates").clicked() { edit = Some(Edit::Touch); }
+            group_rule(ui, p);
+            // The result.
             let total = kit::n(self.rows);
             let mut ready = false;
-            if let Some(e) = &self.error {
+            if self.cutting.is_some() {
+                kit::progress(ui, p, None, "Deleting the duplicates…");
+            } else if let Some(e) = &self.error {
                 kit::note_colored(ui, p, e, p.warn, p.warn, 12.0);
             } else if let Some(f) = self.current() {
                 let d = &f.dupes;
@@ -884,22 +929,28 @@ impl Tool for Dialog {
                 kit::progress(ui, p, None, "Looking for duplicates…");
             }
             self.preview(ui, cx);
-            kit::actions(ui, 16.0, |ui| {
+            group_rule(ui, p);
+            kit::actions(ui, 0.0, |ui| {
                 if kit::button(ui, p, "Delete duplicates", Btn::Primary, ready).clicked() { go = Some(true); }
                 if kit::button(ui, p, "Mark them", Btn::Outline, ready).on_hover_text("Group the duplicates, differences in red, how sure on each; nothing is deleted").clicked() { go = Some(false); }
                 if kit::button(ui, p, "Cancel", Btn::Outline, true).clicked() { cancel = true; }
             });
+            // Screenshot hook: the dialog's foot, once counted.
+            if ready && crate::shot::take("dupes-foot").is_some() { ui.scroll_to_cursor(Some(egui::Align::BOTTOM)); }
         });
         if let Some(e) = edit { self.edit(e, cx); }
-        DRAFTS.with(|d| d.borrow_mut().insert(cx.tab.uid, (self.keys.clone(), self.keep_last, self.order)));
-        if go.is_none() && self.current().is_some_and(|r| r.dupes.groups() > 0) && crate::shot::take("dupes-mark").is_some() { go = Some(false); }
+        DRAFTS.with(|d| d.borrow_mut().insert(cx.tab.uid, (self.keys.clone(), self.keep_last, self.order, self.exact)));
+        if go.is_none() && self.current().is_some_and(|r| r.dupes.groups() > 0) {
+            if crate::shot::take("dupes-mark").is_some() { go = Some(false); }
+            if crate::shot::take("dupes-delete").is_some() { go = Some(true); }
+        }
         if let Some(delete) = go {
             let Some(f) = self.current().cloned() else { return true };
             if delete {
-                remove(cx, &f.dupes, self.keep_last);
-            } else {
-                mark(cx, f, self.order);
+                self.start_remove(cx, f.dupes);
+                return open && !cancel;
             }
+            mark(cx, f, self.order);
             return false;
         }
         open && !cancel
@@ -907,6 +958,18 @@ impl Tool for Dialog {
 }
 
 impl Dialog {
+    /// Every row of a group but its first (or last) deleted, made ready in a job: `remove`.
+    fn start_remove(&mut self, cx: &Cx, d: Arc<Dupes>) {
+        let Some(st) = cx.tab.st().cloned() else { return };
+        let (keep_last, view) = (self.keep_last, cx.tab.restrict.as_ref().map(|r| r.ids.clone()));
+        let job = Job::spawn(cx.ctx, move |_, _| {
+            let gone = d.delete_mask(keep_last);
+            let view = view.map(|v| v.iter().copied().filter(|&id| !gone.contains(id)).collect());
+            Some(Cut { order: st.without(&gone), view, deleted: d.removable() })
+        });
+        self.cutting = Some((job, cx.tab.table_key()));
+    }
+
     fn edit(&mut self, e: Edit, cx: &mut Cx) {
         let st = cx.tab.st();
         let headers = st.map(|s| s.headers()).unwrap_or_default();
@@ -943,17 +1006,15 @@ impl Dialog {
     }
 }
 
-/// Deletes every row of a group but its first (or last): one undo step.
-fn remove(cx: &mut Cx, d: &Dupes, keep_last: bool) {
-    let del = d.to_delete(keep_last);
-    let n = del.len();
-    if n == 0 { return; }
+/// Puts in a deletion made ready: one undo step, which brings the rows back.
+fn remove(cx: &mut Cx, c: Cut) {
     let Some(t) = &mut cx.tab.table else { return };
-    t.delete_rows(&del);
-    drop_from_view(cx.tab, &del);
+    t.keep_rows(c.order);
+    // Rows deleted leave the rows a tool restricted the view to.
+    if let (Some(r), Some(v)) = (&mut cx.tab.restrict, c.view) { r.ids = Arc::new(v); }
     cx.tab.marks_mut_dups(None);
     cx.tab.after_edit(true, cx.ctx);
-    cx.toast(format!("{} duplicate rows deleted — not written yet, use Save.", kit::n(n)));
+    cx.toast(format!("{} duplicate rows deleted — not written yet, use Save.", kit::n(c.deleted)));
 }
 
 /// Rows deleted leave the rows a tool restricted the view to.
@@ -961,6 +1022,14 @@ fn drop_from_view(tab: &mut Tab, del: &std::collections::HashSet<RowId>) {
     if let Some(r) = &mut tab.restrict {
         Arc::make_mut(&mut r.ids).retain(|id| !del.contains(id));
     }
+}
+
+/// The thin line between two groups of the dialog, with air on both sides.
+fn group_rule(ui: &mut Ui, p: &Palette) {
+    ui.add_space(16.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, p.brd));
+    ui.add_space(16.0);
 }
 
 /// The groups marked and shown side by side, in `order`.
@@ -973,7 +1042,7 @@ fn mark(cx: &mut Cx, f: Found, order: Order) {
     }
     let (rows, groups, review) = (d.rows(), d.groups(), d.count_scored(0, 70));
     let ids = d.side_by_side(order);
-    cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: f.keys, rules: f.rules, names: f.names, dupes: d, order, diff: Default::default(), shown: Default::default() })));
+    cx.tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: f.keys, rules: f.rules, names: f.names, dupes: d, exact: f.exact, order, diff: Default::default(), shown: Default::default() })));
     cx.tab.restrict_to(VIEW_LABEL, ids, cx.ctx);
     let first = match order { Order::LeastSure if review > 0 => format!(", the {} to review first", kit::n(review)), Order::LeastSure => ", least sure first".into(), Order::SurestFirst => ", surest first".into(), Order::File => String::new() };
     cx.toast(format!("{} rows in {}, side by side{first} — hover a row to see how sure, delete it or merge it with the next; differing values in red.", kit::n(rows), super::form::plural(groups, "duplicate group")));
@@ -1012,7 +1081,7 @@ pub fn reorder(tab: &mut Tab, ctx: &egui::Context, order: Order) {
     let Some(m) = tab.marks.dups.clone() else { return };
     if m.order == order { return }
     let view = in_view(tab);
-    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules: m.rules.clone(), names: m.names.clone(), dupes: m.dupes.clone(), order, diff: Default::default(), shown: Default::default() })));
+    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules: m.rules.clone(), names: m.names.clone(), exact: m.exact, dupes: m.dupes.clone(), order, diff: Default::default(), shown: Default::default() })));
     DRAFTS.with(|d| if let Some(x) = d.borrow_mut().get_mut(&tab.uid) { x.2 = order });
     if view { tab.restrict_to(VIEW_LABEL, m.dupes.side_by_side(order), ctx); }
 }
@@ -1194,12 +1263,13 @@ pub fn start_refresh(tab: &mut Tab, ctx: &egui::Context) {
     let Some(m) = tab.marks.dups.clone().or_else(|| tab.dups_held.clone()) else { return };
     let Some(st) = tab.st().cloned() else { return };
     let headers = st.headers();
-    match compile(&headers, &m.keys) {
+    match rules_of(&headers, &m.keys, m.exact) {
         Ok(Some(rules)) => {
             let names: Vec<usize> = m.names.iter().filter_map(|n| headers.iter().position(|h| h == n)).collect();
             let key = tab.table_key();
             // The one under way is dropped, hence cancelled.
-            tab.dups_job = Some(Refresh { job: Job::spawn(ctx, move |cancel, _| eng::find_rules(&st, &all_ids(&st), &rules, &names, cancel, None).map(|d| (d, rules))), marks: m, key });
+            let exact = m.exact;
+            tab.dups_job = Some(Refresh { job: Job::spawn(ctx, move |cancel, _| count(&st, &rules, &names, exact, cancel, None).map(|d| (d, rules))), marks: m, key });
         }
         // A compared column is gone: the marks go.
         _ => {
@@ -1225,7 +1295,7 @@ pub fn poll_refresh(tab: &mut Tab, ctx: &egui::Context) {
         return;
     }
     let ids = d.side_by_side(m.order);
-    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), order: m.order, diff: Default::default(), shown: Default::default() })));
+    tab.marks_mut_dups(Some(Arc::new(DupMarks { keys: m.keys.clone(), rules, names: m.names.clone(), dupes: Arc::new(d), exact: m.exact, order: m.order, diff: Default::default(), shown: Default::default() })));
     // Counted on that table: changed since, it is counted again.
     tab.dups_seen = key;
     if view {
@@ -1368,5 +1438,20 @@ mod tests {
         t.delete_rows(&[first].into());
         // The gutter keeps a record's number.
         assert_eq!(file_number(&t.st, t.st.data_id(0)), 2);
+    }
+
+    #[test]
+    fn exact_option() {
+        let t = table("Name,City\nAna,Lyon\nana,LYON\nAna , Lyon\nBob,Nice\n");
+        let no = AtomicBool::new(false);
+        // No key: the whole row. Off, one group; on, none.
+        assert_eq!(count(&t.st, &[], &[], false, &no, None).unwrap().groups(), 1);
+        assert_eq!(count(&t.st, &[], &[], true, &no, None).unwrap().groups(), 0);
+        // With a key cleaned its way: on, the value as it is.
+        let keys = [KeyDraft { fields: vec![field("Name", 2)] }];
+        let (loose, exact) = (rules_of(&t.st.headers(), &keys, false).unwrap().unwrap(), rules_of(&t.st.headers(), &keys, true).unwrap().unwrap());
+        assert_eq!(count(&t.st, &loose, &[], false, &no, None).unwrap().rows(), 3);
+        assert_eq!(count(&t.st, &exact, &[], true, &no, None).unwrap().groups(), 0);
+        assert!(matches!(exact[0].clean_of(0), Some(Clean::Exact)));
     }
 }

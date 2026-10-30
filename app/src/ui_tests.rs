@@ -854,6 +854,30 @@ fn duplicate_marks_follow_edits() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// "Delete duplicates" in the dialog: made ready in a job, one undo step, the rows back after.
+#[test]
+fn duplicates_deleted_in_a_job_then_undone() {
+    let (mut h, dir) = app_on("name,city\nAnn,Lyon\nAnn,Lyon\nBob,Nice\nann, LYON\nCid,Nice\n", "dupdelete");
+    let ctx = h.ctx.clone();
+    let before = h.state().tabs[0].table.as_ref().unwrap().undo_depth();
+    crate::shot::push("dupes-delete");
+    let c = crate::tools::commands().into_iter().find(|c| c.name == "Remove duplicates…").unwrap();
+    h.state_mut().run_command(c.run, &ctx);
+    for _ in 0..600 {
+        h.run_steps(1);
+        if h.state().tabs[0].shown() == 3 { break }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(h.state().tabs[0].shown(), 3, "Ann's twins gone");
+    let t = &mut h.state_mut().tabs[0];
+    assert_eq!(t.table.as_ref().unwrap().undo_depth(), before + 1);
+    t.table.as_mut().unwrap().undo();
+    t.after_edit(true, &ctx);
+    settle(&mut h);
+    assert_eq!(h.state().tabs[0].shown(), 5, "all back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Save as Parquet from the dialog, then the file opened as the other imports: its CSV beside
 /// it, in a tab of its own, the toast of a conversion, a damaged file told.
 #[test]

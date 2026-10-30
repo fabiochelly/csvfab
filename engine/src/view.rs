@@ -6,10 +6,12 @@
 //! verdict per distinct value, numbers parsed once, folded text), else the
 //! cell; the search in every cell scans runs of untouched records as one block
 //! of the file. A sort turns each key into a u64 per row — a number's bits, a
-//! text's rank — and radix sorts them (`radix`). Rows edited here are always
-//! read live, so the caches never need invalidating.
+//! text's rank — and radix sorts them (`radix`); one text key is its own sort
+//! (`radix::text_sort`). Rows edited here are always read live, so the caches
+//! never need invalidating.
 
 use crate::colcache::{self, Bits, Col, Need};
+use crate::radix::{self, Sorted, Text};
 use crate::table::{RowId, State};
 use crate::text::{fold, fold_into, parse_date, parse_number};
 use memchr::memmem;
@@ -423,13 +425,6 @@ impl Filter {
                 _ => colcache::warm(st, *c, Need::Dict),
             }
         }
-    }
-}
-
-/// Builds in the background the caches a sort on these keys reads.
-pub fn warm_sort(st: &State, keys: &[SortKey], kinds: &[Kind]) {
-    for k in keys {
-        colcache::warm(st, k.col, need_of(kinds.get(k.col).copied().unwrap_or(Kind::Text)));
     }
 }
 
@@ -1024,6 +1019,60 @@ pub fn detect_kinds_of(st: &State, cols: &[usize]) -> Vec<Kind> {
         .collect()
 }
 
+/// `ids` sorted on one text key. None: left to the general case (a rank cache to build for some
+/// of the rows, from `key_words`). Some(false): cancelled.
+fn sort_text(st: &State, ids: &mut Vec<RowId>, key: SortKey, cancel: &AtomicBool) -> Option<bool> {
+    let n = st.base.n;
+    let edited = colcache::edited_rows(st, key.col);
+    let live = |id: RowId| id as usize >= n || edited.as_ref().is_some_and(|e| e.has(id));
+    let file = colcache::field_of(st, key.col).is_some() && !st.base.partial;
+    let mut cache = if file { colcache::get(st, key.col) } else { Col::default() };
+    let settled = file && !ids.par_iter().any(|&id| live(id));
+    let head = st.header as usize;
+    if settled && !cache.has(Need::Rank) {
+        if ids.len() + head == n && !ids.par_iter().enumerate().any(|(p, &id)| id as usize != p + head) {
+            // Every record but the header, in file order: the sort that makes the column's ranks
+            // gives the order. `ids` given back meanwhile: this is when memory is short.
+            drop(std::mem::take(ids));
+            let (col, sorted) = colcache::ensure_sorted(st, key.col, cancel);
+            if cancel.load(Ordering::Relaxed) {
+                // The caller's gone on: built in the background, for the next one.
+                colcache::warm(st, key.col, Need::Rank);
+                return Some(false);
+            }
+            if let Some(s) = sorted {
+                *ids = order_of(s, key.desc);
+                // Positions are record ids here: the header's taken out, the rows after it moved up.
+                if head > 0 {
+                    if let Some(k) = ids.par_iter().position_any(|&id| id == 0) { ids.remove(k); }
+                }
+                return Some(true);
+            }
+            *ids = (head as RowId..n as RowId).collect();
+            cache = col.unwrap_or_default();
+        } else if ids.len() * 2 >= st.len() {
+            return None;
+        }
+    }
+    if settled && cache.has(Need::Rank) {
+        let nr = cache.nranks().unwrap();
+        let word = |p: usize| rank_word(cache.rank(ids[p] as usize).unwrap(), nr, key.desc);
+        let perm = radix::sort_narrow(ids.len(), 32 - nr.leading_zeros(), word);
+        *ids = perm.par_iter().with_min_len(4096).map(|&p| ids[p as usize]).collect();
+        return Some(true);
+    }
+    if file { colcache::warm(st, key.col, Need::Rank); }
+    let live = |id: RowId| !file || live(id);
+    let Some(sorted) = sort_rows(st, ids, key.col, &live, &cache, cancel) else { return Some(false) };
+    let perm = order_of(sorted, key.desc);
+    *ids = perm.par_iter().with_min_len(4096).map(|&p| ids[p as usize]).collect();
+    Some(true)
+}
+
+fn order_of(s: Sorted, desc: bool) -> Vec<u32> {
+    if desc { s.reversed() } else { s.perm }
+}
+
 /// A number as a u64 in the same order (the bits of a float, the sign turned
 /// around); NaN (empty, not a number) last whichever the direction.
 #[inline]
@@ -1042,8 +1091,28 @@ fn rank_word(r: u32, nranks: u32, desc: bool) -> u64 {
 }
 
 thread_local! {
-    /// A cell's bytes and its fold, while a sort key is made of it.
-    static FOLD: std::cell::RefCell<(Vec<u8>, String)> = const { std::cell::RefCell::new((Vec::new(), String::new())) };
+    /// A cell's bytes, while a sort key is made of it.
+    static CELL: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `ids` in the text order of their cells in `col`, each read when needed: its fold in the
+/// column's cache, else (`live`, or nothing cached) the cell.
+fn sort_rows(st: &State, ids: &[RowId], col: usize, live: &(impl Fn(RowId) -> bool + Sync), cache: &Col, cancel: &AtomicBool) -> Option<Sorted> {
+    use crate::text::{cell_head, cell_key_into, folded_head, sort_key_into, tie_key_into};
+    let fold = |id: RowId| if live(id) { None } else { cache.folded(id as usize) };
+    let cell = |id: RowId, f: &mut dyn FnMut(&str)| CELL.with_borrow_mut(|tmp| st.with_cell(id, col, tmp, |v| f(v.trim())));
+    radix::text_sort(ids.len(), &Text {
+        head: |p: usize| match fold(ids[p]) {
+            Some(f) => folded_head(f.trim()),
+            None => { let mut h = 0; cell(ids[p], &mut |v| h = cell_head(v)); h }
+        },
+        key: |p: usize, out: &mut Vec<u8>| match fold(ids[p]) {
+            Some(f) => sort_key_into(f.trim().as_bytes(), out),
+            None => cell(ids[p], &mut |v| cell_key_into(v, out)),
+        },
+        alike: |p: usize| if live(ids[p]) { 0 } else { cache.alike(ids[p] as usize) },
+        tie: |p: usize, out: &mut Vec<u8>| cell(ids[p], &mut |v| tie_key_into(v, out)),
+    }, cancel)
 }
 
 /// One sort key's word for each row of `ids`; None if cancelled.
@@ -1059,6 +1128,8 @@ fn key_words(st: &State, ids: &[RowId], key: SortKey, kind: Kind, cancel: &Atomi
         // Sorting most of the file: the cache costs what the keys would, and stays.
         if ids.len() * 2 >= st.len() {
             cache = colcache::ensure(st, col, need, cancel).unwrap_or_default();
+            // The caller's gone on: built in the background, for the next one.
+            if cancel.load(Ordering::Relaxed) { colcache::warm(st, col, need); }
         } else {
             colcache::warm(st, col, need);
         }
@@ -1088,22 +1159,8 @@ fn key_words(st: &State, ids: &[RowId], key: SortKey, kind: Kind, cancel: &Atomi
                 let nr = cache.nranks().unwrap();
                 ids.par_iter().with_min_len(4096).map(|&id| rank_word(cache.rank(id as usize).unwrap(), nr, desc)).collect()
             } else {
-                // Each row's sort key (`text::sort_key_into`) from its folded text.
-                let keys = crate::radix::Keys::build(ids.len(), |p, out| {
-                    let id = ids[p];
-                    match if live(id) { None } else { cache.folded(id as usize) } {
-                        Some(f) => crate::text::sort_key_into(f.trim().as_bytes(), out),
-                        None => FOLD.with_borrow_mut(|(tmp, buf)| {
-                            buf.clear();
-                            st.with_cell(id, col, tmp, |v| fold_into(v.trim(), buf));
-                            crate::text::sort_key_into(buf.as_bytes(), out);
-                        }),
-                    }
-                });
-                if cancel.load(Ordering::Relaxed) { return None; }
-                let (_, rank, nr) = crate::radix::text_order_ties(ids.len(), |p| keys.get(p), |p| !live(ids[p]) && cache.plain(ids[p] as usize), |p, out| {
-                    FOLD.with_borrow_mut(|(tmp, _)| st.with_cell(ids[p], col, tmp, |v| crate::text::tie_key_into(v.trim(), out)))
-                });
+                let sorted = sort_rows(st, ids, col, &live, &cache, cancel)?;
+                let (rank, nr) = (sorted.ranks(), sorted.distinct);
                 rank.par_iter().with_min_len(4096).map(|&r| rank_word(r, nr, desc)).collect()
             }
         }
@@ -1127,6 +1184,7 @@ fn order(words: Vec<Vec<u64>>, cancel: &AtomicBool) -> Option<Vec<u32>> {
             (lo < hi).then(|| (w, lo, 64 - (hi - lo).leading_zeros()))
         })
         .collect();
+    if let [(w, ..)] = &keys[..] { return Some(crate::radix::sort_perm(w)); }
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut width = 0;
     for (k, key) in keys.iter().enumerate() {
@@ -1163,6 +1221,11 @@ fn order(words: Vec<Vec<u64>>, cancel: &AtomicBool) -> Option<Vec<u32>> {
 pub fn sort(st: &State, ids: &mut Vec<RowId>, keys: &[SortKey], kinds: &[Kind], cancel: &AtomicBool) -> bool {
     if keys.is_empty() || ids.len() < 2 {
         return true;
+    }
+    if let [k] = keys {
+        if kinds.get(k.col).copied().unwrap_or(Kind::Text) == Kind::Text {
+            if let Some(done) = sort_text(st, ids, *k, cancel) { return done; }
+        }
     }
     let mut words = Vec::with_capacity(keys.len());
     for k in keys {

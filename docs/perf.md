@@ -330,6 +330,39 @@ save 3 % and hold more in memory: 122,880 rows kept.
   zstd's C 0.6, the rest generics inlined into the callers. The user's call: speed first, size
   does not matter. `opt-level` stays as it is.
 
+## Duplicates: filter, direct reads, exact comparison (2026-10-31, 16 threads, 1 GiB file, A/B, one run)
+
+`g1.csv`: 12.6M unique rows, 2 columns; `g1dup.csv`: the same + 10 % of them again (13.9M rows).
+Whole row, `bench_ui --ops open,dupes` (from the command to the count shown), then the engine alone
+(`dupes_bench`, median of 3):
+
+| | before | filter + direct read | exact comparison |
+|---|---|---|---|
+| `dupes`, no duplicates | 929 ms, HWM 1 599 MB, anon 290 MB | 673 ms, 1 231 MB, 173 MB | 677 ms, 1 231 MB, 171 MB |
+| `dupes`, 10 % duplicates | 1 183 ms, 1 765 MB, 467 MB | 986 ms, 1 579 MB, 433 MB | 1 004 ms, 1 584 MB, 417 MB |
+| engine alone, no duplicates | 377 ms | 119 ms | 104 ms |
+| engine alone, 10 % duplicates | 583 ms | 409 ms | 380 ms |
+| `dupes_delete` (1.26M rows) | 36 ms, frame 36 ms | 22 ms, frame 3 ms | |
+
+The rest of the UI figure is the dialog, not the count (its 150 ms delay, the wait for the suggested
+keys). Groups, scores and reasons identical on customers-5m for every spec and every suggestion of
+`dupes_bench` (its `digest`). A key that puts most rows in groups pays for the table: the e-mail of
+customers-5m (98 % of the rows) 371–470 → 473–497 ms on a noisy machine; a whole row or a
+"sounds like" key, the same or better.
+
+- **Bit tables** (`dupes::repeated`): 2 bytes a row of "seen", ½ of "seen twice", 4 of prints (the
+  hash's top bits, per row). Only a repeated hash makes a pair; the first rows are found by the
+  prints in a second look, the only rows hashed twice. Rows without a duplicate: no sort, no
+  union-find, no group table. For `Whole`, the plain keys and the sound keys; the cross-checks,
+  several keys a row, keep their pairs.
+- **Direct reads** (`loose_direct`): a record in ASCII without quotes gives the cells' cleaned text
+  in one go, by blocks; any other row reads its cells. Proved against the cells on random rows.
+- **Exact comparison** (`find_exact`): the record itself is hashed (`bare_record`) when it holds no
+  quote nor \u{1} and has all its fields; any other row writes the same text from its cells.
+- **Delete duplicates**: the rows left made in a job (`State::without`), the table only takes them.
+  "`dupes_delete` not done after 100 s" was the benchmark: pressed the frame the count appeared, its
+  click fell where the button had been, beside a box about to be re-centred, which closed it.
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

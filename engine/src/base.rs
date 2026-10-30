@@ -397,6 +397,12 @@ impl Base {
         if self.n == 0 { self.bytes() } else { &self.bytes()[..self.starts.get(0)] }
     }
 
+    /// Whether the whole file is known valid UTF-8: its fields are their bytes.
+    #[inline]
+    pub fn utf8(&self) -> bool {
+        self.valid_utf8
+    }
+
     /// One field's bytes as text: borrowed unchecked when the whole file is known valid UTF-8.
     #[inline]
     pub fn text<'a>(&self, b: &'a [u8]) -> std::borrow::Cow<'a, str> {
