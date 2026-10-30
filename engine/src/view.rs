@@ -50,6 +50,9 @@ pub enum Keeps {
     Part(Arc<crate::sparkline::Spark>, crate::sparkline::Pick),
     /// These values exactly, as written (a cell's menu: "Only the rows with …").
     Values(Arc<HashSet<String>>),
+    /// A stretch of a histogram: the numbers or dates (in seconds) from `lo` to `hi`, both
+    /// kept, and how its chip says it.
+    Range { kind: Kind, lo: f64, hi: f64, label: Arc<str> },
 }
 
 impl PartialEq for ValuePick {
@@ -57,6 +60,7 @@ impl PartialEq for ValuePick {
         self.col == o.col && match (&self.keep, &o.keep) {
             (Keeps::Part(a, x), Keeps::Part(b, y)) => x == y && Arc::ptr_eq(a, b),
             (Keeps::Values(a), Keeps::Values(b)) => a == b,
+            (Keeps::Range { kind: k, lo: a, hi: z, .. }, Keeps::Range { kind: l, lo: b, hi: y, .. }) => k == l && a == b && z == y,
             _ => false,
         }
     }
@@ -67,6 +71,7 @@ impl std::fmt::Debug for ValuePick {
         match &self.keep {
             Keeps::Part(_, p) => write!(f, "ValuePick({}, {p:?})", self.col),
             Keeps::Values(v) => write!(f, "ValuePick({}, {v:?})", self.col),
+            Keeps::Range { lo, hi, .. } => write!(f, "ValuePick({}, {lo}..={hi})", self.col),
         }
     }
 }
@@ -77,6 +82,11 @@ impl ValuePick {
         match &self.keep {
             Keeps::Part(s, p) => s.keep(self.col, *p).test(v),
             Keeps::Values(set) => set.contains(v),
+            Keeps::Range { kind, lo, hi, .. } => {
+                let v = v.trim();
+                let x = if *kind == Kind::Date { crate::sparkline::time_key(v) } else { crate::text::parse_number(v) };
+                x.is_some_and(|x| x >= *lo && x <= *hi)
+            }
         }
     }
 }

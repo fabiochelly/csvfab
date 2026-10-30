@@ -70,7 +70,7 @@ pub enum Cmd {
     /// it has no file until saved.
     OpenBytes { name: String, bytes: Vec<u8> },
     Toast(String),
-    /// The column inspector's × .
+    /// The column inspector on or off.
     ToggleInspector,
     /// Tab `uid`'s file was written by a save of ours: (its stamp as read, the one written, the
     /// sample of what was written: `base::file_sample`).
@@ -149,7 +149,7 @@ fn all_commands() -> Vec<Command> {
 }
 
 fn builtin() -> Vec<Command> {
-    Vec::new()
+    vec![Command { name: "Column inspector", group: "View", keys: Some("Ctrl+Shift+I"), enabled: |_| true, run: |cx| cx.out.push(Cmd::ToggleInspector) }]
 }
 
 /// A dialog in the app's look: a centred window with the dialog frame, closed by

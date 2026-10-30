@@ -2,6 +2,14 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.1.1 · 30 October 2026
+
+- **Histograms and column charts filter.** Click or drag across bars to keep exactly the values they hold, with a chip; a second click brings them back.
+- **Extreme values are set apart.** Column charts and histograms now show the real shape of a column, with the far-out values in a marked bar of their own and the true range written below. A few huge amounts no longer flatten everything into one bar.
+- **"Worth a look" agrees with the chart**: it lists the far-out values, and Show keeps those rows.
+- **The inspector is finished**: Ctrl+Shift+I, figures that are never cut (the full value on hover), labelled actions at the foot of the panel, and a calm state while a big column is counted.
+- **A lighter top band.** A little more room, and the search is one frame with its four options inside it. The ƒx menu of functions appears when you filter by expression.
+
 ## 2.1.0 · 30 October 2026
 
 - **Parquet files open and export.** Columns are typed wherever every value allows it, compressed with zstd. On a 2 GB CSV (5.3 million rows, 38 columns): exported in 2 s to a file a third of the size, reopened in 1.1 s. Read back by pyarrow and DuckDB; files they write open too, with every compression but LZO.

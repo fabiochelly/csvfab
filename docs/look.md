@@ -20,7 +20,7 @@ of three separated by U+202F (narrow no-break space): `1 000 000`.
 
 | zone | height | background |
 |---|---|---|
-| top band | 46 (`m.band_h`) | `bg_deep`, 1 px `brd` rule at its bottom |
+| top band | 52 (`m.band_h`) | `bg_deep`, 1 px `brd` rule at its bottom |
 | filter bar (a filter in force) | 34 (`m.chips_h`) | `mix(accent, surf, .05)`, 1 px `brd` rule at its bottom |
 | find & replace bar (when open) | 50 + 1 | `bar_2`, 1 px `brd` bottom |
 | grid header: titles | 33 (`m.header_h`) | `surf` |
@@ -38,9 +38,9 @@ and the column inspector.
 
 ## Top band
 
-One band instead of a tab bar and a toolbar: 46 tall, `bg_deep`, padding 0 12, items
-vertically centred, 8 apart (`m.band_gap`). Left to right: menu, tabs, then against the
-right edge the search group, its toggles, Discard, Save.
+One band instead of a tab bar and a toolbar: 52 tall, `bg_deep`, padding 0 14, items
+vertically centred, 10 apart (`m.band_gap`). Left to right: menu, tabs, then against the
+right edge the search group (ƒx, field, toggles), Discard, Save.
 
 **Narrow windows**: the right group and the toggles are measured first. The search field
 keeps its 260 while the tabs can shrink; the tabs get what is left, at least 150 + 26. Under
@@ -68,25 +68,22 @@ that the field shrinks to 110, and Save loses its label below 200 of room for th
      24 × 24 at the room's right end, + button's look) lists every tab (● before an unsaved
      one, ✓ on the active). Too little room for even the active tab: its name gives way,
      down to 16 px.
-3. **Search group** (an input group, one frame):
-   - ƒx button: 40 wide × 31, fill `addon_bg`, 1 px `brd`, radius 6 0 0 6; the ƒx
-     glyph 22 × 19 in `txt_mut` (italic f joined to an x — draw it as a path, or
-     "ƒx" in an italic serif 15 / 600). Hover: glyph `txt_hi`, border `prim`, fill
-     `alpha(accent, .1)`.
-   - field: 260 × 31 (`m.search_w`), fill `bg`, 1 px `brd`, radius 0 6 6 0,
-     padding 6 × 12, ui 14 `txt_hi`, placeholder "Filter..." `txt_sub`. Expression
-     mode: 340 wide, mono 13. Invalid regex / expression: border `danger`, 3 px ring
-     `alpha(danger, .2)`.
-   - focus: border `prim` and a 4 px ring `focus_ring` around the whole group
-     (button included), the button's border `prim` too.
+3. **Search group**: one frame holding the field and the toggles, and the ƒx button in
+   expression mode (the user's choice: no double rule, no frames side by side). Fill `bg`, 1 px `brd`, radius 6,
+   `m.input_h` tall. Border `brd_2` on hover, `prim` with focus, and a 4 px ring `focus_ring`
+   around the whole frame. Invalid regex / expression: border `danger`. 16 from Save.
+   - ƒx button: only in expression mode (the ƒx toggle on), where it opens the functions.
+     36 wide, no border of its own; the ƒx glyph 22 × 19 in `txt_mut`. Hover: glyph `txt_hi`,
+     fill `alpha(accent, .1)` inside the frame's left end.
+   - field: 260 wide (`m.search_w`), ui 14 `txt_hi`, placeholder "Filter..." `txt_sub`.
+     Expression mode: 340 wide, mono 13.
 4. **Search toggles** (drawn by the user's design: neither their drawing nor their colours
-   change): a frame 118 × 32, fill `bg_deep`, 1 px `brd`, radius 7, padding 0 3, toggles 2
-   apart. Each toggle 26 × 28, a glyph 18 × 18 (stroke 1.35, round), no background ever:
-   off `txt_dim`, hover `txt_hi`, on `accent_2` (Invert on: `orange_txt`). Glyphs: *ignore
-   accents* "e" ui 600 17.5 with its acute accent stroke 1.9 in `tgl_acc_off` (on:
-   `danger_txt`); *regex* a dot and an asterisk (`.*`); *invert* two horizontal lines crossed
-   by a slash (≠); *expression* the ƒx glyph 20 × 17. Keyboard focus: 2 px ring
-   `alpha(prim, .45)`, radius 4.
+   change), inside the frame's right end, no background ever. Each 26 × 26, a glyph 18 × 18
+   (stroke 1.35, round): off `txt_dim`, hover `txt_hi`, on `accent_2` (Invert on:
+   `orange_txt`). Glyphs: *ignore accents* "e" ui 600 17.5 with its acute accent stroke 1.9
+   in `tgl_acc_off` (on: `danger_txt`); *regex* a dot and an asterisk (`.*`); *invert* two
+   horizontal lines crossed by a slash (≠); *expression* the ƒx glyph 20 × 17. Keyboard
+   focus: 2 px ring `alpha(prim, .45)`, radius 4.
 5. **Right group** (10 apart):
    - *Discard* (only with pending edits): outline button 34 × 30, padding 6 × 8, a ×
      16 × 16 stroke 2.4 in `danger`, border `alpha(danger, .5)`; hover fill
@@ -207,6 +204,13 @@ grey ghost on hover, ▾) are the user's: not to be redrawn or dropped.
     width in px, whatever the stretch). Whole picture at opacity .85, 1 on hover.
     Few distinct values: bars instead (one per value, 76 % of the slot wide, tops
     rounded).
+  - values far out, by the column panel's rule (`stats::far_cut`, read from the chart's
+    sample), when they would crush the others: the curve or the bars cover the values left,
+    end to end, at their own scale, and each cut side keeps the bar at its end for what is far
+    out: narrow (at most 4 px), `warn`, 30 % tall at least, its tooltip with "· with the values
+    far out"; in a sampled picture it reads "9000 and over", the bar going on past what was
+    read. A click or a drag on it keeps what it holds, as any bar. A column with nothing far
+    out is drawn as if the rule did not exist, min to max.
   - the gauge: 4 tall (`m.spk_gauge_h`) at the box's bottom, radius 2, filled part
     `gauge_fill` (share of non-empty cells), rest `gauge_empty`, each part at least
     6 px. Hovered part: `ok` (empty part: `alpha(gray_hi, .55)`).
@@ -424,7 +428,7 @@ The pills stay pills (the user's choice, not the first draft's plain text). Grad
   sep · Open (Ctrl+O) · Row [Go to… | Card] · File profile… · Look [Map | Insights] ·
   Schema [Create… | Validate…] · sep · Edit [Undo | Redo] · Review changes… · sep ·
   Find & replace (Ctrl+F) · Transform the file › · sep · Columns › · Rows › · sep ·
-  Density › (Compact, Normal, Airy) · Column inspector ✓ · sep ·
+  Density › (Compact, Normal, Airy) · Column inspector (Ctrl+Shift+I) ✓ · sep ·
   Help [Shortcuts | About…] · Quit (Ctrl+Q, danger).
 
 ## Column panel (▾ of a title)
@@ -439,8 +443,19 @@ The pills stay pills (the user's choice, not the first draft's plain text). Grad
   a type badge (padding 0 8, radius 9, ui 600 11, line 18, 1 px border: text
   `violet_txt` / `alpha(violet, .13)` / `.4`; numbers `ok_txt` / `ok_rgb`; dates
   `accent_2` / `accent`), "5 distinct values on 8 261", min / max lines (key 30 wide
-  `txt_dim`). Numbers get a histogram: 44 tall, bars 1 apart, `prim` at .75 (1 on
-  hover), tops radius 1.5.
+  `txt_dim`). Numbers and dates get a histogram: 44 tall, 28 bars 1 apart, `prim` at .75 (1 on
+  hover), tops radius 2, a value's bar by its place on the line, each saying its values on
+  hover in the figures' writing.
+  Values far out would crush the rest: past the quartiles by 3 times their gap (no gap: past
+  the 1st and 99th percentiles), when that stretch is longer than the one left, a side's
+  values gather in its end bar, `warn` at .75, at least 14 % tall, 5 px apart, a dashed 1 px
+  `alpha(warn, .7)` line in the gap; the other bars cover what is left, end to end, and a line
+  ui 11.5 `txt_dim` under them says what is gathered ("First bar: …", "Last bar: …", "End bars:
+  …"). A click on a bar, or a drag across bars (the rest at .3 while it lasts), keeps the rows
+  whose value lies from the first to the last value those bars hold (`view::Keeps::Range`,
+  its chip `<column> 10 to 20`), again: off; the stretch kept stays behind them,
+  `alpha(prim, .2)`. The histogram counts the column under its own filter aside: it stays
+  whole. The chart under a title follows the same rule (`stats::far_cut`), on its sample.
 - a search field (padding 5 × 10, ui 13), then the values list (max 320 tall,
   scrolls): rows padding 4 × 6, radius 4, checkbox + value + count; behind each row a
   bar of its share in `alpha(accent, .11)`; count ui 11.5 `txt_dim` right; hover fill
@@ -452,33 +467,53 @@ The pills stay pills (the user's choice, not the first draft's plain text). Grad
 
 The column panel, docked: at the right of the grid (left of the row card), 320 wide
 (`m.inspector_w`), `surf`, 1 px `brd` along its left edge, padding 12 6 0 16. Off by default,
-remembered in the config; its switch is in the status bar, also the main menu, its × closes it.
-Off, one flag is read a frame, and nothing is kept. It needs 300 px left for the grid, else
-it stands aside. It follows the column in hand; with none, the first column shown.
+remembered in the config; Ctrl+Shift+I toggles it (also its switch in the status bar, the main
+menu, the palette; its × closes it). Off, one flag is read a frame, and nothing is kept. It needs
+300 px left for the grid, else it stands aside and a toast says so, once. It follows the column
+in hand; with none, the first column shown.
 
-- head: the name ui 600 15 `txt_hi`, under it ui 12 `txt_mut`, "Numbers · 4 747 distinct ·
-  3 545 of 5 000 rows" (the last only under a filter); a × 26 × 26, radius 6, right.
-- key figures, three a line, 40 tall: a label ui 11.5 `txt_dim` over its value mono 12.5
-  `txt_hi` (cut with …, in full as its tooltip): Filled, Distinct, Empty, then numbers Min,
-  Median, Mean, Max, Sum; dates First, Median, Mean, Last; text Shortest, Longest. A number's
-  median goes to the row closest to it, as in the panel.
-- numbers and dates: the panel's histogram, 92 tall, its two ends mono 11 `txt_mut` under it.
-- other values repeating: "Top values", the 8 most frequent (30 tall, 2 apart, radius 6,
-  `surf_2`, a bar of its share `alpha(accent, .14)`, .32 when it is the filter in force; the
-  category's dot, the value ui 13 `txt`, the count mono 12 `txt_mut` right), "and N more". A
-  click sets the value filter a chart's part sets (same chip, same message), again: off.
+- head: the name ui 600 15 `txt_hi`, under it ui 12 `txt_mut`, "Numbers · 5 000 rows" ("3 545 of
+  5 000 rows" under a filter; "Empty" for a column with no value); a × 26 × 26, radius 6, right.
+- key figures, 40 a line: a label ui 11.5 `txt_dim` over its value mono 12.5 `txt_hi`, in the
+  same places for every value of a kind, the middle of the width common to every line:
+  Filled, Empty, Distinct (in the left half, the right half); numbers Min, Max / Median, Mean /
+  Sum alone; dates First, Last / Median, Mean; text Shortest, Longest. A value too long for its
+  cell is written shorter, whole in its tooltip: a number loses its decimals, then its digits
+  (`6,01e12`), a date its time; anything else is cut with …. A number's median goes to the row
+  closest to it, as in the panel.
+- numbers and dates: the panel's histogram, 92 tall, the column's two true ends mono 11
+  `txt_mut` under it (a date and time that does not fit: the date), and when its range is cut
+  (see the panel) what the end bars gather, ui 11.5 `txt_dim`, two lines at most: "Last bar: 37
+  values over 1 240,00".
+- the others: "Top values", the 8 most frequent (30 tall, 2 apart, radius 6, `surf_2`, a bar of
+  its share `alpha(accent, .14)`, .32 when it is the filter in force; the category's dot, the
+  value ui 13 `txt`, the count mono 12 `txt_mut` right), "and N more"; "Every value is
+  different." when they are. A click sets the value filter a chart's part sets (same chip,
+  same message), again: off.
 - "Worth a look" (ui 500 11.5 `txt_dim`, as every head here): lines ui 12.5 `txt`, up to two
-  lines, "Show" ui 500 12.5 `accent_2` at the right: empty cells, values not of the column's
-  kind (both from the count, shown by a value filter), then up to 4 Insights cards naming
-  the column first (outliers, values written otherwise…), shown as the dialog does. "Nothing
-  stands out." when there is nothing.
-- "Actions": the panel's tools row, and for numbers its data bars and colour scale.
+  lines, "Show" ui 500 12.5 `accent_2` at the right: empty cells ("Every cell is empty", no Show,
+  on a column with no value), values not of the column's kind (both from the count, shown by a
+  value filter), what the histogram's end bars gather ("659 values far out, over 1 131,48",
+  "1 date far out, before 2024-01-01", shown as a click on the bar shows it), then up to 4
+  Insights cards naming the column first (outliers, values written otherwise…), shown as the
+  dialog does, the far values' card left out when the bars already said it. "Nothing stands
+  out." when there is nothing. Far out is one definition (`stats::fences`); an Insights card
+  asks more of it (1 % of the values at most, a long tail of amounts being no finding), so a
+  chart can set apart what the report does not raise.
+- "Actions", at the foot under a 1 px `brd` rule, in the same place whatever is counted (a window
+  under 315 px of room scrolls it with the rest): the panel's tools named, three cells a line,
+  26 tall, 30 a line, icon 14 + ui 12: [Ascending | Descending] Freeze, [Group by… | Pivot…]
+  Convert…, [Split… | Merge…] [‹ | ›], [Insert… | Delete] and for numbers [data bars | colour
+  scale]. Joined pairs, as the panel's. Only those without a label, and Convert and
+  Freeze, have a tooltip. The insert menu opens over its button.
 
 Everything comes from jobs: the panel's count once the column has been in hand for 150 ms
 (the dictionary cache of `colcache` under it, the last 4 counts kept while they hold under a
 million values), the Insights report shared with its dialog, 1.5 s after the table last
-changed. "Counting…" until the first count; the last count of a column stays up while the
-next one is made.
+changed. Until the first count nothing moves or animates: the labels of the column's kind with
+a faint block `alpha(surf_2, .8)` for each value, the chart's or the values' place
+`alpha(surf_2, .6)` with "Counting…" ui 12 `txt_dim`, "Looking…". The last count of a column
+stays up at .6 opacity while the next one is made.
 
 ## Row card (Ctrl+I)
 

@@ -39,6 +39,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+E", "Fill by example: type one or two results, the column follows"),
     ("Ctrl+M", "File map: the whole file as one picture"),
     ("Ctrl+I", "Row card"),
+    ("Ctrl+Shift+I", "Column inspector"),
     ("Alt+↑ / Alt+↓", "Row card: previous / next row"),
     ("Ctrl+G", "Go to a row"),
     ("Alt+← / Alt+→", "Switch tab"),
@@ -54,6 +55,7 @@ pub const MOUSE: &[(&str, &str)] = &[
     ("Drag a title", "Move the column"),
     ("Double-click a title's edge", "Fit the column to its content"),
     ("Drag across a column chart", "Keep the rows in that range"),
+    ("Click or drag a histogram's bars", "Keep the rows in those bars (inspector, column panel)"),
     ("Right-click a title", "The column's menu"),
     ("Drag a row number", "Move the row"),
     ("Right-click a row number", "The row's menu"),
@@ -103,7 +105,9 @@ fn key_caps(pt: &egui::Painter, p: &Colors, right: f32, cy: f32, keys: &str) -> 
 
 /// The screenshot hooks of the shell: `theme:<id>` (without saving it), `welcome` (no tab),
 /// `palette[:query]`, `palette-recent:a;b`, `toast:<text>`, `dirty:<n>` (n edits),
-/// `density:<i>`, `inspector` (neither saved).
+/// `density:<i>`, `inspector` (neither saved), `inspect:<col>` (the column in hand),
+/// `inspect-hold` (the inspector's count never starts: its loading state), `inspect-add` (its
+/// insert menu open).
 fn shots(app: &mut App, ctx: &egui::Context) {
     if std::env::var_os("CSVFAB_SHOT").is_none() {
         return;
@@ -139,6 +143,11 @@ fn shots(app: &mut App, ctx: &egui::Context) {
     }
     if crate::shot::take("inspector").is_some() {
         app.config.inspector = Some(true);
+    }
+    if let Some(tab) = app.tabs.get_mut(app.active) {
+        if let Some(c) = crate::shot::take("inspect") { tab.grid.focus_col = c.parse().ok(); }
+        if crate::shot::take("inspect-hold").is_some() { tab.inspector.get_or_insert_default().hold = true; }
+        if crate::shot::take("inspect-add").is_some() { tab.inspector.get_or_insert_default().add_open = true; }
     }
     if let Some(t) = crate::shot::take("toast") {
         // Held for a minute: the renderer's clock runs faster than the wall's.
@@ -371,6 +380,7 @@ fn filter_chips(tab: &crate::tab::Tab) -> Vec<Chip> {
         let what = match &pk.keep {
             csvfab_engine::view::Keeps::Values(v) if v.len() == 1 => match v.iter().next().map(String::as_str) { Some("") => "empty".to_string(), Some(v) => format!("= {v}"), None => String::new() },
             csvfab_engine::view::Keeps::Values(v) => format!("{} values", fmt_int(v.len())),
+            csvfab_engine::view::Keeps::Range { label, .. } => label.to_string(),
             csvfab_engine::view::Keeps::Part(..) => tab.spark.picks.get(&pk.col).map_or("a chart's part".to_string(), |p| p.label.clone()),
         };
         chips.push((heads.get(pk.col).cloned().unwrap_or_default(), what, 3, pk.col));
@@ -455,36 +465,43 @@ pub fn top_band(app: &mut App, ui: &mut Ui) {
         let discard_w = if dirty { 34.0 + 10.0 } else { 0.0 };
         let right_w = |compact: bool| discard_w + if compact { 34.0 + 30.0 - 1.0 } else { save_full + 30.0 - 1.0 };
         let field_pref = if tab.expr_mode { m.search_expr_w } else { m.search_w };
+        // The search is one frame: the field and the toggles, and ƒx (the functions) in
+        // expression mode only; Save stands further off.
+        let (fx_w, tgl_w, save_gap) = (if tab.expr_mode { 36.0 } else { 0.0 }, 4.0 * 26.0 + 4.0, gap + 6.0);
         // Width for the tabs and the field: past the ƒx button, the toggles, the right group.
-        let room = |compact: bool| (bar.max.x - tabs_x - gap - 40.0 - gap - 118.0 - gap - right_w(compact)).max(0.0);
+        let room = |compact: bool| (bar.max.x - tabs_x - gap - fx_w - tgl_w - save_gap - right_w(compact)).max(0.0);
         let tabs_min = app.tabs.iter().map(|t| tab_w(&pt, &p, &m, t, 150.0) + 2.0).sum::<f32>().min(150.0) + 26.0;
         let compact = room(false) - tabs_min < 200.0;
         let field_w = (room(compact) - tabs_min).clamp(110.0_f32.min(room(compact)), field_pref).round();
 
-        // Search group: ƒx | field, then the toggles and Save, against the right edge.
-        let group_x = bar.max.x - right_w(compact) - gap - 118.0 - gap - field_w - 40.0;
+        // Search group: ƒx, field and toggles in one frame, then Save, against the right edge.
+        let group_x = bar.max.x - right_w(compact) - save_gap - tgl_w - field_w - fx_w;
         tabs(app, ui, Rect::from_x_y_ranges(tabs_x..=group_x - gap, bar.y_range()), &mut close, &mut open_file, &mut pick);
         let Some(tab) = app.tabs.get_mut(app.active) else { return };
-        let fr = at(group_x, 40.0, m.input_h);
+        let fr = at(group_x, fx_w, m.input_h);
         let sr = at(fr.max.x, field_w, m.input_h);
-        let fx = ui.interact(fr, Id::unique("tb-fx"), Sense::click());
-        let on = tab.expr_mode;
-        let fh = ease(&ctx, fx.id, fx.hovered() || on);
         let id = Id::unique("global-search");
         let focused = ctx.memory(|mem| mem.has_focus(id));
         let ff = ease(&ctx, id.with("ring"), focused);
         let bad = tab.filter_error.is_some() && tab.filter_error_col.is_none();
-        let sh = ease(&ctx, id.with("hover"), ui.rect_contains_pointer(sr));
+        let group = Rect::from_min_max(fr.min, pos2(sr.max.x + tgl_w, sr.max.y));
+        let sh = ease(&ctx, id.with("hover"), ui.rect_contains_pointer(group));
         if ff > 0.0 {
-            ui.painter().rect_stroke(Rect::from_min_max(fr.min, sr.max), 6.0, Stroke::new(4.0, p.focus_ring.gamma_multiply(ff)), StrokeKind::Outside);
-        }
-        ui.painter().rect(fr, CornerRadius { nw: 6, sw: 6, ne: 0, se: 0 }, mix(alpha(p.accent, 0.1), p.addon_bg, fh), Stroke::new(1.0, mix(p.prim, p.brd, fh.max(ff))), StrokeKind::Inside);
-        icons::fx(ui.painter(), Rect::from_center_size(fr.center(), vec2(22.0, 19.0)), 1.8, mix(p.txt_hi, p.txt_mut, fh));
-        if fx.on_hover_text("Insert a function: filter with a formula").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            menu_run = Some(crate::tools::fx_picker::open_search);
+            ui.painter().rect_stroke(group, 6.0, Stroke::new(4.0, p.focus_ring.gamma_multiply(ff)), StrokeKind::Outside);
         }
         let brd = if bad { p.danger } else { mix(p.prim, mix(p.brd_2, p.brd, sh), ff) };
-        ui.painter().rect(sr, CornerRadius { nw: 0, sw: 0, ne: 6, se: 6 }, p.bg, Stroke::new(1.0, brd), StrokeKind::Inside);
+        ui.painter().rect(group, 6.0, p.bg, Stroke::new(1.0, brd), StrokeKind::Inside);
+        if tab.expr_mode {
+            let fx = ui.interact(fr, Id::unique("tb-fx"), Sense::click());
+            let fh = ease(&ctx, fx.id, fx.hovered());
+            if fh > 0.0 {
+                ui.painter().rect_filled(fr.shrink(1.0), CornerRadius { nw: 5, sw: 5, ne: 0, se: 0 }, alpha(p.accent, 0.1 * fh));
+            }
+            icons::fx(ui.painter(), Rect::from_center_size(fr.center(), vec2(22.0, 19.0)), 1.8, mix(p.txt_hi, p.txt_mut, fh));
+            if fx.on_hover_text("Insert a function: filter with a formula").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                menu_run = Some(crate::tools::fx_picker::open_search);
+            }
+        }
         if let Some(t) = crate::shot::take("search").or_else(|| crate::shot::take("searchre").inspect(|_| tab.filter.regex = true)) {
             tab.filter.global = t;
             refresh = true;
@@ -498,7 +515,7 @@ pub fn top_band(app: &mut App, ui: &mut Ui) {
             .text_color(p.txt_hi)
             .hint_text(RichText::new(if tab.expr_mode { "num({Amount}) > 1000" } else { "Filter..." }).font(font).color(p.txt_sub))
             .frame(egui::Frame::NONE);
-        let r = crate::widgets::centered_edit(ui, sr.shrink2(vec2(12.0, 0.0)), te);
+        let r = crate::widgets::centered_edit(ui, sr.with_min_x(sr.min.x + if tab.expr_mode { 2.0 } else { 12.0 }).with_max_x(sr.max.x - 6.0), te);
         crate::tools::formula::search_assist(ui, tab, &r, &p, &m);
         if focus {
             r.request_focus();
@@ -511,8 +528,7 @@ pub fn top_band(app: &mut App, ui: &mut Ui) {
         }
 
         // Toggles: ignore accents, regex, invert, expression (no transition: they switch at once).
-        let tr = at(sr.max.x + gap, 118.0, 32.0);
-        ui.painter().rect(tr, 7.0, p.bg_deep, Stroke::new(1.0, p.brd), StrokeKind::Inside);
+        let tr = at(sr.max.x, tgl_w, 26.0);
         let toggles: [(&str, bool, Color32); 4] = [
             ("Match accents and case", tab.filter.match_case, p.accent_2),
             ("Regular expression", tab.filter.regex, p.accent_2),
@@ -520,7 +536,7 @@ pub fn top_band(app: &mut App, ui: &mut Ui) {
             ("Expression: num({Amount}) > 1000 && contains({City}, \"lyon\")", tab.expr_mode, p.accent_2),
         ];
         for (k, (tip, on, oncol)) in toggles.into_iter().enumerate() {
-            let r = Rect::from_min_size(pos2(tr.min.x + 3.0 + k as f32 * 28.0, tr.min.y + 2.0), vec2(26.0, 28.0));
+            let r = Rect::from_min_size(pos2(tr.min.x + k as f32 * 26.0, tr.min.y), vec2(26.0, 26.0));
             let resp = ui.interact(r, Id::unique(("tgl", k)), Sense::click());
             let c = if on { oncol } else if resp.hovered() { p.txt_hi } else { p.txt_dim };
             let g = Rect::from_center_size(r.center(), vec2(18.0, 18.0));
@@ -814,6 +830,7 @@ pub fn filter_bar(app: &mut App, ui: &mut Ui) {
 fn command_icon(name: &str) -> Option<Icon> {
     Some(match name {
         "Fill series down" => Icon::FillDown,
+        "Column inspector" => Icon::Profile,
         "Show or hide columns…" => Icon::Columns,
         "Convert formats…" => Icon::Convert,
         "Look up from another tab…" => Icon::Link,
@@ -997,7 +1014,7 @@ fn main_menu(ui: &mut Ui, app: &App, p: &Colors, cmd: &mut Option<&str>, run: &m
             }
         }
     });
-    if Item::new("Column inspector").icon(Icon::Profile).checked(app.config.inspector == Some(true)).show(ui, p).clicked() {
+    if Item::new("Column inspector").icon(Icon::Profile).keys("Ctrl+Shift+I").checked(app.config.inspector == Some(true)).show(ui, p).clicked() {
         *cmd = Some("inspector");
         ui.close();
     }
@@ -1390,7 +1407,7 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                     tab.show_totals = !tab.show_totals;
                 }
                 ui.add_space(14.0);
-                if switch(ui, 16.0, 0.12, app.config.inspector == Some(true), "Column inspector", &|pt, r, c| icons::inspector(pt, r, if c == Color32::WHITE { p.accent_2 } else { c })) {
+                if switch(ui, 16.0, 0.12, app.config.inspector == Some(true), "Column inspector (Ctrl+Shift+I)", &|pt, r, c| icons::inspector(pt, r, if c == Color32::WHITE { p.accent_2 } else { c })) {
                     inspector_toggle = true;
                 }
                 ui.add_space(14.0);
@@ -1781,6 +1798,7 @@ pub fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
 fn about(name: &str) -> Option<&'static str> {
     Some(match name {
         "Map" => "the file map: the whole file as one picture",
+        "Column inspector" => "the column in hand, docked: its figures, its spread, what is worth a look",
         "Insights" => "what I noticed: keys, values written otherwise, outliers, copies, hidden rules",
         "File profile…" => "every column at a glance",
         "Clean up…" => "spaces, invisible characters, garbled accents, empty rows…",

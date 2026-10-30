@@ -121,6 +121,13 @@ pub struct Insight {
     pub acts: Vec<Act>,
 }
 
+impl Insight {
+    /// A card on values far from all the others.
+    pub fn is_far(&self) -> bool {
+        matches!(self.show, Some(Show { what: What::Far { .. }, .. }))
+    }
+}
+
 /// The rows of a card, as `marks` finds them again on every row.
 #[derive(Clone, Debug)]
 pub struct Show {
@@ -802,9 +809,10 @@ fn far_key(v: &str, date: bool) -> f64 {
     if kinds::is_numeric_like(v) { kinds::num_key(v) } else { f64::NAN }
 }
 
-/// Numbers and dates far from all the others: beyond 3 interquartile ranges
-/// of the quartiles (an extreme outlier for Tukey), a handful at most — a
-/// long tail of amounts is no finding. A few negatives among positives.
+/// Numbers and dates far from all the others: past `stats::fences`, the charts'
+/// far out (an extreme outlier for Tukey), a handful at most — a long tail of
+/// amounts is no finding, though the charts set it apart. A few negatives among
+/// positives.
 fn in_far(x: &mut Ctx) -> Option<()> {
     // Column by column, the columns in parallel (each over the sample's values); the
     // cards in column order.
@@ -826,7 +834,7 @@ fn in_far(x: &mut Ctx) -> Option<()> {
         let iqr = q3 - q1;
         let mut add_far = None;
         if iqr > 0.0 {
-            let (lo, hi) = (q1 - 3.0 * iqr, q3 + 3.0 * iqr);
+            let (lo, hi) = crate::stats::fences(q1, q3);
             let mut far: Vec<(f64, &str)> = keyed.iter().filter(|e| !e.0.is_nan() && (e.0 < lo || e.0 > hi)).copied().collect();
             if !far.is_empty() && far.len() as f64 <= 1f64.max(xs.len() as f64 * 0.01) {
                 let mid = (q1 + q3) / 2.0;

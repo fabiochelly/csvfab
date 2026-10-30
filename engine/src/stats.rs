@@ -447,9 +447,42 @@ pub struct HistBin {
     pub count: u64,
     pub first: String,
     pub last: String,
+    /// The same two where the bars place them (a date: in seconds): what a filter on the bar keeps.
+    pub lo: f64,
+    pub hi: f64,
+    /// An end bar gathering the values far from all the others, however far.
+    pub tail: bool,
 }
 
 pub const PANEL_BINS: usize = 28;
+/// Past the quartiles by this many times their gap, a value is far out (Tukey's outer fence).
+const FAR_OUT: f64 = 3.0;
+
+/// Past these, a value is far out: one definition, for the charts and Insights.
+pub fn fences(q1: f64, q3: f64) -> (f64, f64) {
+    (q1 - FAR_OUT * (q3 - q1), q3 + FAR_OUT * (q3 - q1))
+}
+
+/// Where a chart's line stops short of its ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cut {
+    /// The fences, inside the values' ends.
+    pub a: f64,
+    pub z: f64,
+    /// A side whose values go to its end bar.
+    pub low: bool,
+    pub high: bool,
+}
+
+/// The rule of every chart, on a line from `first` to `end`: past the fences of the quartiles
+/// (they have no gap, most values alike: past `percentiles`, the 1st and 99th), a side is cut
+/// when more of the line lies there than within the fences. The middle half of the values
+/// then takes a good part of the width, however wild the extremes.
+pub fn far_cut(first: f64, end: f64, (q1, q3): (f64, f64), percentiles: impl FnOnce() -> (f64, f64)) -> Cut {
+    let (a, z) = if q3 > q1 { fences(q1, q3) } else { percentiles() };
+    let (a, z) = (a.max(first), z.min(end));
+    Cut { a, z, low: z > a && a - first > z - a, high: z > a && end - z > z - a }
+}
 
 /// What the column panel says of a column, from its value counts.
 #[derive(Clone, Debug, Default)]
@@ -471,7 +504,8 @@ pub struct PanelProfile {
     /// Dates: the middle one as written, and the mean date.
     pub date_median: Option<String>,
     pub date_mean: Option<String>,
-    /// Numbers or dates spread over PANEL_BINS bars, when they are not all one value.
+    /// Numbers or dates spread over PANEL_BINS bars, when they are not all one value. Values far
+    /// out, when they would crush the others, go to the end bars (`tail`, `far_cut`).
     pub hist: Vec<HistBin>,
 }
 
@@ -526,6 +560,10 @@ pub fn panel_profile(vc: &ValueCounts) -> PanelProfile {
     }
     p.min = Some((lo.key, vc.value(lo.pos as usize).trim().to_string()));
     p.max = Some((hi.key, vc.value(hi.pos as usize).trim().to_string()));
+    // Where a value stands on the bars: dates by their time, keys jump from month to month.
+    let place = |k: f64, i: u32| if kind == Kind::Date { crate::sparkline::time_key(vc.value(i as usize)).unwrap_or(k) } else { k };
+    let (first, end) = (place(lo.key, lo.pos), place(hi.key, hi.pos));
+    let mut cut = None;
     if kind != Kind::Text {
         // The middle of the values in order (the mean of the two middle ones for an even count).
         let mut ks: Vec<(f64, u32, u32)> = keyed.clone();
@@ -553,15 +591,28 @@ pub fn panel_profile(vc: &ValueCounts) -> PanelProfile {
                 p.date_mean = t.split(' ').next().map(str::to_string);
             }
         }
+        let q = |pos: u64| { let (k, i) = at(pos); place(k, i) };
+        cut = Some(far_cut(first, end, (q(c / 4), q(c * 3 / 4)), || (q(c / 100), q(c * 99 / 100))));
     }
-    // Where a value stands on the bars: dates by their time, keys jump from month to month.
-    let place = |k: f64, i: u32| if kind == Kind::Date { crate::sparkline::time_key(vc.value(i as usize)).unwrap_or(k) } else { k };
-    let (first, span) = (place(lo.key, lo.pos), place(hi.key, hi.pos) - place(lo.key, lo.pos));
-    if kind != Kind::Text && hi.key > lo.key && span > 0.0 {
+    let span = end - first;
+    if let Some(Cut { a, z, low, high }) = cut.filter(|_| hi.key > lo.key && span > 0.0) {
+        // The other bars cover the values left, end to end.
+        let (mut from, mut to) = (first, end);
+        if low || high {
+            (from, to) = (f64::INFINITY, f64::NEG_INFINITY);
+            for &(k, _, i) in &keyed {
+                let x = place(k, i);
+                if (!low || x >= a) && (!high || x <= z) { from = from.min(x); to = to.max(x); }
+            }
+        }
+        let body = PANEL_BINS - low as usize - high as usize;
+        let bar = |x: f64| {
+            if x < from { 0 } else if x > to { PANEL_BINS - 1 } else { low as usize + (((x - from) / (to - from) * body as f64).floor().max(0.0) as usize).min(body - 1) }
+        };
         let mut bins = vec![HistBin::default(); PANEL_BINS];
         let mut ends = vec![(Best::NONE, Best::NONE); PANEL_BINS];
         for &(k, n, i) in &keyed {
-            let b = (((place(k, i) - first) / span * PANEL_BINS as f64).floor().max(0.0) as usize).min(PANEL_BINS - 1);
+            let b = bar(place(k, i));
             bins[b].count += n as u64;
             ends[b].0.lower(k, i);
             ends[b].1.higher(k, i);
@@ -570,8 +621,11 @@ pub fn panel_profile(vc: &ValueCounts) -> PanelProfile {
             if f.pos != u32::MAX {
                 b.first = vc.value(f.pos as usize).trim().to_string();
                 b.last = vc.value(l.pos as usize).trim().to_string();
+                (b.lo, b.hi) = (place(f.key, f.pos), place(l.key, l.pos));
             }
         }
+        bins[0].tail = low;
+        bins[PANEL_BINS - 1].tail = high;
         p.hist = bins;
     }
     p
@@ -1459,7 +1513,7 @@ mod tests {
         assert_eq!(p.kind, Some(Kind::Number));
         assert_eq!((p.sum, p.count, p.median), (15.0, 4, Some(2.0)));
         assert_eq!(p.hist.len(), PANEL_BINS);
-        assert_eq!(p.hist[0], HistBin { count: 1, first: "1".into(), last: "1".into() });
+        assert_eq!(p.hist[0], HistBin { count: 1, first: "1".into(), last: "1".into(), lo: 1.0, hi: 1.0, tail: false });
         assert_eq!(p.hist[3].count, 2);   // floor((2 - 1) / 9 × 28)
         assert_eq!(p.hist[27].first, "10");
         // Dates: the middle one as written, the mean in days (not in YYYYMMDD keys).
@@ -1489,6 +1543,65 @@ mod tests {
             assert!(crate::colcache::get(&plain.st, 0).dict.is_none());
             assert_eq!(dump(&plain, trim), dump(&fast, trim));
         }
+    }
+
+    /// A few wild values leave the others their bars; the ends stay true; spread values lose nothing.
+    #[test]
+    fn far_values_go_to_the_end_bars() {
+        let no = AtomicBool::new(false);
+        let prof = |csv: &str| { let t = table(csv); panel_profile(&value_counts(&t.st, &all(&t), 0, false, &no).unwrap()) };
+        let mut csv = String::from("n;x\n-90000;a\n");
+        for i in 0..2000 { csv += &format!("{};a\n", 100 + i % 400); }
+        for v in [22_039, 9_000, 15_000] { csv += &format!("{v};a\n"); }
+        let p = prof(&csv);
+        assert_eq!(p.hist.len(), PANEL_BINS);
+        let (a, z) = (&p.hist[0], &p.hist[PANEL_BINS - 1]);
+        assert!(a.tail && z.tail);
+        assert_eq!((a.count, a.first.as_str(), a.last.as_str()), (1, "-90000", "-90000"));
+        assert_eq!((z.count, z.first.as_str(), z.last.as_str(), z.lo, z.hi), (3, "9000", "22039", 9000.0, 22039.0));
+        // Every value is in a bar; the others share theirs fairly.
+        assert_eq!(p.hist.iter().map(|b| b.count).sum::<u64>(), 2004);
+        let body = &p.hist[1..PANEL_BINS - 1];
+        assert!(body.iter().all(|b| b.count > 0 && b.count < 200 && !b.tail), "{body:?}");
+        assert_eq!((body[0].first.as_str(), body[body.len() - 1].last.as_str()), ("100", "499"));
+        // Nothing wild, nothing cut: 1 to 100 evenly, or a normal-looking hump.
+        let even: String = std::iter::once("n;x\n".to_string()).chain((1..=100).map(|i| format!("{i};a\n"))).collect();
+        assert!(prof(&even).hist.iter().all(|b| !b.tail));
+        // Most values alike: the fences are the percentiles, what is past the 99th goes to its bar.
+        let mut csv = String::from("n;x\n");
+        for i in 0..500 { csv += &format!("{};a\n", if i % 50 == 0 { 2 + i / 50 } else { 1 }); }
+        csv += "1000000;a\n";
+        let p = prof(&csv);
+        assert!(p.hist[PANEL_BINS - 1].tail, "{:?}", p.hist);
+        assert_eq!((p.hist[PANEL_BINS - 1].count, p.hist[PANEL_BINS - 1].first.as_str(), p.hist[PANEL_BINS - 1].last.as_str()), (5, "8", "1000000"));
+        // All but a few alike, no spread at all: one bar and what is left, nothing cut.
+        let mut csv = String::from("n;x\n");
+        for _ in 0..999 { csv += "5;a\n"; }
+        csv += "7000;a\n";
+        assert!(prof(&csv).hist.iter().all(|b| !b.tail));
+        // Dates, on the time line: a placeholder from long ago.
+        let mut csv = String::from("d;x\n1900-01-01;a\n");
+        for i in 0..800 { csv += &format!("2024-{:02}-{:02};a\n", i % 12 + 1, i % 28 + 1); }
+        let p = prof(&csv);
+        assert!(p.hist[0].tail && !p.hist[PANEL_BINS - 1].tail);
+        assert_eq!((p.hist[0].count, p.hist[0].first.as_str()), (1, "1900-01-01"));
+        assert_eq!(p.hist[0].lo, crate::sparkline::time_key("1900-01-01").unwrap());
+        assert!(p.hist[1].first.starts_with("2024-"));
+    }
+
+    /// What a bar says it holds is what a filter on it keeps.
+    #[test]
+    fn a_range_keeps_what_the_bars_hold() {
+        use crate::view::{Keeps, ValuePick};
+        let keep = |kind, lo, hi| ValuePick { col: 0, keep: Keeps::Range { kind, lo, hi, label: "x".into() } };
+        let k = keep(Kind::Number, 16.0, 120.5);
+        assert!(k.test("16") && k.test(" 120.50 € ") && k.test("1 0") == k.test("10"));
+        assert!(!k.test("15.99") && !k.test("120.51") && !k.test("") && !k.test("n/a"));
+        let (a, z) = (crate::sparkline::time_key("2024-01-01").unwrap(), crate::sparkline::time_key("2024-02-01").unwrap());
+        let k = keep(Kind::Date, a, z);
+        assert!(k.test("2024-01-31") && k.test("2024-02-01") && !k.test("2024-02-02") && !k.test("3"));
+        assert_eq!(k, keep(Kind::Date, a, z));
+        assert_ne!(k, keep(Kind::Date, a, z + 1.0));
     }
 
     #[test]

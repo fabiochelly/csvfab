@@ -39,6 +39,11 @@ fn main() {
                 for _ in 0..10 { h.step(); std::thread::sleep(Duration::from_millis(16)); }
                 h.hover_at(egui::pos2(dx, dy));
             }
+            // SHOT_RELEASE=X,Y: the button let go there, a few frames on.
+            if let Some((dx, dy)) = std::env::var("SHOT_RELEASE").ok().and_then(|s| s.split_once(',').and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))) {
+                for _ in 0..10 { h.step(); std::thread::sleep(Duration::from_millis(16)); }
+                h.event(egui::Event::PointerButton { pos: egui::pos2(dx, dy), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+            }
         }
     }
     // Frames until the file is read, the view and charts computed and the animations over.

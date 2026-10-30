@@ -53,7 +53,7 @@ fn density_changes_the_rows_and_keeps_the_top_one() {
         let t = &h.state().tabs[0];
         assert_eq!((t.grid.top, h.state().m.row_h), (500, *rh));
         // The first row's first cell, then the third's.
-        let y0 = 46.0 + 68.0 + 29.0;
+        let y0 = 52.0 + 68.0 + 29.0;
         for k in [0.0, 2.0] {
             click(&mut h, egui::pos2(200.0, y0 + (k + 0.5) * rh));
             assert_eq!(h.state().tabs[0].grid.cursor.map(|c| c.row), Some(500 + k as usize), "density {d}");
@@ -70,7 +70,7 @@ fn chips_bar_only_with_a_filter() {
     let ctx = h.ctx.clone();
     let body_top = |h: &H| h.ctx.viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, ws)| ws.iter()).filter(|w| w.sense.senses_click() && w.sense.senses_drag()).map(|w| w.rect).max_by(|a, b| a.area().total_cmp(&b.area())).unwrap().min.y);
     let y0 = body_top(&h);
-    assert_eq!(y0, 46.0 + 68.0 + 29.0);
+    assert_eq!(y0, 52.0 + 68.0 + 29.0);
     h.state_mut().tabs[0].filter.global = "lyon".into();
     h.state_mut().tabs[0].refresh(&ctx);
     wait(&mut h, &|a| !a.tabs[0].busy());
@@ -150,5 +150,172 @@ fn inspector_on_a_number_and_a_date_column() {
     wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()));
     let c = h.state().tabs[0].inspector.as_ref().unwrap().counted().unwrap();
     assert!(c.prof.date_median.is_some() && c.prof.date_mean.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The inspector's histogram: x in the window of bar `i` of 28 (`right`: the last one, set apart).
+const HIST_Y: f32 = 350.0;
+fn hist_x(i: f32) -> f32 {
+    896.0 + 288.0 * (i + 0.5) / 28.0
+}
+
+/// A click on a bar and a drag across bars keep what the bars say; the end bar keeps the far
+/// values, however far; again: off. The histogram stays whole under its own filter.
+#[test]
+fn the_inspector_histogram_filters_what_it_shows() {
+    let csv: String = std::iter::once("v,x\n".to_string()).chain((0..400).map(|i| format!("{},a\n", i % 100 + 1))).chain(["900000,b\n".to_string(), "22039,b\n".to_string(), "1500000,b\n".to_string()]).collect();
+    let (mut h, dir) = app_on(&csv, "insp-hist");
+    h.state_mut().tabs[0].grid.focus_col = Some(0);
+    h.state_mut().toggle_inspector();
+    wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()));
+    h.run_steps(2);
+    let c = h.state().tabs[0].inspector.as_ref().unwrap().counted().unwrap();
+    let last = c.prof.hist.last().unwrap().clone();
+    assert!(last.tail && last.count == 3, "{last:?}");
+    let body = c.prof.hist[..27].to_vec();
+    assert!(body.iter().all(|b| b.count > 0));
+    // The end bar.
+    click(&mut h, egui::pos2(1181.0, HIST_Y));
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() == 3);
+    assert!(matches!(&h.state().tabs[0].filter.picks[..], [p] if matches!(p.keep, Keeps::Range { lo: 22039.0, hi: 1500000.0, .. })));
+    wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()));
+    assert_eq!(h.state().tabs[0].inspector.as_ref().unwrap().counted().unwrap().prof.hist, c.prof.hist, "its own filter aside");
+    h.run_steps(3);
+    // Again: off.
+    click(&mut h, egui::pos2(1181.0, HIST_Y));
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() == 403);
+    assert!(h.state().tabs[0].filter.picks.is_empty());
+    h.run_steps(3);
+    // A bar, a drag.
+    click(&mut h, egui::pos2(hist_x(4.0), HIST_Y));
+    let want: u64 = body[4].count;
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() as u64 == want);
+    h.run_steps(3);
+    click(&mut h, egui::pos2(hist_x(4.0), HIST_Y));
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() == 403);
+    h.run_steps(3);
+    let (a, z) = (egui::pos2(hist_x(2.0), HIST_Y), egui::pos2(hist_x(9.0), HIST_Y));
+    h.hover_at(a);
+    h.run_steps(1);
+    h.event(Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.run_steps(1);
+    for k in 1..=4 { h.hover_at(a + (z - a) * (k as f32 / 4.0)); h.run_steps(1); }
+    h.event(Event::PointerButton { pos: z, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(3);
+    let want: u64 = body[2..=9].iter().map(|b| b.count).sum();
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() as u64 == want);
+    assert!(matches!(&h.state().tabs[0].filter.picks[..], [p] if matches!(p.keep, Keeps::Range { lo, hi, .. } if lo == body[2].lo && hi == body[9].hi)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Ctrl+Shift+I is the inspector's, Ctrl+I still the row card's; the palette finds it.
+#[test]
+fn the_inspector_has_its_shortcut() {
+    use egui::{Key, Modifiers};
+    let (mut h, dir) = app_on(CSV, "insp-key");
+    let press = |h: &mut H, modifiers: Modifiers| {
+        for pressed in [true, false] { h.event(Event::Key { key: Key::I, physical_key: None, pressed, repeat: false, modifiers }); }
+        h.run_steps(3);
+    };
+    let card = h.state().card.open;
+    press(&mut h, Modifiers::COMMAND | Modifiers::SHIFT);
+    assert_eq!((h.state().config.inspector, h.state().card.open), (Some(true), card));
+    press(&mut h, Modifiers::COMMAND | Modifiers::SHIFT);
+    assert_eq!((h.state().config.inspector, h.state().card.open), (Some(false), card));
+    assert!(h.state().tabs[0].inspector.is_none());
+    click(&mut h, egui::pos2(200.0, 52.0 + 68.0 + 29.0 + 16.0));
+    press(&mut h, Modifiers::COMMAND);
+    assert_eq!((h.state().config.inspector, h.state().card.open), (Some(false), !card));
+    assert!(crate::tools::commands().iter().any(|c| c.name == "Column inspector" && c.keys == Some("Ctrl+Shift+I")));
+    assert!(crate::chrome::SHORTCUTS.iter().any(|k| k.0 == "Ctrl+Shift+I"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The figures keep their places whatever the values; every state draws, narrow or not.
+#[test]
+fn the_inspector_on_every_kind_of_column() {
+    let csv = "n,empty,one,long,day\n".to_string() + &(0..30).map(|i| format!("{},,42,{}.25,2024-01-{:02}\n", i, 9_000_000_000_000u64 + i * 1_000_000_007, i % 28 + 1)).collect::<String>();
+    let (mut h, dir) = app_on(&csv, "insp-kinds");
+    h.state_mut().toggle_inspector();
+    for c in 0..5 {
+        h.state_mut().tabs[0].grid.focus_col = Some(c);
+        h.run_steps(1);
+        wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()));
+        h.run_steps(2);
+    }
+    // No room: it stands aside and says so, once; back when there is.
+    h.set_size(egui::vec2(560.0, 400.0));
+    h.run_steps(3);
+    assert!(h.state().tabs[0].inspector.as_ref().is_some_and(|i| i.is_aside()));
+    assert!(h.state().toasts.iter().any(|t| t.text.contains("No room")));
+    h.set_size(egui::vec2(1000.0, 300.0));
+    h.run_steps(3);
+    assert!(h.state().tabs[0].inspector.as_ref().is_some_and(|i| !i.is_aside()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Worth a look says what the histogram sets apart, and Show keeps the same rows as the end
+/// bar; a column without far values has no such line.
+#[test]
+fn worth_a_look_agrees_with_the_histogram() {
+    // 3 % far out: too many for an Insights card, and the histogram gathers them all the same.
+    let csv: String = std::iter::once("v,w\n".to_string()).chain((0..970).map(|i| format!("{},{}\n", i % 100 + 1, i % 100 + 1))).chain((0..30).map(|i| format!("{},{}\n", 50_000 + i * 100, i % 100 + 1))).collect();
+    let (mut h, dir) = app_on(&csv, "insp-far");
+    h.state_mut().tabs[0].grid.focus_col = Some(0);
+    h.state_mut().toggle_inspector();
+    wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now() && i.settled()));
+    h.run_steps(2);
+    let c = h.state().tabs[0].inspector.as_ref().unwrap().counted().unwrap();
+    assert_eq!(c.prof.hist.last().map(|b| (b.tail, b.count)), Some((true, 30)));
+    let far = crate::colpanel::far_bars(&c.prof);
+    assert_eq!(far, vec![(27, "30 values far out, over 100".to_string())]);
+    // The cards leave it out: the same fences, but a card is for a handful.
+    let tab = &h.state().tabs[0];
+    let st = tab.st().unwrap().clone();
+    let rep = csvfab_engine::insights::insights(&st, &std::sync::atomic::AtomicBool::new(false), None).unwrap();
+    assert!(!rep.items.iter().any(|i| i.is_far()), "over 1 % of the values: no card");
+    // Its line: the first under the head, under the chart and its note. Show keeps the end bar's rows.
+    click(&mut h, egui::pos2(1170.0, 456.0));
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() == 30);
+    assert!(matches!(&h.state().tabs[0].filter.picks[..], [p] if matches!(p.keep, Keeps::Range { lo: 50000.0, hi: 52900.0, .. })));
+    // Without far values: the bars and the line are gone together.
+    h.state_mut().tabs[0].grid.focus_col = Some(1);
+    h.run_steps(1);
+    wait(&mut h, &|a| a.tabs[0].inspector.as_ref().is_some_and(|i| i.counted_now()));
+    let c = h.state().tabs[0].inspector.as_ref().unwrap().counted().unwrap();
+    assert!(c.prof.hist.iter().all(|b| !b.tail) && crate::colpanel::far_bars(&c.prof).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A drag in a column's chart, end bar included, keeps what the bars hold, on screen.
+#[test]
+fn a_chart_drag_keeps_its_end_bar() {
+    let csv: String = std::iter::once("a,v\n".to_string()).chain((0..400).map(|i| format!("x,{}\n", 100 + i % 100))).chain(["x,900000\n".to_string(), "x,22039\n".to_string(), "x,1500000\n".to_string()]).collect();
+    let (mut h, dir) = app_on(&csv, "chart-end");
+    wait(&mut h, &|a| a.tabs[0].spark.base.is_some());
+    h.run_steps(3);
+    let t = &h.state().tabs[0];
+    let spark = t.spark.base.clone().unwrap();
+    let csvfab_engine::sparkline::Col::Curve(c) = &spark.cols[1] else { panic!() };
+    assert_eq!((c.bins.tails(), c.cnt[csvfab_engine::sparkline::BINS - 1]), ((false, true), 3));
+    // The chart of the second column: its box, as the band places it.
+    let (x0, w) = (92.0 + t.grid.widths[0], t.grid.widths[1]);
+    let (l, r) = (x0 + 10.0, x0 + w - 11.0);
+    let n = c.bins.n as f32;
+    let y = 52.0 + 33.0 + 10.0;
+    let (a, z) = (egui::pos2(l + (r - l) * 27.5 / n, y), egui::pos2(r - 0.5, y));
+    h.hover_at(a);
+    h.run_steps(2);
+    h.event(Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.run_steps(1);
+    for k in 1..=4 { h.hover_at(a + (z - a) * (k as f32 / 4.0)); h.run_steps(1); }
+    h.event(Event::PointerButton { pos: z, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(3);
+    wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() < 403);
+    // The range starts where the drag took off: the bars from there on, whole, far values with them.
+    let t = &h.state().tabs[0];
+    let shown: Vec<String> = (0..t.shown()).map(|k| t.st().unwrap().cell(t.shown_id(k), 1)).collect();
+    assert!(["22039", "900000", "1500000"].iter().all(|v| shown.iter().any(|x| x == v)), "{shown:?}");
+    assert!((27..32).any(|b| c.cnt[b..].iter().sum::<u32>() as usize == shown.len()), "{}", shown.len());
     let _ = std::fs::remove_dir_all(&dir);
 }

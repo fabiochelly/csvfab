@@ -1,6 +1,6 @@
 //! The column inspector (docs/look.md, "Column inspector"): the column panel docked at the
 //! right, on the column in hand (`GridState::focus_col`): name and type, key figures, a
-//! histogram or the top values, what is worth a look, the panel's tools.
+//! histogram or the top values, what is worth a look; at its foot the panel's tools, named.
 //!
 //! Off, it does not exist: one flag read a frame. On, every figure comes from jobs: the
 //! panel's count (`colpanel::count_job`, with the column's dictionary cache) once the column
@@ -63,7 +63,11 @@ pub struct Inspector {
     report_tried: Option<(usize, u64)>,
     /// A card's "Show the rows" being counted.
     show: Option<Job<Option<eng::Marks>>>,
-    add_open: bool,
+    pub add_open: bool,
+    /// The window left no room, and that was said.
+    aside: bool,
+    /// A shot of the loading state: no count starts.
+    pub hold: bool,
 }
 
 impl Inspector {
@@ -84,7 +88,7 @@ impl Inspector {
             }
         }
         if self.job.as_ref().is_some_and(|j| j.0 != key) { drop_later(self.job.take()); }
-        if self.job.is_none() && !tab.busy() && self.tried != Some(key) && !self.kept.iter().any(|k| k.0 == key) {
+        if self.job.is_none() && !self.hold && !tab.busy() && self.tried != Some(key) && !self.kept.iter().any(|k| k.0 == key) {
             let rest = self.want.map_or(Duration::ZERO, |w| w.1.elapsed());
             if rest >= REST {
                 self.tried = Some(key);
@@ -129,6 +133,11 @@ impl Inspector {
         self.job.is_none() && self.report_job.is_none() && self.show.is_none()
     }
 
+    /// The window has no room for it.
+    pub fn is_aside(&self) -> bool {
+        self.aside
+    }
+
     /// The count of the column shown is there, for these rows.
     pub fn counted_now(&self) -> bool {
         self.want.is_some_and(|w| self.kept.iter().any(|k| k.0 == w.0))
@@ -158,11 +167,18 @@ impl Inspector {
 pub fn panel(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action> {
     let mut actions = Vec::new();
     let Some(ncols) = tab.st().map(|s| s.ncols).filter(|n| *n > 0) else { return actions };
-    if ui.available_width() < m.inspector_w + 300.0 { return actions; }
+    if ui.available_width() < m.inspector_w + 300.0 {
+        // Said once: the switch is on and nothing shows.
+        if let Some(me) = &mut tab.inspector { if me.aside { return actions; } }
+        tab.inspector.get_or_insert_default().aside = true;
+        tab.grid.notice = Some("No room for the column inspector beside the grid: widen the window.".into());
+        return actions;
+    }
     let ctx = ui.ctx().clone();
     let col = tab.grid.focus_col.filter(|c| *c < ncols).or_else(|| (0..ncols).find(|c| !tab.grid.hidden.contains(c))).unwrap_or(0);
     tab.grid.focus_col = Some(col);
     let mut me = tab.inspector.take().unwrap_or_default();
+    me.aside = false;
     me.step(tab, col, &ctx);
     if let Some(r) = me.show.as_mut().and_then(|j| j.poll()) {
         me.show = None;
@@ -200,9 +216,14 @@ fn cut_line(ui: &Ui, text: String, font: FontId, c: Color32, max: f32) -> Arc<eg
 }
 
 /// A section's small head.
+fn head(ui: &mut Ui, text: &str, p: &Palette) {
+    ui.label(RichText::new(text).font(FontId::new(11.5, FontFamily::Name(crate::fonts::UI_MEDIUM.into()))).color(p.txt_dim));
+}
+
+/// The same, set off from what is above.
 fn section(ui: &mut Ui, text: &str, p: &Palette) {
     ui.add_space(14.0);
-    ui.label(RichText::new(text).font(FontId::new(11.5, FontFamily::Name(crate::fonts::UI_MEDIUM.into()))).color(p.txt_dim));
+    head(ui, text, p);
     ui.add_space(6.0);
 }
 
@@ -223,129 +244,226 @@ fn body(ui: &mut Ui, me: &mut Inspector, tab: &mut Tab, col: usize, p: &Palette,
     ui.painter().galley(r.min, g, p.txt_hi);
     if cut && ui.rect_contains_pointer(tr) { grid::tip(&ctx, p, m, tr, &title); }
     let kind_name = grid::kind_style(tab, col, p).3;
-    let mut sub = kind_name[..1].to_uppercase() + &kind_name[1..];
+    let mut sub = if counted.as_ref().is_some_and(|c| c.prof.filled == 0) { "Empty".to_string() } else { kind_name[..1].to_uppercase() + &kind_name[1..] };
     if let Some(c) = &counted {
-        sub += &format!(" · {} distinct", grid::fmt_int(c.prof.distinct));
-        if c.scope != c.total { sub += &format!(" · {} of {} rows", grid::fmt_int(c.scope), grid::fmt_int(c.total)); }
+        sub += &if c.scope != c.total { format!(" · {} of {} rows", grid::fmt_int(c.scope), grid::fmt_int(c.total)) } else { format!(" · {} row{}", grid::fmt_int(c.total), if c.total == 1 { "" } else { "s" }) };
     }
     ui.painter().galley(pos2(r.min.x, r.min.y + 21.0), cut_line(ui, sub, ui_font(12.0), p.txt_mut, w), p.txt_mut);
-    let xresp = ui.interact(xr, ui.scope_id().with("in-close"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Close the inspector");
+    let xresp = ui.interact(xr, ui.scope_id().with("in-close"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Close the inspector (Ctrl+Shift+I)");
     if xresp.hovered() { ui.painter().rect_filled(xr, 6.0, p.surf_2); }
     icons::cross(ui.painter(), Rect::from_center_size(xr.center(), vec2(14.0, 14.0)), 2.0, if xresp.hovered() { p.txt_hi } else { p.txt_mut });
     if xresp.clicked() { actions.push(Action::ToggleInspector); }
 
-    egui::ScrollArea::vertical().id_salt("in-scroll").auto_shrink([false, false]).show(ui, |ui| {
+    // The tools stay at the foot, whatever is counted above them; a low window scrolls them.
+    let foot_h = 8.0 + 15.0 + 6.0 + colpanel::NAMED_H + 10.0;
+    let pinned = ui.available_height() >= foot_h + 160.0;
+    let room = ui.available_height() - if pinned { foot_h } else { 0.0 };
+    let stale = counted.is_some() && !me.counted_now();
+    egui::ScrollArea::vertical().id_salt("in-scroll").auto_shrink([false, false]).max_height(room).show(ui, |ui| {
         ui.set_width(w);
         ui.add_space(10.0);
+        // A count being made again: the last one, fainter.
+        if stale { ui.multiply_opacity(0.6); }
         match &counted {
             Some(c) => {
-                figures(ui, tab, col, c, p, m);
+                figures(ui, tab, col, Some(c), p, m);
                 if !c.prof.hist.is_empty() {
-                    spread(ui, c, p, m);
-                } else if c.prof.distinct < c.prof.filled as usize {
+                    spread(ui, tab, col, c, p, m);
+                } else if c.prof.filled > 0 {
                     top_values(ui, tab, col, c, p, m);
                 }
                 worth_a_look(ui, me, tab, col, c, p);
             }
             None => {
-                let (r, _) = ui.allocate_exact_size(vec2(w, 60.0), Sense::hover());
-                ui.painter().text(r.center(), Align2::CENTER_CENTER, "Counting…", ui_font(12.0), p.txt_dim);
+                figures(ui, tab, col, None, p, m);
+                waiting(ui, tab, col, p);
             }
         }
-        section(ui, "Actions", p);
-        let mut add_open = me.add_open;
-        colpanel::tools(ui, tab, col, p, &mut add_open, false, actions);
-        me.add_open = add_open;
-        if tab.kinds.get(col) == Some(&Kind::Number) {
-            let (r, _) = ui.allocate_exact_size(vec2(w, 30.0), Sense::hover());
-            let b1 = Rect::from_min_size(pos2(r.min.x + 2.0, r.min.y + 2.0), vec2(28.0, 26.0));
-            colpanel::look_tools(ui, tab, col, b1, b1.translate(vec2(27.0, 0.0)), p);
-        }
+        if !pinned { foot(ui, me, tab, col, w, p, actions); }
         ui.add_space(14.0);
     });
+    if pinned {
+        let (r, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
+        ui.painter().hline(r.x_range(), ui.painter().round_to_pixel_center(r.min.y), Stroke::new(1.0, p.brd));
+        ui.add_space(7.0);
+        foot(ui, me, tab, col, w, p, actions);
+    }
 }
 
-/// How a number column's figures are written, all alike: two decimals when its values have some.
-fn figure(pr: &csvfab_engine::stats::PanelProfile) -> impl Fn(f64) -> String {
-    let dec = [&pr.min, &pr.max].iter().any(|s| s.as_ref().is_some_and(|x| x.1.contains(['.', ','])));
-    move |v| if dec { csvfab_engine::stats::fmt_num(v, 2, 2, true) } else { colpanel::num(v) }
+/// "Actions" and the tools.
+fn foot(ui: &mut Ui, me: &mut Inspector, tab: &mut Tab, col: usize, w: f32, p: &Palette, actions: &mut Vec<Action>) {
+    head(ui, "Actions", p);
+    ui.add_space(6.0);
+    let mut add_open = me.add_open;
+    colpanel::tools_named(ui, tab, col, w, p, &mut add_open, actions);
+    me.add_open = add_open;
 }
 
-/// The key figures, three to a line: a small label over its value.
-fn figures(ui: &mut Ui, tab: &mut Tab, col: usize, c: &Counted, p: &Palette, m: &Metrics) {
-    let pr = &c.prof;
-    let share = pr.filled as f64 / (pr.filled + pr.empty).max(1) as f64;
-    // Not 100 % while a cell is empty.
-    let filled = if share < 1.0 && share >= 0.995 { format!("{:.1} %", (share * 1000.0).floor() / 10.0).replace('.', ",") } else { spark_ui::pct(share) };
-    let mut items: Vec<(&str, String)> = vec![("Filled", filled), ("Distinct", grid::fmt_int(pr.distinct)), ("Empty", grid::fmt_int(pr.empty as usize))];
-    let side = |s: &Option<(f64, String)>| s.as_ref().map(|x| grid::display(&x.1).into_owned());
-    let n = figure(pr);
-    match pr.kind {
-        Some(Kind::Number) => {
-            if let Some(v) = &pr.min { items.push(("Min", n(v.0))); }
-            if let Some(v) = pr.median { items.push(("Median", n(v))); }
-            if let Some(v) = pr.avg() { items.push(("Mean", n(v))); }
-            if let Some(v) = &pr.max { items.push(("Max", n(v.0))); }
-            if pr.count > 0 { items.push(("Sum", n(pr.sum))); }
-        }
-        Some(Kind::Date) => {
-            if let Some(v) = side(&pr.min) { items.push(("First", v)); }
-            if let Some(v) = &pr.date_median { items.push(("Median", grid::display(v).into_owned())); }
-            if let Some(v) = &pr.date_mean { items.push(("Mean", v.clone())); }
-            if let Some(v) = side(&pr.max) { items.push(("Last", v)); }
-        }
-        _ => {
-            let chars = |s: &Option<(f64, String)>| s.as_ref().map(|x| format!("{} char{}", grid::fmt_int(x.0 as usize), if x.0 == 1.0 { "" } else { "s" }));
-            if let Some(v) = chars(&pr.min) { items.push(("Shortest", v)); }
-            if let Some(v) = chars(&pr.max) { items.push(("Longest", v)); }
+/// While the first count is made: the chart's or the values' place, kept.
+fn waiting(ui: &mut Ui, tab: &Tab, col: usize, p: &Palette) {
+    let w = ui.available_width();
+    if tab.kinds.get(col).is_some_and(|k| *k != Kind::Text) {
+        ui.add_space(8.0);
+        let (r, _) = ui.allocate_exact_size(vec2(w, CHART_H + 6.0 + 14.0), Sense::hover());
+        let chart = Rect::from_min_size(r.min, vec2(w, CHART_H));
+        ui.painter().rect_filled(chart, 4.0, alpha(p.surf_2, 0.6));
+        ui.painter().text(chart.center(), Align2::CENTER_CENTER, "Counting…", ui_font(12.0), p.txt_dim);
+    } else {
+        section(ui, "Top values", p);
+        for k in 0..3 {
+            let (r, _) = ui.allocate_exact_size(vec2(w, 30.0), Sense::hover());
+            ui.add_space(2.0);
+            ui.painter().rect_filled(r, 6.0, alpha(p.surf_2, 0.6));
+            if k == 1 { ui.painter().text(r.center(), Align2::CENTER_CENTER, "Counting…", ui_font(12.0), p.txt_dim); }
         }
     }
+    section(ui, "Worth a look", p);
+    look_line(ui, "Looking…", None, p);
+}
+
+/// A figure: its label, its value in full, and shorter ways to write it when there is no room.
+struct Fig {
+    label: &'static str,
+    full: String,
+    short: Vec<String>,
+}
+
+/// The figures of a kind, line by line; their place depends on the kind alone, never on the
+/// values, nothing moves as they change. Two to the line, a number or a date needs the room,
+/// the sum alone; the counts share the left half. Before the count (`None`) the same
+/// labels, no value yet.
+fn lines(kind: Option<Kind>, c: Option<&Counted>) -> Vec<Vec<Fig>> {
+    let fig = |label, v: Option<String>| Fig { label, full: v.unwrap_or_default(), short: Vec::new() };
+    let pr = c.map(|c| &c.prof);
+    let mut out = vec![vec![
+        fig("Filled", pr.map(|pr| {
+            let share = pr.filled as f64 / (pr.filled + pr.empty).max(1) as f64;
+            // Not 100 % while a cell is empty.
+            if share < 1.0 && share >= 0.995 { format!("{:.1} %", (share * 1000.0).floor() / 10.0).replace('.', ",") } else { spark_ui::pct(share) }
+        })),
+        Fig { label: "Empty", full: pr.map_or(String::new(), |pr| grid::fmt_int(pr.empty as usize)), short: pr.map_or(Vec::new(), |pr| vec![sci(pr.empty as f64)]) },
+        Fig { label: "Distinct", full: pr.map_or(String::new(), |pr| grid::fmt_int(pr.distinct)), short: pr.map_or(Vec::new(), |pr| vec![sci(pr.distinct as f64)]) },
+    ]];
+    let side = |s: Option<&Option<(f64, String)>>| s.and_then(|s| s.as_ref()).map(|x| grid::display(&x.1).into_owned());
+    match kind {
+        Some(Kind::Number) => {
+            // Its decimals go first, then its digits.
+            let of = |label, v: Option<f64>| Fig { label, full: v.map_or(String::new(), |v| pr.map_or(String::new(), |pr| colpanel::figure(pr)(v))), short: v.map_or(Vec::new(), |v| vec![csvfab_engine::stats::fmt_num(v, 0, 0, true), sci(v)]) };
+            out.push(vec![of("Min", pr.and_then(|pr| pr.min.as_ref()).map(|v| v.0)), of("Max", pr.and_then(|pr| pr.max.as_ref()).map(|v| v.0))]);
+            out.push(vec![of("Median", pr.and_then(|pr| pr.median)), of("Mean", pr.and_then(|pr| pr.avg()))]);
+            out.push(vec![of("Sum", pr.filter(|pr| pr.count > 0).map(|pr| pr.sum))]);
+        }
+        Some(Kind::Date) => {
+            // A date and its time: the date alone where the time does not fit.
+            let d = |label, v: Option<String>| Fig { label, short: v.as_deref().map(date_alone).into_iter().collect(), full: v.unwrap_or_default() };
+            out.push(vec![d("First", side(pr.map(|pr| &pr.min))), d("Last", side(pr.map(|pr| &pr.max)))]);
+            out.push(vec![d("Median", pr.and_then(|pr| pr.date_median.as_deref()).map(|v| grid::display(v).into_owned())), d("Mean", pr.and_then(|pr| pr.date_mean.clone()))]);
+        }
+        // An empty column has neither.
+        None if c.is_some() => {}
+        _ => {
+            let chars = |s: Option<&Option<(f64, String)>>| s.and_then(|s| s.as_ref()).map(|x| format!("{} char{}", grid::fmt_int(x.0 as usize), if x.0 == 1.0 { "" } else { "s" }));
+            out.push(vec![fig("Shortest", chars(pr.map(|pr| &pr.min))), fig("Longest", chars(pr.map(|pr| &pr.max)))]);
+        }
+    }
+    out
+}
+
+/// A date without its time.
+fn date_alone(v: &str) -> String {
+    v.split([' ', 'T']).next().unwrap_or(v).to_string()
+}
+
+/// A number written short: `6,01e12`.
+fn sci(v: f64) -> String {
+    format!("{v:.2e}").replace('.', ",")
+}
+
+/// The key figures: a small label over its value. A value too long for its cell is written
+/// shorter, or cut, and is whole in its tooltip.
+fn figures(ui: &mut Ui, tab: &mut Tab, col: usize, c: Option<&Counted>, p: &Palette, m: &Metrics) {
+    let kind = match c { Some(c) => c.prof.kind, None => tab.kinds.get(col).copied() };
+    let lines = lines(kind, c);
     let w = ui.available_width();
     let (gap, line) = (8.0, 40.0);
-    let cw = (w - 2.0 * gap) / 3.0;
-    let lines = items.len().div_ceil(3);
-    let (r, _) = ui.allocate_exact_size(vec2(w, lines as f32 * line), Sense::hover());
+    let (r, _) = ui.allocate_exact_size(vec2(w, lines.len() as f32 * line), Sense::hover());
+    let font = mono_medium(12.5);
     let mut go = None;
-    for (k, (label, value)) in items.iter().enumerate() {
-        let cell = Rect::from_min_size(r.min + vec2((k % 3) as f32 * (cw + gap), (k / 3) as f32 * line), vec2(cw, line - 4.0));
-        // The median goes to the row closest to it, as the panel's.
-        let med = *label == "Median" && pr.median.is_some();
-        let resp = med.then(|| ui.interact(cell, ui.scope_id().with("in-median"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand));
-        if resp.as_ref().is_some_and(|r| r.hovered()) { ui.painter().rect_filled(cell.expand(2.0), 4.0, alpha(p.hi, 0.06)); }
-        if resp.as_ref().is_some_and(|r| r.clicked()) { go = pr.median; }
-        ui.painter().text(cell.min, Align2::LEFT_TOP, *label, ui_font(11.5), p.txt_dim);
-        let g = cut_line(ui, value.clone(), mono_medium(12.5), p.txt_hi, cw);
-        let cut = g.elided;
-        let vr = Rect::from_min_size(cell.min + vec2(0.0, 17.0), g.size());
-        ui.painter().galley(vr.min, g, p.txt_hi);
-        if cut && ui.rect_contains_pointer(vr) { grid::tip(ui.ctx(), p, m, vr, value); }
+    let half = (w - gap) / 2.0;
+    for (y, figs) in lines.iter().enumerate() {
+        // Every line keeps the middle: (x, width) of each.
+        let cells: &[(f32, f32)] = match figs.len() {
+            3 => &[(0.0, 58.0), (66.0, half - 66.0), (half + gap, half)],
+            2 => &[(0.0, half), (half + gap, half)],
+            _ => &[(0.0, w)],
+        };
+        for (f, &(x, cw)) in figs.iter().zip(cells) {
+            let cell = Rect::from_min_size(r.min + vec2(x, y as f32 * line), vec2(cw, line - 4.0));
+            // The median goes to the row closest to it, as the panel's.
+            let med = f.label == "Median" && c.is_some_and(|c| c.prof.median.is_some());
+            let resp = med.then(|| ui.interact(cell, ui.scope_id().with("in-median"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand));
+            if resp.as_ref().is_some_and(|r| r.hovered()) { ui.painter().rect_filled(cell.expand(2.0), 4.0, alpha(p.hi, 0.06)); }
+            if resp.as_ref().is_some_and(|r| r.clicked()) { go = c.and_then(|c| c.prof.median); }
+            ui.painter().text(cell.min, Align2::LEFT_TOP, f.label, ui_font(11.5), p.txt_dim);
+            if c.is_none() {
+                // Its place, while it is counted.
+                ui.painter().rect_filled(Rect::from_min_size(cell.min + vec2(0.0, 19.0), vec2(cw.min(64.0), 10.0)), 3.0, alpha(p.surf_2, 0.8));
+                continue;
+            }
+            let fits = |t: &String| ui.painter().layout_no_wrap(t.clone(), font.clone(), p.txt_hi).size().x <= cw;
+            let text = std::iter::once(&f.full).chain(&f.short).find(|t| fits(t)).or(f.short.last()).unwrap_or(&f.full).clone();
+            let g = cut_line(ui, text.clone(), font.clone(), p.txt_hi, cw);
+            let whole = text == f.full && !g.elided;
+            let vr = Rect::from_min_size(cell.min + vec2(0.0, 17.0), g.size());
+            ui.painter().galley(vr.min, g, p.txt_hi);
+            let what = match (whole, med) {
+                (true, true) => Some("Go to the row closest to the median".to_string()),
+                (false, true) => Some(format!("{}\nGo to the row closest to the median", f.full)),
+                (false, false) => Some(f.full.clone()),
+                _ => None,
+            };
+            if let Some(t) = what.filter(|_| ui.rect_contains_pointer(cell)) { grid::tip(ui.ctx(), p, m, cell, &t); }
+        }
     }
     if let Some(x) = go { colpanel::go_to_value(tab, col, x, &ui.ctx().clone()); }
 }
 
-/// Numbers or dates: the panel's histogram, tall, its ends written under it.
-fn spread(ui: &mut Ui, c: &Counted, p: &Palette, m: &Metrics) {
+/// The histogram's height.
+const CHART_H: f32 = 92.0;
+
+/// Numbers or dates: the panel's histogram, tall, the column's true ends written under it and,
+/// when its range is cut, what its end bars gather.
+fn spread(ui: &mut Ui, tab: &mut Tab, col: usize, c: &Counted, p: &Palette, m: &Metrics) {
     let w = ui.available_width();
+    let pr = &c.prof;
     ui.add_space(8.0);
-    let (r, _) = ui.allocate_exact_size(vec2(w, 92.0 + 6.0 + 14.0), Sense::hover());
-    colpanel::histogram(ui, Rect::from_min_size(r.min, vec2(w, 92.0)), &c.prof, p, m);
-    let (from, to) = (c.prof.hist.iter().find(|b| b.count > 0), c.prof.hist.iter().rfind(|b| b.count > 0));
+    let note = colpanel::cut_note(ui, pr, ui_font(11.5), p.txt_dim, w);
+    let (r, _) = ui.allocate_exact_size(vec2(w, CHART_H + 6.0 + 14.0 + note.as_ref().map_or(0.0, |g| 4.0 + g.size().y)), Sense::hover());
+    colpanel::histogram(ui, tab, col, Rect::from_min_size(r.min, vec2(w, CHART_H)), pr, p, m);
+    let (from, to) = (pr.hist.iter().find(|b| b.count > 0), pr.hist.iter().rfind(|b| b.count > 0));
     let font = mono_medium(11.0);
-    let n = figure(&c.prof);
-    let end = |s: &str| match c.prof.kind {
-        Some(Kind::Number) => csvfab_engine::text::parse_number(s).map_or_else(|| grid::display(s).into_owned(), &n),
-        _ => grid::display(s).into_owned(),
+    let y = r.min.y + CHART_H + 6.0;
+    // An end that does not fit: a date without its time, or cut.
+    let end = |ui: &Ui, s: &str| {
+        let mut t = colpanel::figure_of(pr, s);
+        if pr.kind == Some(Kind::Date) && ui.painter().layout_no_wrap(t.clone(), font.clone(), p.txt_mut).size().x > w / 2.0 - 4.0 { t = date_alone(&t); }
+        cut_line(ui, t, font.clone(), p.txt_mut, w / 2.0 - 4.0)
     };
-    if let Some(b) = from { ui.painter().galley(pos2(r.min.x, r.max.y - 14.0), cut_line(ui, end(&b.first), font.clone(), p.txt_mut, w / 2.0 - 4.0), p.txt_mut); }
+    if let Some(b) = from { ui.painter().galley(pos2(r.min.x, y), end(ui, &b.first), p.txt_mut); }
     if let Some(b) = to {
-        let g = cut_line(ui, end(&b.last), font, p.txt_mut, w / 2.0 - 4.0);
-        ui.painter().galley(pos2(r.max.x - g.size().x, r.max.y - 14.0), g, p.txt_mut);
+        let g = end(ui, &b.last);
+        ui.painter().galley(pos2(r.max.x - g.size().x, y), g, p.txt_mut);
     }
+    if let Some(g) = note { ui.painter().galley(pos2(r.min.x, y + 14.0 + 4.0), g, p.txt_dim); }
 }
 
 /// The most frequent values with a bar of their share; a click keeps the rows holding the value.
 fn top_values(ui: &mut Ui, tab: &mut Tab, col: usize, c: &Counted, p: &Palette, m: &Metrics) {
     section(ui, "Top values", p);
+    if c.prof.distinct > 1 && c.prof.distinct == c.prof.filled as usize {
+        look_line(ui, "Every value is different.", None, p);
+        return;
+    }
     let w = ui.available_width();
     let ctx = ui.ctx().clone();
     let max = c.order.first().map_or(1, |&i| c.vc.count(i as usize)).max(1) as f32;
@@ -407,9 +525,10 @@ fn look_line(ui: &mut Ui, text: &str, action: Option<&str>, p: &Palette) -> bool
     resp.clicked()
 }
 
-/// A card that speaks of this column; empty cells have their own line.
-fn about(it: &Insight, col: usize) -> bool {
-    it.icon != InIcon::Empty && it.title.0.iter().any(|x| matches!(x, Part::Col(c) if *c == col))
+/// A card that speaks of this column; empty cells have their own line, and so have values
+/// far out once the histogram sets them apart (`far`: the card says the same of fewer rows).
+fn about(it: &Insight, col: usize, far: bool) -> bool {
+    it.icon != InIcon::Empty && !(far && it.is_far()) && it.title.0.iter().any(|x| matches!(x, Part::Col(c) if *c == col))
 }
 
 /// What the count and the Insights report say of the column, each with the way to its rows.
@@ -421,7 +540,9 @@ fn worth_a_look(ui: &mut Ui, me: &mut Inspector, tab: &mut Tab, col: usize, c: &
     if pr.empty > 0 {
         any = true;
         let n = pr.empty as usize;
-        if look_line(ui, &format!("{} empty cell{}", grid::fmt_int(n), if n == 1 { "" } else { "s" }), Some("Show"), p) {
+        // Nothing but empty cells: there is nothing to tell them from.
+        let what = if pr.filled == 0 { format!("Every cell is empty ({})", grid::fmt_int(n)) } else { format!("{} empty cell{}", grid::fmt_int(n), if n == 1 { "" } else { "s" }) };
+        if look_line(ui, &what, (pr.filled > 0).then_some("Show"), p) {
             spark_ui::pick_values(tab, col, c.blanks.clone(), "the empty rows", &ctx);
         }
     }
@@ -434,10 +555,16 @@ fn worth_a_look(ui: &mut Ui, me: &mut Inspector, tab: &mut Tab, col: usize, c: &
             spark_ui::pick_values(tab, col, c.odd.clone(), &format!("the values not {what}"), &ctx);
         }
     }
+    // What the histogram sets apart, as a click on its end bar keeps it.
+    let far = colpanel::far_bars(pr);
+    for (bar, line) in &far {
+        any = true;
+        if look_line(ui, line, Some("Show"), p) { colpanel::keep_bars(tab, col, pr, *bar, *bar, &ctx); }
+    }
     let heads = tab.st().map(|s| s.headers()).unwrap_or_default();
     let report = me.report.as_ref().map(|r| r.1.clone());
     if let Some(r) = &report {
-        for it in r.items.iter().filter(|it| about(it, col)).take(CARDS) {
+        for it in r.items.iter().filter(|it| about(it, col, !far.is_empty())).take(CARDS) {
             any = true;
             let action = it.show.is_some().then_some(if me.show.is_some() { "Counting…" } else { "Show" });
             // Its column goes without saying here.

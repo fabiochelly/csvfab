@@ -10,7 +10,7 @@
 //! value, the filled or the empty cells — maps back to the rows it stands for
 //! (`Keep`) and to column filter texts (`view::FilterSpec::cols`).
 
-use crate::stats::{cell_kind, chunked, Best, fmt_int, hash, quantiles, Counter};
+use crate::stats::{cell_kind, chunked, far_cut, Best, fmt_int, hash, quantiles, Counter};
 use crate::table::{RowId, State};
 use crate::text::{parse_date, parse_number};
 use crate::view::Kind;
@@ -110,11 +110,22 @@ fn num_text(x: f64) -> String {
 pub struct Bins {
     pub kind: Kind,
     pub n: usize,
+    /// Where the first bar of width `w` starts.
     pub lo: f64,
     pub w: f64,
+    /// Far out (`stats::far_cut`): keys under the first go to bar 0, from the second on to the
+    /// last bar, each a bar of its own beside the others (infinite: no such bar).
+    pub far: (f64, f64),
 }
 
 impl Bins {
+    const NOT_FAR: (f64, f64) = (f64::NEG_INFINITY, f64::INFINITY);
+
+    /// Whether the first and the last bar gather what is far out.
+    pub fn tails(&self) -> (bool, bool) {
+        (self.far.0.is_finite(), self.far.1.is_finite())
+    }
+
     /// The key a value bins on: a number, or a date in seconds.
     #[inline]
     pub fn key(&self, s: &str) -> Option<f64> {
@@ -127,12 +138,16 @@ impl Bins {
     /// The bar of key x (values past the ends go to the end bars).
     #[inline]
     pub fn of(&self, x: f64) -> usize {
-        ((x - self.lo) / self.w).floor().clamp(0.0, (self.n - 1) as f64) as usize
+        if x < self.far.0 { return 0; }
+        if x >= self.far.1 { return self.n - 1; }
+        let (l, h) = self.tails();
+        l as usize + ((x - self.lo) / self.w).floor().clamp(0.0, (self.n - 1 - l as usize - h as usize) as f64) as usize
     }
 
     /// Where bar b starts on the key line.
     pub fn edge(&self, b: usize) -> f64 {
-        self.lo + b as f64 * self.w
+        let (l, h) = self.tails();
+        if h && b == self.n - 1 { self.far.1 } else { self.lo + b.saturating_sub(l as usize) as f64 * self.w }
     }
 
     /// Bar b's lower bound as a filter writes it (a date's whole second: its key is in seconds).
@@ -283,7 +298,7 @@ fn base_col(st: &State, rows: &[RowId], col: usize, kind: Kind, par: bool, cance
         Kind::Text => Acc::Text { fill: 0, c: Counter::default(), over: 0, tmp: Vec::new() },
         _ => Acc::Num { fill: 0, bad: 0, keys: Vec::new(), frac: false, tmp: Vec::new() },
     };
-    let bins = Bins { kind, n: 1, lo: 0.0, w: 1.0 };
+    let bins = Bins { kind, n: 1, lo: 0.0, w: 1.0, far: Bins::NOT_FAR };
     let parts = run(rows.len(), par, cancel, init, |a, p| match a {
         Acc::Num { fill, bad, keys, frac, tmp } => st.with_cell(rows[p], col, tmp, |v| {
             let Some(ty) = cell_kind(v) else { return };
@@ -350,18 +365,23 @@ fn base_col(st: &State, rows: &[RowId], col: usize, kind: Kind, par: bool, cance
             }
             let mut ks: Vec<f64> = keys.iter().map(|k| k.0).collect();
             let (mut lo, mut hi) = ks.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &x| (a.min(x), b.max(x)));
-            // Min to max, unless a few outliers would squeeze every other value
-            // into one bar — then the 1st to 99th percentile, the end bars taking the outliers.
-            let (p1, p99) = quantiles(&mut ks, 0.01, 0.99);
-            if p99 > p1 && hi - lo > 4.0 * (p99 - p1) {
-                (lo, hi) = (p1, p99);
+            // Min to max, unless values far out would crush the others: they get the end bars
+            // (as the column panel's histogram), the other bars what is left, end to end.
+            let cut = far_cut(lo, hi, quantiles(&mut ks, 0.25, 0.75), || quantiles(&mut ks, 0.01, 0.99));
+            let mut far = Bins::NOT_FAR;
+            if cut.low || cut.high {
+                let inside = |x: &f64| (!cut.low || *x >= cut.a) && (!cut.high || *x <= cut.z);
+                (lo, hi) = keys.iter().map(|k| k.0).filter(inside).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(x), b.max(x)));
+                if cut.low { far.0 = lo; }
+                if cut.high { far.1 = keys.iter().map(|k| k.0).filter(|x| *x > hi).fold(f64::INFINITY, f64::min); }
             }
+            let tails = cut.low as usize + cut.high as usize;
             let bins = if kind == Kind::Number && !frac && hi - lo < 40.0 {
-                Bins { kind, n: (hi - lo) as usize + 1, lo: lo - 0.5, w: 1.0 }   // a few integers: one bar each
+                Bins { kind, n: (hi - lo) as usize + 1 + tails, lo: lo - 0.5, w: 1.0, far }   // a few integers: one bar each
             } else if hi == lo {
-                Bins { kind, n: 1, lo: lo - 0.5, w: 1.0 }
+                Bins { kind, n: 1, lo: lo - 0.5, w: 1.0, far }
             } else {
-                Bins { kind, n: BINS, lo, w: (hi - lo) / BINS as f64 }
+                Bins { kind, n: BINS, lo, w: (hi - lo) / (BINS - tails) as f64, far }
             };
             let mut cnt = vec![0u32; bins.n];
             let mut ends = vec![(Best::NONE, Best::NONE); bins.n];
@@ -467,6 +487,12 @@ pub fn spark_filtered(st: &State, base: &Spark, ids: &[RowId], sample: Sample, c
 pub fn heights(cnt: &[u32]) -> Vec<f64> {
     let max = cnt.iter().copied().max().unwrap_or(0) as f64;
     cnt.iter().map(|&n| if n > 0 { (n as f64 / max * 100.0).max(7.0) } else { 0.0 }).collect()
+}
+
+/// Bars of a curve drawn as one, its end bars aside: their range in `cnt`.
+pub fn body(bins: &Bins) -> std::ops::Range<usize> {
+    let (l, h) = bins.tails();
+    l as usize..bins.n - h as usize
 }
 
 /// Whether counts are drawn as a smooth area (a continuous column) rather
@@ -643,6 +669,11 @@ impl Spark {
         })
     }
 
+    /// Whether bars a..=b take in an end bar's values far out.
+    pub fn far_in(&self, col: usize, a: usize, b: usize) -> bool {
+        matches!(&self.cols[col], Col::Curve(c) if (a == 0 && c.bins.tails().0) || (b + 1 >= c.bins.n && c.bins.tails().1))
+    }
+
     /// Bars a..=b's smallest and largest values as written.
     pub fn bar_values(&self, col: usize, a: usize, b: usize) -> Option<(&str, &str)> {
         let Col::Curve(c) = &self.cols[col] else { return None };
@@ -657,8 +688,11 @@ impl Spark {
         match (&self.cols[col], pick) {
             (_, Pick::Filled) => "filled".into(),
             (_, Pick::Empty) => "empty".into(),
-            (Col::Curve(_), Pick::Bars(a, b)) => match self.bar_values(col, a, b) {
+            (Col::Curve(c), Pick::Bars(a, b)) => match self.bar_values(col, a, b) {
                 None => "No value here".into(),
+                // An end bar goes on past what was read of a sample.
+                Some((_, y)) if self.sampled && a == 0 && c.bins.tails().0 => format!("up to {y}"),
+                Some((x, _)) if self.sampled && b + 1 >= c.bins.n && c.bins.tails().1 => format!("{x} and over"),
                 Some((x, y)) if x == y => x.into(),
                 Some((x, y)) => format!("{x} – {y}"),
             },
@@ -868,6 +902,64 @@ mod tests {
         assert_eq!(s.top(1, Some(&f)), Some(1));
         assert_eq!(s.fill(1, Some(&f)), 1.0);
         assert_eq!(s.ribbon(1, Some(&f)), vec![(Part::Seg(1), 300)]);
+    }
+
+    /// Far values get marked end bars, by the panel's rule; each bar keeps what it holds, and
+    /// its filter texts say the same.
+    #[test]
+    fn end_bars_keep_the_far_values() {
+        let mut s = String::from("n;x\n-90000;a\n");
+        for i in 0..2000 { s += &format!("{};a\n", 100.5 + (i % 400) as f64); }
+        for v in [22_039, 9_000, 15_000] { s += &format!("{v};a\n"); }
+        let t = table(&s);
+        let no = AtomicBool::new(false);
+        let sp = spark_base(&t.st, &detect_kinds(&t.st), Sample::Js, &no).unwrap();
+        let Col::Curve(c) = &sp.cols[0] else { panic!() };
+        assert_eq!(c.bins.tails(), (true, true));
+        assert_eq!((c.cnt[0], c.cnt[BINS - 1]), (1, 3));
+        assert_eq!(c.cnt.iter().sum::<u32>(), 2004);
+        assert!(c.cnt[1..BINS - 1].iter().all(|&n| n > 0 && n < 200), "{:?}", c.cnt);
+        assert_eq!(sp.what(0, Pick::Bars(BINS - 1, BINS - 1)), "9000 – 22039");
+        assert!(sp.far_in(0, 0, 0) && sp.far_in(0, 20, BINS - 1) && !sp.far_in(0, 1, BINS - 2));
+        let ids = all(&t);
+        for (a, b) in [(0, 0), (BINS - 1, BINS - 1), (1, 1), (BINS - 2, BINS - 2), (1, BINS - 2), (0, 5), (20, BINS - 1)] {
+            let k = refine(&t.st, &ids, 0, &sp.keep(0, Pick::Bars(a, b)), &no).unwrap();
+            assert_eq!(k.len() as u32, c.cnt[a..=b].iter().sum::<u32>(), "bars {a} to {b}");
+            let texts = sp.filter_texts(0, Pick::Bars(a, b)).unwrap();
+            assert_eq!(filtered(&t, texts.iter().map(|x| (0, x.clone())).collect()), k, "{texts:?}");
+        }
+        // A few integers: one bar each, between the end bars.
+        let mut s = String::from("n;x\n");
+        for i in 0..300 { s += &format!("{};a\n", 3 + i % 6); }
+        s += "100000;a\n";
+        let t = table(&s);
+        let sp = spark_base(&t.st, &detect_kinds(&t.st), Sample::Js, &no).unwrap();
+        let Col::Curve(c) = &sp.cols[0] else { panic!() };
+        assert_eq!(c.cnt, vec![50, 50, 50, 50, 50, 50, 1]);
+        assert_eq!((c.bins.tails(), body(&c.bins)), ((false, true), 0..6));
+        assert_eq!(refine(&t.st, &all(&t), 0, &sp.keep(0, Pick::Bars(6, 6)), &no).unwrap().len(), 1);
+        // Nothing wild: no end bar, the bars of min to max.
+        let t = table(&(0..500).fold(String::from("n;x\n"), |s, i| s + &format!("{}.5;a\n", i)));
+        let sp = spark_base(&t.st, &detect_kinds(&t.st), Sample::Js, &no).unwrap();
+        let Col::Curve(c) = &sp.cols[0] else { panic!() };
+        assert_eq!((c.bins.tails(), c.bins.n, c.bins.lo, c.bins.w), ((false, false), BINS, 0.5, 499.0 / BINS as f64));
+    }
+
+    /// In a sample, the end bar goes on past what was read: what a click keeps, and says.
+    #[test]
+    fn a_sampled_end_bar_is_open() {
+        let mut s = String::from("n;x\n");
+        // One value in 20 is read: 7 in 100 are far out, and the very largest is not read.
+        for i in 0..2000u64 { s += &format!("{};a\n", if i == 1 { 9_000_000 } else if i % 100 == 0 { 1_000_000 + i } else { 500 + i % 7 }); }
+        let t = table(&s);
+        let no = AtomicBool::new(false);
+        let sp = spark_base(&t.st, &detect_kinds(&t.st), Sample::Rows(100), &no).unwrap();
+        assert!(sp.sampled);
+        let Col::Curve(c) = &sp.cols[0] else { panic!("{:?}", sp.cols[0]) };
+        assert_eq!(c.bins.tails(), (false, true));
+        let n = c.bins.n - 1;
+        assert_eq!(sp.what(0, Pick::Bars(n, n)), "1000000 and over");
+        assert_eq!(refine(&t.st, &all(&t), 0, &sp.keep(0, Pick::Bars(n, n)), &no).unwrap().len(), 21);
     }
 
     #[test]

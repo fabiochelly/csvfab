@@ -281,14 +281,41 @@ fn bar_outline(x0: f32, w: f32, top: f32, bottom: f32) -> Vec<Pos2> {
     v
 }
 
+/// A curve's counts in `r`: its end bars of far values, narrow and in `warn`, then the others at
+/// their own scale between them.
+#[allow(clippy::too_many_arguments)]
+fn draw_curve(pt: &Painter, cnt: &[u32], bins: &sp::Bins, r: Rect, kc: Color32, warn: Color32, op: f32, rise: f32, only: Option<(usize, usize)>) {
+    let body = sp::body(bins);
+    if body.len() == cnt.len() {
+        return draw_counts(pt, cnt, sp::smooth(cnt), r, kc, op, rise, only);
+    }
+    let sx = r.width() / cnt.len() as f32;
+    let at = |b: usize| r.min.x + b as f32 * sx;
+    let inside = Rect::from_x_y_ranges(at(body.start)..=at(body.end), r.y_range());
+    let only_body = only.map(|(a, z)| (a.max(body.start), z.min(body.end - 1))).filter(|(a, z)| a <= z).map(|(a, z)| (a - body.start, z - body.start));
+    if only.is_none() || only_body.is_some() {
+        draw_counts(pt, &cnt[body.clone()], sp::smooth(cnt), inside, kc, op, rise, only_body);
+    }
+    let top = cnt[body.clone()].iter().copied().max().unwrap_or(1).max(1) as f32;
+    for b in (0..body.start).chain(body.end..cnt.len()) {
+        if cnt[b] == 0 || only.is_some_and(|(a, z)| b < a || b > z) { continue; }
+        // However few it gathers, it shows; however many, it stays in the box.
+        let h = (cnt[b] as f32 / top).clamp(0.3, 1.0) * r.height() * rise;
+        let w = (sx * 0.8).clamp(2.0, 4.0);
+        let x = if b == 0 { at(1) - w } else { at(b) };
+        pt.rect_filled(Rect::from_min_max(pos2(x, r.max.y - h), pos2(x + w, r.max.y)), CornerRadius { nw: 1, ne: 1, sw: 0, se: 0 }, warn.gamma_multiply(op));
+    }
+}
+
 /// Draws a curve's counts (a smooth area, or one bar a value: 76 % of its slot) in `r`, `op`
 /// its opacity; `only`: bars a..=b alone, solid (the part under the pointer).
-fn draw_counts(pt: &Painter, cnt: &[u32], r: Rect, kc: Color32, op: f32, rise: f32, only: Option<(usize, usize)>) {
+#[allow(clippy::too_many_arguments)]
+fn draw_counts(pt: &Painter, cnt: &[u32], smooth: bool, r: Rect, kc: Color32, op: f32, rise: f32, only: Option<(usize, usize)>) {
     if cnt.iter().all(|&n| n == 0) || r.width() < 2.0 || op <= 0.0 {
         return;
     }
     let sx = r.width() / cnt.len() as f32;
-    if sp::smooth(cnt) {
+    if smooth {
         let pts = curve_points(cnt, r, rise);
         match only {
             None => {
@@ -386,6 +413,7 @@ fn tip_text(tab: &Tab, spark: &Spark, col: usize, pick: Pick, brush: bool) -> St
         what = what.chars().take(120).collect::<String>() + "…";
     }
     let bars = matches!(pick, Pick::Bars(..));
+    if let Pick::Bars(a, b) = pick { if spark.far_in(col, a, b) { what += " · with the values far out"; } }
     let hint = if brush {
         if n > 0 { "\nRelease: show only these".into() } else { String::new() }
     } else if n > 0 {
@@ -444,11 +472,7 @@ fn decide(tab: &mut Tab, col: usize, pick: Pick, spark: Arc<Spark>, some: bool, 
         Pick::Empty => "the empty rows".to_string(),
         Pick::Other => "the other values".to_string(),
         Pick::Seg(_) => format!("“{}”", spark.what(col, pick)),
-        Pick::Bars(a, b) => match spark.bar_values(col, a, b) {
-            Some((lo, hi)) if lo == hi => lo.to_string(),
-            Some((lo, hi)) => format!("{lo} to {hi}"),
-            None => spark.what(col, pick).replace(" – ", " to "),
-        },
+        Pick::Bars(..) => spark.what(col, pick).replace(" – ", " to "),
     };
     tab.spark.picks.insert(col, Picked { pick, spark: spark.clone(), label: what.clone() });
     tab.keep_values(col, Some(Keeps::Part(spark, pick)), ctx);
@@ -469,6 +493,27 @@ pub fn pick_values(tab: &mut Tab, col: usize, values: Arc<std::collections::Hash
     }
     tab.keep_values(col, Some(Keeps::Values(values)), ctx);
     tab.grid.notice = Some(format!("{title}: only {what} — click it again to show all."));
+}
+
+/// A stretch of a histogram clicked or dragged (the inspector's, the panel's): the value filter
+/// keeping the numbers or dates from `lo` to `hi`, said as `what`; on the stretch already
+/// kept, the column shown whole again.
+pub fn pick_range(tab: &mut Tab, col: usize, kind: Kind, lo: f64, hi: f64, what: &str, ctx: &egui::Context) {
+    let title = tab.st().and_then(|st| st.headers().get(col).cloned()).unwrap_or_default();
+    tab.spark.picks.remove(&col);
+    tab.spark.check = None;
+    if range_kept(tab, col) == Some((lo, hi)) {
+        tab.keep_values(col, None, ctx);
+        tab.grid.notice = Some(format!("{title}: every value shown again."));
+        return;
+    }
+    tab.keep_values(col, Some(Keeps::Range { kind, lo, hi, label: what.into() }), ctx);
+    tab.grid.notice = Some(format!("{title}: only {what} — click it again to show all."));
+}
+
+/// The stretch of a histogram the value filter of `col` keeps.
+pub fn range_kept(tab: &Tab, col: usize) -> Option<(f64, f64)> {
+    tab.filter.picks.iter().find(|v| v.col == col).and_then(|v| match v.keep { Keeps::Range { lo, hi, .. } => Some((lo, hi)), _ => None })
 }
 
 /// Whether the value filter of `col` keeps exactly `values`.
@@ -541,17 +586,17 @@ pub fn band(ui: &mut Ui, tab: &mut Tab, painter: &Painter, band: Rect, clip: Rec
                 let hot = if resp.hovered() || brush.is_some() { 1.0 } else { 0.85 };
                 let cnt = match fc {
                     Some(ColF::Curve { cnt, .. }) => {
-                        draw_counts(&pt, &cv.cnt, cr, kc, 0.3 * dim, rise, None);
-                        draw_counts(&pt, cnt, cr, kc, frise * dim, rise * (0.6 + 0.4 * frise), None);
+                        draw_curve(&pt, &cv.cnt, &cv.bins, cr, kc, p.warn, 0.3 * dim, rise, None);
+                        draw_curve(&pt, cnt, &cv.bins, cr, kc, p.warn, frise * dim, rise * (0.6 + 0.4 * frise), None);
                         cnt
                     }
                     _ => {
-                        draw_counts(&pt, &cv.cnt, cr, kc, hot * dim, rise, None);
+                        draw_curve(&pt, &cv.cnt, &cv.bins, cr, kc, p.warn, hot * dim, rise, None);
                         &cv.cnt
                     }
                 };
                 if let Some((Pick::Bars(a, z), ..)) = lit {
-                    draw_counts(&pt, cnt, cr, kc, 1.0, rise, Some((a, z)));
+                    draw_curve(&pt, cnt, &cv.bins, cr, kc, p.warn, 1.0, rise, Some((a, z)));
                 }
             }
             Col::Ribbon(_) => {
