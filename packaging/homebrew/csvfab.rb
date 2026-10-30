@@ -4,8 +4,8 @@
 class Csvfab < Formula
   desc "Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
   homepage "https://github.com/fabiochelly/csvfab"
-  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v2.0.2.tar.gz"
-  sha256 "fde31bb0bab1150565baf367f762cfef9a2273cd93d0e67cbc9d9851d1f49e65"
+  url "https://github.com/fabiochelly/csvfab/archive/refs/tags/v2.0.3.tar.gz"
+  sha256 "8fbe40540250325751714f1f5006ebd01fa5376d347badfbb30cae1b270f45b5"
   license "MIT"
 
   depends_on "rust" => :build

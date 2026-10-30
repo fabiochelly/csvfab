@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+PackageIdentifier: FabioChelly.csvfab
+PackageVersion: 2.0.3
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+FileExtensions:
+  - csv
+  - tsv
+Commands:
+  - csvfab
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/fabiochelly/csvfab/releases/download/v2.0.3/csvfab-setup-2.0.3.exe
+    InstallerSha256: C88D3C69808063EB9DCD5871565D2282F4EF417B57623CA4134F19737A66EF39
+ManifestType: installer
+ManifestVersion: 1.12.0
