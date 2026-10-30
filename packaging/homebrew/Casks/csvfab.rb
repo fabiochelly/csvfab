@@ -4,8 +4,8 @@
 # download's quarantine flag and signed ad hoc. The formula of the same name is the
 # command line alone.
 cask "csvfab" do
-  version "2.0.4"
-  sha256 "a92cf49ac9080c5023db74debd978d24d263420a49bca4f398ef64599bcc00d0"
+  version "2.0.5"
+  sha256 "5f37756e09d1f079920289d83cfb221aa53a4d2dba4306afb45fe0f831b93e2d"
 
   url "https://github.com/fabiochelly/csvfab/releases/download/v#{version}/csvfab-#{version}-macos.tar.gz"
   name "csvfab"
