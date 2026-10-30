@@ -459,10 +459,17 @@ impl Bench {
                 say("@op open");
                 let t0 = Instant::now();
                 self.app().open(f, &ctx);
-                self.until("open", Self::loaded)?;
+                // The whole file known; on the way, the frame that first has rows to show.
+                let mut first = None;
+                self.until("open", |h| {
+                    let a = h.state_mut();
+                    if first.is_none() && a.tabs.get(a.active).is_some_and(|t| t.table.is_some()) { first = Some(t0.elapsed()); }
+                    Self::loaded(h)
+                })?;
                 let d = t0.elapsed();
                 let st = self.tab().st().cloned().unwrap();
-                Ok((d, obj(&[("rows", st.len().to_string()), ("cols", st.ncols.to_string())])))
+                let first = first.unwrap_or(d).as_secs_f64() * 1e3;
+                Ok((d, obj(&[("rows", st.len().to_string()), ("cols", st.ncols.to_string()), ("first_rows_ms", format!("{first:.3}"))])))
             }
             "filter_global" => {
                 let d = self.view_op(op, |t| t.filter.global = "lyon".into())?;

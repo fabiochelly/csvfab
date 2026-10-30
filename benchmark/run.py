@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Banc public : csvfab face à d'autres outils, sur des fichiers générés.
 
+    cargo build --release -p csvfab --example bench_ui   # d'abord, une fois
     python3 benchmark/run.py                       # 100 k, 1 M et 5 M lignes ; csvfab et VisiData
     python3 benchmark/run.py --rows 1000000 --repeat 5
     python3 benchmark/run.py --tools csvfab --markdown results.md --json results.json
@@ -10,90 +11,49 @@ partout : mêmes octets sur toutes les machines), lu une fois pour qu'il soit
 dans le cache du système pour tous les outils, puis chaque outil y fait les
 mêmes opérations :
 
-  open          le fichier entier chargé, et pour csvfab la première image de
-                la grille peinte (1920 × 1080)
+  open          le fichier entier chargé : toutes les lignes connues et
+                utilisables, pas seulement le premier écran (pour csvfab, le temps
+                des premières lignes à l'écran est rapporté à part)
   filter        les lignes dont la colonne city contient « lyon », casse ignorée
   sort numbers  total_spent, décroissant
   sort text     last_name, croissant
 
 Un temps n'est rapporté que si le résultat est juste : nombre de lignes,
 lignes filtrées et plus gros montant comparés à ce que le générateur a compté.
-La médiane de --repeat essais est rapportée.
+La médiane de --repeat essais est rapportée, chaque essai dans un processus
+neuf : un tri mesuré est toujours un premier tri, jamais un tri relu d'un cache.
 
-csvfab tourne pour de vrai : server.py et la page dans un Chromium sans
-fenêtre (profil et dossier d'état jetables), pilotés par le protocole DevTools.
-VisiData (s'il est installé, ou via `uv`) tourne dans son propre processus,
-un par essai (vd_driver.py).
+csvfab tourne pour de vrai : l'app native dans son banc sans fenêtre
+(app/examples/bench_ui.rs : egui_kittest, de vraies images, le temps arrêté
+quand le résultat est dessiné et tessellé ; pas de GPU), dossier d'état
+jetable. VisiData (s'il est installé, ou via `uv`) tourne dans son propre
+processus, un par essai (vd_driver.py).
 
-Bibliothèque standard seule. Le dépôt cloné suffit (tests/cdp.py et
-tests/support.py y sont).
+Bibliothèque standard seule.
 """
 
 import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 from gen import ensure  # noqa: E402
-from tests.cdp import Chrome, find_chromium  # noqa: E402
-from tests.support import Bridge, read_version  # noqa: E402
 
 OPS = [("open", "Open"), ("filter", "Filter (column contains)"),
        ("sort_num", "Sort numbers"), ("sort_text", "Sort text")]
 
-# Mesures dans la page : chaque opération appelle ce que l'interface appelle
-# (le clic sur un titre, la saisie dans le filtre d'une colonne) et attend
-# l'image suivante, peinte.
-PAGE = r"""
-window.__bench = {
-  paint() { return new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))); },
-  col(name) { return T().headers.indexOf(name); },
-  async open(path) {
-    // À froid à chaque essai : onglets fermés, cache de réouverture vidé (sinon un
-    // fichier déjà vu s'ouvre sans être relu, ~2× plus vite).
-    for (const t of [...tabs]) await closeTab(t.id);
-    await idxClear();
-    await new Promise(r => setTimeout(r, 300));
-    const t0 = performance.now();
-    await addPathTabs([path]);
-    const t = tabs.find(x => x.path === path);
-    await tabRows(t);
-    activateTab(t.id);
-    await this.paint();
-    return { ms: performance.now() - t0, rows: t.allData.length };
-  },
-  async filter(col, q) {
-    const t = T();
-    const t0 = performance.now();
-    t.colFilters = { [this.col(col)]: q };
-    applyFilters();
-    await this.paint();
-    const ms = performance.now() - t0, n = t.filteredData.length;
-    t.colFilters = {}; applyFilters(); await this.paint();
-    return { ms, n };
-  },
-  async sort(col, dir) {
-    const t = T(), c = this.col(col);
-    const t0 = performance.now();
-    sortBy(c, dir);
-    await this.paint();
-    const ms = performance.now() - t0, first = cellOf(t.filteredData[0], c);
-    undo(); await this.paint();          // l'ordre du fichier, pour l'essai suivant
-    return { ms, first };
-  },
-};
-true
-"""
+# Les opérations de bench_ui correspondantes, dans cet ordre, une fois chacune par processus.
+BENCH_OPS = {"open": "open", "filter_col": "filter", "sort_num": "sort_num", "sort_text": "sort_text"}
 
 
 # --- machine -----------------------------------------------------------------
@@ -118,24 +78,36 @@ def ram_bytes():
         return None
 
 
-def browser_version(binary):
+def read_version():
+    """La version de csvfab, celle du Cargo.toml de l'espace de travail."""
     try:
-        return subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=20).stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
+        with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as f:
+            m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M)
+        return m.group(1) if m else "?"
+    except OSError:
         return "?"
 
 
-def machine(browser):
+def machine():
     ram = ram_bytes()
     return {"cpu": cpu_name(), "cores": os.cpu_count(), "ram_gb": round(ram / 2**30) if ram else None,
             "os": f"{platform.system()} {platform.release()}", "python": platform.python_version(),
-            "browser": browser_version(browser), "csvfab": read_version()}
+            "csvfab": read_version()}
+
+
+def load():
+    """La charge du système (1 min, 5 min), notée avant et après chaque outil."""
+    try:
+        return [round(x, 2) for x in os.getloadavg()[:2]]
+    except (OSError, AttributeError):
+        return None
 
 
 # --- mémoire (Linux : /proc) ----------------------------------------------------
 # PSS (proportional set size) de tout l'arbre de processus de l'outil : une page
-# partagée entre n processus compte pour 1/n. Additionner les RSS compterait les
-# bibliothèques de Chromium une fois par processus (~100 Mo chacun, mesuré).
+# partagée entre n processus compte pour 1/n. csvfab projette le fichier en mémoire :
+# son PSS compte ces pages (Pss_File), que le système peut reprendre à tout moment.
+# Anonymous, à côté, est la mémoire privée du processus (le tas).
 def descendants(pid):
     kids, todo = [], [pid]
     while todo:
@@ -152,31 +124,43 @@ def descendants(pid):
     return kids
 
 
-def tree_pss(roots):
-    total = 0
+def tree_mem(roots):
+    """(PSS, anonyme, PSS des fichiers projetés) de l'arbre, en octets."""
+    pss = anon = pss_file = 0
     for p in {q for r in roots for q in [r] + descendants(r)}:
         try:
             with open(f"/proc/{p}/smaps_rollup") as f:
                 for line in f:
-                    if line.startswith("Pss:"):
-                        total += int(line.split()[1]) * 1024
-                        break
+                    k = line.split(":")[0]
+                    if k == "Pss":
+                        pss += int(line.split()[1]) * 1024
+                    elif k == "Anonymous":
+                        anon += int(line.split()[1]) * 1024
+                    elif k == "Pss_File":
+                        pss_file += int(line.split()[1]) * 1024
         except OSError:
             pass
-    return total
+    return pss, anon, pss_file
 
 
 class Sampler:
-    """Le pic de PSS des arbres `roots`, relevé toutes les 0,05 s pendant le bloc
-    `with` ; None hors Linux. Passe à part des chronos : relire /proc les perturberait."""
+    """Le pic de PSS (avec le fichier projeté à cet instant) et le pic de mémoire anonyme
+    des arbres `roots`, relevés toutes les 0,05 s pendant le bloc `with` ; None hors
+    Linux. Passe à part des chronos : relire /proc les perturberait."""
 
     def __init__(self, roots):
-        self.roots, self.peak, self.stop = roots, None, threading.Event()
+        self.roots, self.peak, self.anon, self.mapped, self.stop = roots, None, None, None, threading.Event()
         self.th = threading.Thread(target=self.run, daemon=True)
+
+    def sample(self):
+        pss, anon, mapped = tree_mem(self.roots())
+        if pss >= (self.peak or 0):
+            self.peak, self.mapped = pss, mapped
+        self.anon = max(self.anon or 0, anon)
 
     def run(self):
         while True:
-            self.peak = max(self.peak or 0, tree_pss(self.roots()))
+            self.sample()
             if self.stop.wait(0.05):
                 break
 
@@ -189,7 +173,6 @@ class Sampler:
         self.stop.set()
         if self.th.is_alive():
             self.th.join(5)
-            self.peak = max(self.peak or 0, tree_pss(self.roots()))
 
 
 # --- outils ----------------------------------------------------------------------
@@ -200,43 +183,57 @@ def warm(path):
             pass
 
 
-def run_csvfab(path, repeat, timeout, browser, memory=False):
-    """Les chronos ; avec memory, un seul essai de chaque opération et le pic de mémoire."""
-    b = Bridge().start()
-    chrome = None
+def run_csvfab(path, repeat, timeout, bench, state_dir, memory=False):
+    """Un processus neuf par essai ; avec memory, un seul, et le pic de mémoire."""
+    # Un dossier d'état jetable : les réglages d'un utilisateur neuf, rien d'écrit chez vous.
+    work = tempfile.mkdtemp(prefix="csvfab-bench-", dir=state_dir)
+    env = dict(os.environ, XDG_STATE_HOME=work)
+
+    def once(pids=None):
+        cmd = [bench, path, "--ops", ",".join(BENCH_OPS), "--repeat", "1", "--size", "1920x1080",
+               "--out", os.path.join(work, "out"), "--timeout", str(timeout)]
+        p = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if pids is not None:
+            pids.append(p.pid)
+        try:
+            so, se = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate()
+            raise
+        if p.returncode:
+            raise RuntimeError(se.strip().splitlines()[-1] if se.strip() else f"exit {p.returncode}")
+        res = {}
+        for line in so.splitlines():
+            if line.startswith("{"):
+                r = json.loads(line)
+                if "error" in r:
+                    raise RuntimeError(f"{r['op']}: {r['error']}")
+                res[r["op"]] = r
+        return res
+
     try:
-        chrome = Chrome(b.origin + "/", binary=browser, args=["--window-size=1920,1080"])
-        chrome.wait_for("typeof addPathTabs === 'function' && document.readyState === 'complete'")
-        chrome.eval(PAGE)
-        time.sleep(2)       # l'app ouverte depuis un instant : son worker de lecture est prêt, comme pour un utilisateur
         if memory:
-            with Sampler(lambda: [b.proc.pid, chrome.proc.pid]) as m:
-                chrome.eval(f"__bench.open({path!r})", timeout=timeout)
-                chrome.eval("__bench.filter('city', 'lyon')", timeout=timeout)
-                chrome.eval("__bench.sort('total_spent', -1)", timeout=timeout)
-                chrome.eval("__bench.sort('last_name', 1)", timeout=timeout)
-            return m.peak
+            pids = []
+            with Sampler(lambda: pids) as m:
+                once(pids)
+            return m
         out = {k: [] for k, _ in OPS}
+        out["first_rows"] = []
         for _ in range(repeat):
-            r = chrome.eval(f"__bench.open({path!r})", timeout=timeout)
-            out["open"].append(r["ms"] / 1000)
-            out["rows"] = r["rows"]
-        for _ in range(repeat):
-            r = chrome.eval("__bench.filter('city', 'lyon')", timeout=timeout)
-            out["filter"].append(r["ms"] / 1000)
-            out["filter_n"] = r["n"]
-            r = chrome.eval("__bench.sort('total_spent', -1)", timeout=timeout)
-            out["sort_num"].append(r["ms"] / 1000)
-            out["sort_num_first"] = r["first"]
-            r = chrome.eval("__bench.sort('last_name', 1)", timeout=timeout)
-            out["sort_text"].append(r["ms"] / 1000)
-            out["sort_text_first"] = r["first"]
+            r = once()
+            for op, key in BENCH_OPS.items():
+                out[key].append(r[op]["ms"] / 1000)
+            if "first_rows_ms" in r["open"]["out"]:      # un bench_ui d'avant cette mesure ne la donne pas
+                out["first_rows"].append(r["open"]["out"]["first_rows_ms"] / 1000)
+            out["rows"] = r["open"]["out"]["rows"]
+            out["filter_n"] = r["filter_col"]["out"]["n"]
+            out["sort_num_first"] = r["sort_num"]["out"]["first"]
+            out["sort_text_first"] = r["sort_text"]["out"]["first"]
         out["version"] = read_version()
         return out
     finally:
-        if chrome:
-            chrome.close()
-        b.stop()
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def visidata_cmd(explicit):
@@ -279,7 +276,7 @@ def run_visidata(path, repeat, timeout, cmd, memory=False):
         pids = []
         with Sampler(lambda: pids) as m:
             once(pids)
-        return m.peak
+        return m
     out = {k: [] for k, _ in OPS}
     for _ in range(repeat):
         r = once()
@@ -331,7 +328,8 @@ TOOL_NAMES = {"csvfab": "csvfab", "visidata": "VisiData"}
 
 def report(results, info):
     lines = [f"Measured on {info['cpu']} ({info['cores']} threads, {info['ram_gb']} GB RAM), {info['os']}, "
-             f"{info['browser']}, Python {info['python']} — `python3 benchmark/run.py`, median of {info['repeat']} runs.", ""]
+             f"csvfab {info['csvfab']} (release build, `bench_ui`), Python {info['python']} — "
+             f"`python3 benchmark/run.py`, median of {info['repeat']} runs, each in a fresh process.", ""]
     for entry in results:
         tools = [t for t in entry["tools"] if entry["tools"][t].get("ok")]
         others = [t for t in tools if t != "csvfab"]
@@ -341,19 +339,20 @@ def report(results, info):
         lines.append("")
         lines.append("| | " + " | ".join(cols) + (" | csvfab is" if "csvfab" in tools and others else "") + " |")
         lines.append("|---|" + "---:|" * len(cols) + ("---:|" if "csvfab" in tools and others else ""))
-        rows = OPS + [("peak_mem", "Peak memory")]
+        rows = OPS[:1] + [("first_rows", "First rows on screen")] + OPS[1:] + [("peak_mem", "Peak memory (PSS)"), ("peak_anon", "of which private (heap)")]
         for key, label in rows:
             cells, vals = [], {}
             for t in tools:
                 r = entry["tools"][t]
-                v = r.get("peak_mem") if key == "peak_mem" else statistics.median(r[key])
+                mem = key.startswith("peak")
+                v = r.get(key) if mem else statistics.median(r[key]) if r.get(key) else None
                 vals[t] = v
-                txt = (size(v) if v else "—") if key == "peak_mem" else secs(v)
-                cells.append(f"**{txt}**" if t == "csvfab" else txt)
+                txt = (size(v) if v else "—") if mem else secs(v)
+                cells.append(f"**{txt}**" if t == "csvfab" and v else txt)
             line = f"| {label} | " + " | ".join(cells)
             if "csvfab" in tools and others:
                 o = vals[others[0]]
-                line += f" | {ratio(o, vals['csvfab'], key == 'peak_mem')}" if o and vals["csvfab"] else " | "
+                line += f" | {ratio(o, vals['csvfab'], key.startswith('peak'))}" if o and vals["csvfab"] else " | "
             lines.append(line + " |")
         failed = [f"{TOOL_NAMES[t]}: {entry['tools'][t].get('error')}" for t in entry["tools"] if not entry["tools"][t].get("ok")]
         if failed:
@@ -368,7 +367,8 @@ def main():
     ap.add_argument("--repeat", type=int, default=3, help="runs per measure, the median is reported (default: %(default)s)")
     ap.add_argument("--tools", default="csvfab,visidata", help="comma-separated: csvfab, visidata (default: %(default)s)")
     ap.add_argument("--data-dir", default=os.path.join(HERE, "data"), help="where the generated files go (default: benchmark/data)")
-    ap.add_argument("--browser", default=None, help="Chromium-based browser binary (default: found on PATH)")
+    ap.add_argument("--bench-ui", default=None, help="the bench_ui binary (default: target/release/examples/bench_ui)")
+    ap.add_argument("--state-dir", default=None, help="where csvfab's throwaway state folders go (default: the system's temp folder)")
     ap.add_argument("--visidata-python", default=None, help="a Python where `import visidata` works (default: this one, vd's, or `uv run --with visidata`)")
     ap.add_argument("--timeout", type=int, default=900, help="seconds allowed per tool and file (default: %(default)s)")
     ap.add_argument("--no-memory", dest="memory", action="store_false",
@@ -379,16 +379,18 @@ def main():
 
     sizes = [int(x) for x in a.rows.split(",") if x.strip()]
     tools = [t.strip().lower() for t in a.tools.split(",") if t.strip()]
-    browser = a.browser or find_chromium()
-    if "csvfab" in tools and not browser:
-        sys.exit("No Chromium-based browser found: pass --browser.")
+    bench = a.bench_ui or os.path.join(ROOT, "target", "release", "examples", "bench_ui" + (".exe" if os.name == "nt" else ""))
+    if "csvfab" in tools and not os.path.exists(bench):
+        sys.exit(f"{bench} not found: run `cargo build --release -p csvfab --example bench_ui` first, or pass --bench-ui.")
+    if a.state_dir:
+        os.makedirs(a.state_dir, exist_ok=True)
     vd_cmd = visidata_cmd(a.visidata_python) if "visidata" in tools else None
     if "visidata" in tools and not vd_cmd:
         print("VisiData not found (pip install visidata, or install uv): skipped.", file=sys.stderr)
         tools.remove("visidata")
-    info = {**machine(browser), "repeat": a.repeat}
+    info = {**machine(), "repeat": a.repeat}
     os.makedirs(a.data_dir, exist_ok=True)
-    print(f"{info['cpu']} · {info['os']} · {info['browser']} · csvfab {info['csvfab']}", file=sys.stderr)
+    print(f"{info['cpu']} · {info['os']} · csvfab {info['csvfab']}", file=sys.stderr)
 
     results = []
     for n in sizes:
@@ -399,16 +401,18 @@ def main():
         entry = {"rows": n, "bytes": expect["bytes"], "file": os.path.basename(path), "tools": {}}
         for tool in tools:
             print(f"  {TOOL_NAMES.get(tool, tool)}…", end=" ", file=sys.stderr, flush=True)
+            before = load()
             try:
                 if tool == "csvfab":
-                    r = run_csvfab(path, a.repeat, a.timeout, browser)
+                    r = run_csvfab(path, a.repeat, a.timeout, bench, a.state_dir)
                 elif tool == "visidata":
                     r = run_visidata(path, a.repeat, a.timeout, vd_cmd)
                 else:
                     raise RuntimeError("unknown tool")
                 if a.memory:
-                    r["peak_mem"] = (run_csvfab(path, 1, a.timeout, browser, memory=True) if tool == "csvfab"
-                                     else run_visidata(path, 1, a.timeout, vd_cmd, memory=True))
+                    m = (run_csvfab(path, 1, a.timeout, bench, a.state_dir, memory=True) if tool == "csvfab"
+                         else run_visidata(path, 1, a.timeout, vd_cmd, memory=True))
+                    r["peak_mem"], r["peak_anon"], r["peak_mapped"] = m.peak, m.anon, m.mapped
                 bad = check(r, expect)
                 r["ok"] = not bad
                 if bad:
@@ -417,6 +421,7 @@ def main():
                 r = {"ok": False, "error": f"over {a.timeout} s"}
             except Exception as e:  # un outil qui plante ne doit pas emporter les autres mesures
                 r = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            r["load"] = {"before": before, "after": load()}
             entry["tools"][tool] = r
             print(" · ".join(f"{k} {secs(statistics.median(r[k]))}" for k, _ in OPS) if r["ok"] else r["error"],
                   file=sys.stderr, flush=True)

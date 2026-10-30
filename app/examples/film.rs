@@ -88,7 +88,7 @@ fn paint_caption(p: &egui::Painter, screen: Rect, c: &Caption, a: f32) {
 }
 
 fn paint_overlay(ctx: &egui::Context, o: &Overlay) {
-    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::new("film-overlay")));
+    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Debug, egui::Id::unique("film-overlay")));
     let screen = ctx.content_rect();
     if let Some(c) = &o.caption {
         paint_caption(&p, screen, c, (c.born.elapsed().as_secs_f32() / 0.18).min(1.0));
@@ -361,8 +361,8 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     let size = format!("{:.0} MB", bytes as f64 / 1e6);
     let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     f.say(&[(&name, false)], &format!("{size} · nothing in this film is sped up"));
-    f.point(pos2(640.0, 330.0), 0.9);
-    f.hold(1.3);
+    f.point(pos2(640.0, 330.0), 1.0);
+    f.hold(1.6);
     // Open: what a double click in the file manager, or a file dropped, calls.
     let ctx = f.ctx.clone();
     let mut first = None;
@@ -377,7 +377,7 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     let rows = tab(&mut f.h).st().map_or(0, |s| s.len());
     f.note(serde_json::json!({"rows": rows, "first_rows_ms": ms(first)}));
     f.say(&[("Opened in ", false), (&say_ms(open), true)], &format!("all {} rows known · first rows on screen at {}", commas(rows), say_ms(first)));
-    f.hold(3.2);
+    f.hold(3.8);
 
     f.say(&[("Scroll anywhere", false)], "rows are read only when they are shown");
     let body_end = (rows as f64) * 32.0;
@@ -389,7 +389,7 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     tab(&mut f.h).grid.set_top(rows.saturating_sub(1));
     f.tick();
     f.say(&[(&format!("Row {}", commas(rows)), false)], "the last line of the file, at once");
-    f.hold(2.0);
+    f.hold(2.4);
     tab(&mut f.h).grid.set_top(0);
     f.hush();
     f.hold(0.5);
@@ -401,12 +401,12 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     let v = f.cell(0, c);
     f.note(serde_json::json!({"first": v}));
     f.say(&[("Sorted in ", false), (&say_ms(asc), true)], "smallest first · first sort of this column since the file opened");
-    f.hold(2.4);
+    f.hold(2.8);
     let desc = f.sort_click("total_spent", "sort_num_desc", vec![SortKey { col: c, desc: true }]);
     let v = f.cell(0, c);
     f.note(serde_json::json!({"first": v}));
     f.say(&[("Largest first, ", false), (&say_ms(desc), true)], &format!("second click · the top amount: {v}"));
-    f.hold(2.6);
+    f.hold(3.0);
 
     f.say(&[("Now by name", false)], "one click on last_name");
     f.reveal("id", 0.0);
@@ -415,7 +415,7 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     let v = f.cell(0, c);
     f.note(serde_json::json!({"first": v}));
     f.say(&[("Sorted by name in ", false), (&say_ms(text), true)], &format!("{} rows, A → Z · first sort of this column", commas(rows)));
-    f.hold(2.8);
+    f.hold(3.2);
 
     f.say(&[("Filter as you type", false)], "city contains “lyon”");
     f.reveal("city", 300.0);
@@ -424,7 +424,10 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
     f.press();
     f.button(false);
     f.tick();
-    f.hold(0.35);
+    // The hand leaves the box: a filter opens a band that moves the grid down, and the
+    // charts answer a pointer resting on them.
+    let rest = b + vec2(150.0, 210.0);
+    f.point(rest, 0.45);
     let c = f.col("city");
     let word: Vec<String> = if whole_word { vec!["lyon".to_string()] } else { "lyon".chars().map(|c| c.to_string()).collect() };
     let mut typed = String::new();
@@ -438,12 +441,12 @@ fn filmed(f: &mut Film, file: PathBuf, whole_word: bool) {
         });
         let n = tab(&mut f.h).shown();
         f.note(serde_json::json!({"n": n}));
-        each.push(format!("{s} {}", say_ms(d)));
+        each.push(format!("{typed} {}", say_ms(d)));
         if i + 1 < word.len() { f.hold(0.17); }
     }
     let n = tab(&mut f.h).shown();
-    f.say(&[(&commas(n), true), (" rows out of ", false), (&commas(rows), false)], &format!("each letter filtered at once: {}", each.join(" · ")));
-    f.hold(3.6);
+    f.say(&[(&commas(n), true), (" rows out of ", false), (&commas(rows), false)], &format!("as you type: {}", each.join(" · ")));
+    f.hold(4.4);
     f.hush();
     f.hold(0.4);
 }
@@ -463,7 +466,7 @@ fn still(f: &mut Film, file: PathBuf, out: &str) {
     t.sort = vec![SortKey { col: spent, desc: true }];
     t.refresh(&ctx);
     settled(f, 2.5);
-    let x: f32 = tab(&mut f.h).grid.widths[..3].iter().sum();
+    let x: f32 = tab(&mut f.h).grid.widths[..city].iter().sum();
     tab(&mut f.h).grid.xoff = x;
     settled(f, 1.0);
     f.h.render().expect("render").save(out).expect("write the still");

@@ -1,22 +1,28 @@
-#!/usr/bin/env python3
 """La vidéo de démonstration : csvfab sur un fichier de 5 millions de lignes, filmé pour de vrai.
 
+    cargo build --release -p csvfab --example bench_ui --example film
     python3 benchmark/run.py --json results.json        # d'abord les mesures
-    python3 benchmark/video.py --results results.json   # → benchmark/data/csvfab-5m.mp4 et sa miniature
+    python3 benchmark/video.py --results results.json   # → benchmark/data/csvfab-demo.mp4, sa miniature, le GIF
 
 Trois parties, en 1920 × 1080 à 30 images/s :
   1. un carton de titre ;
-  2. l'app elle-même (server.py et la page, dans un Chromium sans fenêtre) :
-     ouverture du fichier généré, défilement, tri par un clic sur un titre,
-     filtre tapé dans une colonne. Capturée en temps réel, image par image,
-     avec l'heure de chaque image : une opération qui prend 2 s dure 2 s à
-     l'écran, et les temps affichés sont ceux que la page vient de mesurer ;
-  3. les résultats du banc (results.json) en barres qui avancent au rythme des
-     temps mesurés, la limite de lignes des tableurs, et un carton de fin.
-Les cartons sont des pages HTML dont les animations sont avancées pas à pas
-(image n = instant n/30), donc fluides quelle que soit la vitesse de capture.
+  2. l'app elle-même (app/examples/film.rs : la vraie App sans fenêtre, rendue
+     par wgpu) : ouverture du fichier généré, défilement, tris par un clic sur un
+     titre, filtre tapé dans une colonne. L'horloge est l'horloge murale, chaque
+     image garde son heure et le film est monté sur ces heures : une opération de
+     40 ms dure 40 ms à l'écran, et les légendes sont les temps de cet essai-là.
+     Les pauses de lecture sont entre les opérations, jamais dedans ;
+  3. les résultats du banc (results.json) en barres qui avancent toutes à la même
+     vitesse, au rythme des temps mesurés ; Modern CSV garde sa mesure datée (il
+     ne se pilote pas par script) ; puis un carton de fin.
+Les cartons sont des pages HTML dans un Chromium sans fenêtre, dont les animations
+sont avancées pas à pas (image n = instant n/30), donc fluides quelle que soit la
+vitesse de capture.
 
-Il faut ffmpeg. Bibliothèque standard seule par ailleurs.
+--check relit le film monté : l'image où l'écran change vraiment doit tomber
+à l'heure mesurée, à une image près.
+
+Il faut ffmpeg et un Chromium. Bibliothèque standard seule par ailleurs.
 """
 
 import argparse
@@ -24,62 +30,55 @@ import base64
 import json
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
+from cdp import Chrome, find_chromium  # noqa: E402
 from gen import ensure  # noqa: E402
-from tests.cdp import Chrome, find_chromium  # noqa: E402
-from tests.support import Bridge, read_version  # noqa: E402
 
 W, H, FPS = 1920, 1080, 30
 REPO = "github.com/fabiochelly/csvfab"
+
+# Modern CSV 2.4.4 ne se pilote pas par script : ses temps sont ceux mesurés à la main,
+# sur la même machine et le même fichier (version 1 des données), le 2026-10-03.
+MODERN = {"date": "2026-10-03", "open": 4.6, "sort_num": 53.0, "sort_text": 24.0}
 
 with open(os.path.join(ROOT, "icons", "csvfab.svg"), encoding="utf-8") as f:
     LOGO = f.read()
 
 
 class Film:
-    """Les images capturées et la durée de chacune, montées à la fin par ffmpeg."""
+    """Les images d'un carton, montées à la fin par ffmpeg (quasi sans perte)."""
 
     def __init__(self, workdir):
-        self.dir, self.frames = workdir, []      # [chemin, durée]
+        self.dir, self.frames = workdir, []
 
-    def add(self, png_b64, duration):
+    def add(self, b64):
         path = os.path.join(self.dir, f"f{len(self.frames):06d}.jpg")
         with open(path, "wb") as f:
-            f.write(base64.b64decode(png_b64))
-        self.frames.append([path, duration])
-
-    def hold(self, seconds):
-        if self.frames:
-            self.frames[-1][1] += seconds
+            f.write(base64.b64decode(b64))
+        self.frames.append(path)
 
     def render(self, out):
-        lst = os.path.join(self.dir, "list.txt")
-        with open(lst, "w") as f:
-            f.write("ffconcat version 1.0\n")
-            for p, d in self.frames:
-                f.write(f"file '{p}'\nduration {max(d, 0.001):.4f}\n")
-            f.write(f"file '{self.frames[-1][0]}'\n")      # le concat ignore la durée de la dernière entrée sinon
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lst,
-                        "-vf", f"fps={FPS},format=yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "16",
-                        "-movflags", "+faststart", out], check=True)
+        subprocess.run(["nice", "-n", "19", "ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS),
+                        "-i", os.path.join(self.dir, "f%06d.jpg"), "-threads", "4", "-c:v", "libx264rgb",
+                        "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "rgb24", out], check=True)
+        for p in self.frames:
+            os.remove(p)
+        self.frames = []
 
 
 def shot(chrome):
-    return chrome.call("Page.captureScreenshot", format="jpeg", quality=92)["data"]
+    return chrome.call("Page.captureScreenshot", format="jpeg", quality=96)["data"]
 
 
-def size_metrics(chrome, zoom=1):
-    """Une image de W × H pixels ; zoom > 1 grossit la page (l'app à 1080p native a un texte trop fin pour une vidéo)."""
-    chrome.call("Emulation.setDeviceMetricsOverride", width=round(W / zoom), height=round(H / zoom),
-                deviceScaleFactor=zoom, mobile=False)
+def size_metrics(chrome):
+    chrome.call("Emulation.setDeviceMetricsOverride", width=W, height=H, deviceScaleFactor=1, mobile=False)
 
 
 # --- 1 et 3 : les cartons -------------------------------------------------------
@@ -104,7 +103,7 @@ h2 { font-size: 54px; font-weight: 700; color: var(--hi); letter-spacing: -1px; 
 TITLE = """<div class="glow"></div><div class="center">
 <div class="logo in">{logo}</div>
 <h1 class="in" style="animation-delay:.25s">csv<span class="grad">fab</span></h1>
-<div class="sub in" style="animation-delay:.6s">{rows} rows · {size}. Watch it open.</div>
+<div class="sub in" style="animation-delay:.6s">{rows} rows · {size} · filmed in real time</div>
 </div>"""
 
 END = """<div class="glow"></div><div class="center">
@@ -114,36 +113,36 @@ END = """<div class="glow"></div><div class="center">
 <div class="sub in" style="animation-delay:1.1s;color:var(--hi);font-size:46px;margin-top:48px;font-weight:600">{repo}</div>
 <div class="sub in" style="animation-delay:1.5s;font-size:30px;margin-top:30px;font-family:ui-monospace,Menlo,Consolas,monospace">
 brew install --cask fabiochelly/csvfab/csvfab · winget install FabioChelly.csvfab</div>
-<div class="sub in" style="animation-delay:1.9s;font-size:26px;margin-top:40px">Every number in this video: <span style="font-family:ui-monospace,Menlo,Consolas,monospace">python3 benchmark/run.py</span> — run it yourself.</div>
+<div class="sub in" style="animation-delay:1.9s;font-size:26px;margin-top:40px">The csvfab and VisiData bars: <span style="font-family:ui-monospace,Menlo,Consolas,monospace">python3 benchmark/run.py</span> — run it yourself.</div>
 </div>"""
 
 # Les barres : la largeur de chacune avance au rythme du temps mesuré (mis à l'échelle
 # `scale`), jusqu'à son terme, où le temps s'affiche. Pilotées par __seek(t), pas par CSS.
 RACE = """<div class="glow"></div>
-<div style="position:absolute;left:140px;right:140px;top:90px">
+<div style="position:absolute;left:140px;right:140px;top:56px">
 <h2 class="in">{title}</h2>
 <div class="sub in" style="animation-delay:.2s;font-size:32px;margin-top:12px">{subtitle}</div>
-<div id="ops" style="margin-top:56px"></div>
+<div id="ops" style="margin-top:34px"></div>
 <div class="sub in" style="animation-delay:.4s;font-size:24px;position:fixed;left:140px;bottom:56px">{foot}</div>
 </div>
 <script>
-const OPS = {ops}, SCALE = {scale}, MAXW = 1300;
+const OPS = {ops}, SCALE = {scale}, MAXW = 1110;
 const root = document.getElementById('ops');
 const slowest = Math.max(...OPS.flatMap(o => o.bars.map(b => b.s || 0)));
 for (const o of OPS) {{
-  const g = document.createElement('div'); g.style.marginBottom = '34px';
-  g.innerHTML = `<div style="font-size:30px;color:var(--hi);font-weight:600;margin-bottom:12px">${{o.label}}</div>`;
+  const g = document.createElement('div'); g.style.marginBottom = '20px';
+  g.innerHTML = `<div style="font-size:27px;color:var(--hi);font-weight:600;margin-bottom:4px">${{o.label}}</div>`;
   for (const b of o.bars) {{
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;height:46px;margin:6px 0';
-    row.innerHTML = `<div style="width:230px;font-size:26px;color:${{b.us ? 'var(--hi)' : 'var(--mut)'}};font-weight:${{b.us ? 700 : 400}}">${{b.name}}</div>
-      <div class="bar" style="height:34px;border-radius:8px;width:0;background:${{b.us ? 'linear-gradient(90deg,var(--blue),var(--violet))' : 'var(--other)'}}"></div>
-      <div class="val" style="margin-left:18px;font-size:28px;font-variant-numeric:tabular-nums;color:${{b.us ? 'var(--gold)' : 'var(--txt)'}};font-weight:700"></div>`;
+    row.style.cssText = 'display:flex;align-items:center;height:38px;margin:3px 0';
+    row.innerHTML = `<div style="width:370px;white-space:nowrap;font-size:24px;color:${{b.us ? 'var(--hi)' : 'var(--mut)'}};font-weight:${{b.us ? 700 : 400}}">${{b.name}}</div>
+      <div class="bar" style="height:28px;border-radius:7px;width:0;background:${{b.us ? 'linear-gradient(90deg,var(--blue),var(--violet))' : 'var(--other)'}}"></div>
+      <div class="val" style="margin-left:18px;font-size:25px;font-variant-numeric:tabular-nums;color:${{b.us ? 'var(--gold)' : 'var(--txt)'}};font-weight:700"></div>`;
     row._b = b; g.appendChild(row);
   }}
   root.appendChild(g);
 }}
-function fmt(s) {{ return s < 1 ? Math.round(s * 1000) + ' ms' : s.toFixed(1) + ' s'; }}
+function fmt(s) {{ return s < 1 ? Math.round(s * 1000) + ' ms' : s < 10 ? s.toFixed(1) + ' s' : Math.round(s) + ' s'; }}
 window.__seek = t => {{
   document.getAnimations().forEach(a => {{ a.pause(); a.currentTime = t * 1000; }});
   const run = Math.max(0, t - 0.8) * SCALE;     // les barres partent après l'apparition des titres
@@ -151,7 +150,7 @@ window.__seek = t => {{
     const b = row._b; if (!b) continue;
     const bar = row.querySelector('.bar'), val = row.querySelector('.val');
     if (b.limit) {{
-      bar.style.width = '0'; val.innerHTML = t > 1.2 ? `<span style="color:var(--bad)">✕ ${{b.limit}}</span>` : '';
+      bar.style.width = '0'; val.innerHTML = t > 1.2 ? `<span style="color:var(--mut);font-weight:400">${{b.limit}}</span>` : '';
       continue;
     }}
     const done = run >= b.s, s = Math.min(run, b.s);
@@ -163,7 +162,7 @@ window.__seek = t => {{
 </script>"""
 
 
-def card(chrome, body, seconds, film, extra_css=""):
+def card(chrome, body, seconds, film, out, extra_css=""):
     html = f"<!doctype html><meta charset=utf-8><style>{CARD_CSS}{extra_css}</style><body>{body}</body>"
     if "__seek" not in body:
         html += "<script>window.__seek = t => document.getAnimations().forEach(a => { a.pause(); a.currentTime = t * 1000; });</script>"
@@ -171,143 +170,45 @@ def card(chrome, body, seconds, film, extra_css=""):
     chrome.wait_for("typeof window.__seek === 'function' && document.readyState === 'complete'")
     for i in range(int(seconds * FPS)):
         chrome.eval(f"__seek({i / FPS})")
-        film.add(shot(chrome), 1 / FPS)
+        film.add(shot(chrome))
+    film.render(out)
 
 
-# --- 2 : l'app, filmée en temps réel -------------------------------------------------
-# Un curseur dessiné (une capture sans fenêtre n'en a pas), des légendes, et la
-# suite des gestes. Chaque geste passe par ce que l'interface appelle : le clic
-# sur un titre (titleClick), la saisie dans le filtre d'une colonne (editColFilter
-# puis input), le défilement du conteneur. Les temps des légendes sont mesurés là.
-SCRIPT = r"""
-(() => {
-const css = document.createElement('style');
-css.textContent = `
-#__cap { position: fixed; left: 50%; bottom: 50px; transform: translateX(-50%); z-index: 99999; pointer-events: none;
-  background: rgba(var(--bg-deep-rgb), .92); border: 1px solid var(--brd-2); border-radius: 12px; padding: 13px 26px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.55); text-align: center; min-width: 460px; transition: opacity .25s; font-family: var(--ui); }
-#__cap b { display: block; font-size: 27px; color: var(--txt-strong); font-weight: 700; letter-spacing: -.5px; }
-#__cap i { display: block; font-style: normal; font-size: 16px; color: var(--txt-mut); margin-top: 4px; }
-#__cap em { font-style: normal; color: var(--warn); font-variant-numeric: tabular-nums; }
-#__cur { position: fixed; z-index: 100000; left: 640px; top: 470px; width: 22px; height: 22px; pointer-events: none;
-  transition: left .7s cubic-bezier(.3,.7,.2,1), top .7s cubic-bezier(.3,.7,.2,1); filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
-#__cur.down svg { transform: scale(.85); }`;
-document.head.appendChild(css);
-const cap = document.createElement('div'); cap.id = '__cap'; cap.style.opacity = 0; document.body.appendChild(cap);
-const cur = document.createElement('div'); cur.id = '__cur';
-cur.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 2l15 11-6.5 1.2L9 21z" fill="white" stroke="black" stroke-width="1.4" stroke-linejoin="round"/></svg>';
-document.body.appendChild(cur);
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const paint = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
-const say = (b, i) => { cap.innerHTML = `<b>${b}</b>` + (i ? `<i>${i}</i>` : ''); cap.style.opacity = 1; };
-const hush = () => { cap.style.opacity = 0; };
-const num = x => x.toLocaleString('en-US');      // les légendes en anglais ; la barre d'état de l'app garde son format
-const secs = ms => ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
-async function point(el) {
-  const r = el.getBoundingClientRect();
-  cur.style.left = (r.left + Math.min(r.width / 2, 60)) + 'px'; cur.style.top = (r.top + r.height / 2) + 'px';
-  await sleep(800);
-}
-async function click(el) {
-  await point(el);
-  cur.classList.add('down'); await sleep(90); cur.classList.remove('down');
-  const t0 = performance.now();
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-  await paint();
-  return performance.now() - t0;
-}
-const title = name => thead.querySelector(`th[data-col="${T().headers.indexOf(name)}"] .col-name`);
-async function reveal(name) {           // la colonne visée amenée à l'écran, en glissant
-  const th = thead.querySelector(`th[data-col="${T().headers.indexOf(name)}"]`);
-  const to = Math.max(0, Math.min(th.offsetLeft - 260, container.scrollWidth - container.clientWidth)), from = container.scrollLeft;
-  for (let i = 1; i <= 20; i++) { container.scrollLeft = from + (to - from) * (1 - Math.pow(1 - i / 20, 3)); await paint(); }
-}
-
-window.__film = async (path, rows, size, small) => {
-  window.__done = false;
-  await sleep(700);
-  // A file of a common size first, so the big one's time is not taken for the usual one.
-  say(`First, ${small.size}`, `${small.rows} rows — a typical customer export, 15 columns`);
-  await sleep(2400);
-  let t0 = performance.now();
-  await addPathTabs([small.path]);
-  const s = tabs.find(x => x.path === small.path);
-  await tabRows(s); activateTab(s.id); await paint();
-  say(`Opened in <em>${secs(performance.now() - t0)}</em>`, `${num(s.allData.length)} rows`);
-  await sleep(2800);
-  say(`Now ${rows} rows · ${size}`, `the same export, ${small.ratio} times bigger`);
-  await sleep(2600);
-  say('Open', 'every row, not a preview');
-  await sleep(900);
-  t0 = performance.now();
-  await addPathTabs([path]);
-  const t = tabs.find(x => x.path === path);
-  await tabRows(t); activateTab(t.id); await paint();
-  const open = performance.now() - t0;
-  say(`Opened in <em>${secs(open)}</em>`, `${num(t.allData.length)} rows ready to filter, sort and edit`);
-  await sleep(3200);
-
-  say('Scroll anywhere', 'rows are decoded only when they are shown');
-  for (let i = 0; i < 70; i++) { container.scrollTop += 140 + i * 30; await paint(); }
-  await sleep(300);
-  container.scrollTop = container.scrollHeight; await paint();
-  say(`Row ${num(t.allData.length)}`, 'the last line of the file, instantly');
-  await sleep(2400);
-  container.scrollTop = 0; await paint();
-
-  say('Sort: click a column title', `${num(t.allData.length)} rows by total spent`);
-  await reveal('total_spent');
-  await sleep(600);
-  let ms = await click(title('total_spent'));
-  say(`Sorted in <em>${secs(ms)}</em>`, 'smallest first — click again for the biggest spenders');
-  await sleep(2000);
-  ms = await click(title('total_spent'));
-  say(`Biggest spenders first · <em>${secs(ms)}</em>`, `${num(t.allData.length)} rows, numbers recognised by themselves`);
-  await sleep(2800);
-  say('Now by name', 'one click on last_name');
-  await reveal('id');
-  await sleep(500);
-  ms = await click(title('last_name'));
-  say(`Sorted by name in <em>${secs(ms)}</em>`, 'text compared like a dictionary, accents included');
-  await sleep(2800);
-
-  say('Filter as you type', 'city contains “lyon”');
-  const box = thead.querySelector(`.f-box[data-col="${t.headers.indexOf('city')}"]`);
-  await reveal('city');
-  await point(box);
-  box.focus(); await sleep(250);
-  const input = thead.querySelector(`input.f-in[data-col="${t.headers.indexOf('city')}"]`);
-  for (const ch of 'lyon') { input.value += ch; input.dispatchEvent(new Event('input', { bubbles: true })); await sleep(260); }
-  while (t.filteredData.length === t.allData.length) await sleep(20);
-  await sleep(500);
-  say(`${num(t.filteredData.length)} rows found · <em>${secs(lastFilterMs)}</em>`, `out of ${num(t.allData.length)} — still sorted by name`);
-  await sleep(3400);
-  cur.style.left = '1000px'; cur.style.top = '600px';
-  hush();
-  await sleep(800);
-  window.__done = true;
-  return { open };
-};
-return true;
-})()
-"""
+# --- 2 : l'app, filmée en temps réel (app/examples/film.rs) ----------------------------
+def film_app(binary, path, work, env, theme=None):
+    cmd = [binary, path, "--out", work] + (["--theme", theme] if theme else [])
+    subprocess.run(cmd, env=env, check=True)
+    with open(os.path.join(work, "timeline.json"), encoding="utf-8") as f:
+        return json.load(f)
 
 
-def film_app(chrome, film, path, rows, size, small, tail=0.4):
-    chrome.eval(SCRIPT)
-    chrome.call("Runtime.evaluate", expression=f"__film({json.dumps(path)}, {json.dumps(rows)}, {json.dumps(size)}, {json.dumps(small)}).then(r => window.__res = r)")
-    last = None
+def gray_frames(path, w=320, h=180):
+    """Les images d'un film, réduites et en gris (octets par image : w × h)."""
+    p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-i", path, "-vf", f"scale={w}:{h}:flags=area", "-f", "rawvideo",
+                          "-pix_fmt", "gray", "-"], stdout=subprocess.PIPE)
     while True:
-        img = shot(chrome)
-        now = time.monotonic()
-        if last is not None:
-            film.frames[-1][1] = now - last
-        film.add(img, 1 / FPS)
-        last = now
-        if len(film.frames) % 4 == 0 and chrome.eval("window.__done === true"):
+        b = p.stdout.read(w * h)
+        if len(b) < w * h:
             break
-    film.hold(tail)
-    return chrome.eval("window.__res")
+        yield b
+    p.wait()
+
+
+def check(mkv, timeline, offset=0.0):
+    """Pour chaque opération : l'image où l'écran change vraiment, contre l'heure mesurée.
+
+    Le changement cherché touche plus de 1 % de l'image (le pointeur et son onde, non).
+    `offset` : où commence la partie app dans un film monté."""
+    frames = list(gray_frames(mkv))
+    changed = [0.0] + [sum(1 for x, y in zip(a[::2], b[::2]) if abs(x - y) > 16) / (len(a) / 2) for a, b in zip(frames, frames[1:])]
+    out = []
+    for o in timeline["ops"]:
+        first = int(o["t0"] * FPS)
+        want = next((i for i in range(int((o["t0"] + offset) * FPS), len(frames)) if i / FPS >= o["t1"] + offset), None)
+        seen = next((i for i in range(first + int(offset * FPS), min(len(frames), first + int(offset * FPS) + 3 * FPS)) if changed[i] > 0.01), None)
+        out.append({"op": o["op"], "measured_ms": round(o["ms"], 1), "frames_expected_at": want, "changed_at": seen,
+                    "on_screen_ms": None if seen is None else round((seen / FPS - o["t0"] - offset) * 1e3, 1)})
+    return out
 
 
 # --- les résultats ----------------------------------------------------------------------
@@ -319,8 +220,7 @@ def pick(results, rows):
 
 
 def race_ops(entry):
-    import statistics
-    labels = [("open", "Open the file"), ("sort_num", "Sort by a number column"), ("filter", "Filter a column")]
+    labels = [("open", "Open the file (all rows known)"), ("sort_num", "Sort numbers"), ("sort_text", "Sort text"), ("filter", "Filter a column")]
     ops = []
     for key, label in labels:
         bars = []
@@ -328,11 +228,10 @@ def race_ops(entry):
             r = entry["tools"].get(tool)
             if r and r.get("ok"):
                 bars.append({"name": name, "s": statistics.median(r[key]), "us": tool == "csvfab"})
-        if len(bars) == 2 and bars[0]["s"]:
-            bars[0]["ratio"] = f"{bars[1]['s'] / bars[0]['s']:.1f}× faster"
-        if key == "open":
-            bars.append({"name": "Excel", "limit": "stops at 1,048,576 rows"})
-            bars.append({"name": "LibreOffice", "limit": "stops at 1,048,576 rows"})
+        if key in MODERN:
+            bars.append({"name": f"Modern CSV ({MODERN['date']})", "s": MODERN[key]})
+        else:
+            bars.append({"name": f"Modern CSV ({MODERN['date']})", "limit": "Premium version only: not measured"})
         ops.append({"label": label, "bars": bars})
     return ops
 
@@ -342,18 +241,51 @@ def human_rows(n):
 
 
 def human_size(b):
-    return f"{b / 2**30:.1f} GB" if b >= 2**30 else f"{b / 2**20:.0f} MB"
+    return f"{b / 1e9:.1f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB"
+
+
+def ms_text(ms):
+    return f"{ms:.0f} ms" if ms < 1000 else f"{ms / 1000:.2f} s"
+
+
+def encode(parts, out):
+    """Le film final : H.264 High, yuv420p, 30 i/s, CRF 18, faststart, une piste AAC silencieuse."""
+    inputs = [x for p in parts for x in ("-i", p)]
+    n = len(parts)
+    chain = "".join(f"[{i}:v]" for i in range(n)) + f"concat=n={n}:v=1:a=0,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[v]"
+    subprocess.run(["nice", "-n", "19", "ffmpeg", "-y", "-loglevel", "error", *inputs,
+                    "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-filter_complex", chain,
+                    "-map", "[v]", "-map", f"{n}:a", "-shortest", "-threads", "8", "-c:v", "libx264", "-profile:v", "high", "-preset", "slow", "-crf", "18",
+                    "-pix_fmt", "yuv420p", "-r", str(FPS), "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+                    "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out], check=True)
+
+
+def make_gif(mkv, timeline, out):
+    """Le GIF du README, 960 × 540, palette faite pour lui : l'ouverture, le défilement, deux tris et le filtre,
+    coupés dans les pauses entre les opérations, jamais dedans."""
+    ops = {o["op"]: o for o in timeline["ops"]}
+    parts = [(ops["open"]["t0"] - 1.2, ops["open"]["t1"] + 5.3), (ops["sort_num_asc"]["t0"] - 1.0, ops["sort_num_asc"]["t1"] + 2.0),
+             (ops["sort_text"]["t0"] - 1.0, ops["sort_text"]["t1"] + 2.2), (ops["filter_l"]["t0"] - 0.4, ops["filter_lyon"]["t1"] + 3.0)]
+    keep = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in parts)
+    chain = (f"select='{keep}',setpts=N/{FPS}/TB,fps=12,scale=960:540:flags=lanczos,split[a][b];"
+             "[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle")
+    subprocess.run(["nice", "-n", "19", "ffmpeg", "-y", "-loglevel", "error", "-i", mkv, "-threads", "4",
+                    "-filter_complex", chain, "-loop", "0", out], check=True)
 
 
 def main():
     ap = argparse.ArgumentParser(description="Record the csvfab demo video.")
     ap.add_argument("--results", required=True, help="the JSON written by benchmark/run.py --json")
     ap.add_argument("--rows", type=int, default=5000000, help="rows of the file filmed (default: %(default)s)")
-    ap.add_argument("--small-rows", type=int, default=650000, help="rows of the file opened first, ~100 MB (default: %(default)s)")
     ap.add_argument("--data-dir", default=os.path.join(HERE, "data"))
-    ap.add_argument("--out", default=os.path.join(HERE, "data", "csvfab-5m.mp4"))
+    ap.add_argument("--film", default=None, help="the film binary (default: target/release/examples/film)")
+    ap.add_argument("--film-dir", default=None, help="keep the app's film here, and reuse one that is already there")
+    ap.add_argument("--theme", default=None, help="the app's theme (default: its default theme)")
+    ap.add_argument("--out", default=os.path.join(HERE, "data", "csvfab-demo.mp4"))
     ap.add_argument("--thumbnail", default=os.path.join(HERE, "data", "csvfab-thumbnail.png"))
+    ap.add_argument("--gif", default=os.path.join(HERE, "data", "demo.gif"))
     ap.add_argument("--browser", default=None)
+    ap.add_argument("--check", action="store_true", help="check the app's film against its measured times, and print the table")
     a = ap.parse_args()
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is needed.")
@@ -363,52 +295,61 @@ def main():
     if not entry:
         sys.exit(f"No measure for {a.rows:,} rows in {a.results}.")
     path = os.path.abspath(os.path.join(a.data_dir, entry["file"]))
-    small_path = os.path.abspath(os.path.join(a.data_dir, f"customers-{a.small_rows // 1000}k.csv"))
-    small_info = ensure(a.small_rows, small_path)
-    small = {"path": small_path, "rows": human_rows(a.small_rows), "size": human_size(small_info["bytes"]),
-             "ratio": f"{entry['bytes'] / small_info['bytes']:.1f}".rstrip("0").rstrip(".")}
     ensure(a.rows, path)
     rows, size = human_rows(a.rows), human_size(entry["bytes"])
+    binary = a.film or os.path.join(ROOT, "target", "release", "examples", "film" + (".exe" if os.name == "nt" else ""))
     work = tempfile.mkdtemp(prefix="csvfab-video-")
-    film = Film(work)
+    film_dir = a.film_dir or os.path.join(work, "app")
+    os.makedirs(film_dir, exist_ok=True)
+    mkv = os.path.join(film_dir, "app.mkv")
     browser = a.browser or find_chromium()
+    film = Film(work)
     try:
+        if os.path.exists(os.path.join(film_dir, "timeline.json")):
+            with open(os.path.join(film_dir, "timeline.json"), encoding="utf-8") as f:
+                tl = json.load(f)
+        else:
+            # Un dossier d'état jetable : les réglages et la mine d'une première ouverture.
+            env = dict(os.environ, XDG_STATE_HOME=os.path.join(work, "state"))
+            tl = film_app(binary, path, film_dir, env, a.theme)
+        opened = next(o for o in tl["ops"] if o["op"] == "open")
+        print(f"app: {tl['seconds']:.1f} s, {tl['frames_rendered']} frames, open {opened['ms']:.0f} ms", file=sys.stderr)
+        if a.check:
+            table = check(mkv, tl)
+            for r in table:
+                print(f"  {r['op']:<18} measured {r['measured_ms']:>7.1f} ms · screen changes {r['on_screen_ms']} ms after the start "
+                      f"(frame {r['changed_at']}, expected {r['frames_expected_at']})", file=sys.stderr)
+            with open(os.path.join(film_dir, "timing-check.json"), "w", encoding="utf-8") as f:
+                json.dump(table, f, indent=1)
+
         cards = Chrome("about:blank", binary=browser, args=[f"--window-size={W},{H}", "--hide-scrollbars"])
         size_metrics(cards)
-        card(cards, TITLE.format(logo=LOGO, rows=rows, size=size), 3.2, film)
-
-        b = Bridge().start()
-        app = Chrome(b.origin + "/", binary=browser, args=[f"--window-size={W * 2 // 3},{H * 2 // 3}"])
-        try:
-            size_metrics(app, 1.5)
-            app.wait_for("typeof addPathTabs === 'function' && document.readyState === 'complete'")
-            time.sleep(2)
-            res = film_app(app, film, path, rows, size, small)
-            print(f"filmed: open {res['open'] / 1000:.2f} s, {len(film.frames)} frames", file=sys.stderr)
-        finally:
-            app.close()
-            b.stop()
+        title, race, end = (os.path.join(work, n + ".mkv") for n in ("title", "race", "end"))
+        card(cards, TITLE.format(logo=LOGO, rows=rows, size=size), 3.2, film, title)
 
         m = results["machine"]
-        foot = (f"Medians of {m['repeat']} runs on {m['cpu']}, {m['os'].split()[0]} — measured by benchmark/run.py, "
-                f"csvfab {m['csvfab']}, VisiData {entry['tools'].get('visidata', {}).get('version', '')} "
-                "(on the previous version of the generated files). "
-                "Excel and LibreOffice Calc: documented sheet limit.")
+        vd = entry["tools"].get("visidata", {}).get("version", "")
+        foot = (f"Medians of {m['repeat']} runs, {m['cpu']}, {m['os'].split()[0]}, 2026-10-30: csvfab {m['csvfab']}, VisiData {vd} (benchmark/run.py). "
+                f"Modern CSV 2.4.4, free version, in edit mode: timed by hand on the same machine, {MODERN['date']}, on the previous version of the generated file. "
+                "The film's captions were one take, its CPU already awake: these bars start from an idle CPU, which is slower.")
         ops = race_ops(entry)
         slowest = max(b["s"] for o in ops for b in o["bars"] if "s" in b)
-        scale = max(1.0, slowest / 7)      # la plus longue barre en 7 s au plus
+        scale = max(1.0, slowest / 9)      # la plus longue barre en 9 s au plus
         race_s = 0.8 + slowest / scale + 3.2
-        subtitle = f"{rows} rows · {size}" + (f" · bars {scale:.1f}× real time" if scale > 1.05 else " · real time")
-        card(cards, RACE.format(title=f"{rows} rows: csvfab against the others", subtitle=subtitle, foot=foot,
-                                ops=json.dumps(ops), scale=scale), race_s, film)
-        card(cards, END.format(logo=LOGO, repo=REPO), 6.0, film)
+        subtitle = f"{rows} rows · {size} · every bar advances at the same speed, {scale:.1f}× real time" if scale > 1.05 else f"{rows} rows · {size} · real time"
+        card(cards, RACE.format(title=f"{rows} rows: how long each tool takes", subtitle=subtitle, foot=foot,
+                                ops=json.dumps(ops), scale=scale), race_s, film, race)
+        card(cards, END.format(logo=LOGO, repo=REPO), 6.0, film, end)
 
-        # La miniature YouTube, 1280 × 720.
-        thumb = f"""<div class="glow"></div><div class="center" style="transform:scale(1)">
-<div class="logo" style="width:200px;height:200px">{LOGO}</div>
-<h1 style="font-size:150px">{rows}</h1>
-<div class="sub" style="font-size:64px;color:var(--hi);font-weight:700">rows · {size} · <span class="grad">opened in {res['open'] / 1000:.1f} s</span></div>
-<div class="sub" style="font-size:44px;margin-top:30px">Excel stops at 1,048,576.</div></div>"""
+        # La miniature YouTube, 1280 × 720 : les médianes du banc, pas le meilleur essai.
+        def median_ms(key):
+            return statistics.median(entry["tools"]["csvfab"][key]) * 1000
+
+        thumb = f"""<div class="glow"></div><div class="center">
+<div class="logo" style="width:170px;height:170px;margin-bottom:10px">{LOGO}</div>
+<h1 style="font-size:190px;letter-spacing:-6px">5 million rows</h1>
+<div class="sub" style="font-size:96px;color:var(--hi);font-weight:800;margin-top:6px"><span class="grad">opened in {ms_text(median_ms('open'))}</span></div>
+<div class="sub" style="font-size:52px;margin-top:34px">sorted in {ms_text(median_ms('sort_num'))} · filmed in real time</div></div>"""
         html = f"<!doctype html><meta charset=utf-8><style>{CARD_CSS}</style><body>{thumb}</body>"
         cards.call("Page.navigate", url="data:text/html;base64," + base64.b64encode(html.encode()).decode())
         cards.wait_for("document.readyState === 'complete'")
@@ -417,11 +358,11 @@ def main():
         tmp_png = os.path.join(work, "thumb-full.png")
         with open(tmp_png, "wb") as f:
             f.write(base64.b64decode(png))
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", tmp_png, "-vf", "scale=1280:720", a.thumbnail], check=True)
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", tmp_png, "-vf", "scale=1280:720:flags=lanczos", a.thumbnail], check=True)
 
-        film.render(a.out)
-        total = sum(d for _, d in film.frames)
-        print(f"{a.out}: {total:.0f} s · {a.thumbnail}", file=sys.stderr)
+        encode([title, mkv, race, end], a.out)
+        make_gif(mkv, tl, a.gif)
+        print(f"{a.out} · {a.thumbnail} · {a.gif}", file=sys.stderr)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
