@@ -39,7 +39,7 @@
         <string>public.database</string>
       </array>
       <key>CFBundleTypeExtensions</key>
-      <array><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string><string>sqlite</string><string>sqlite3</string><string>db3</string></array>
+      <array><string>parquet</string><string>parq</string><string>pqt</string><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string><string>sqlite</string><string>sqlite3</string><string>db3</string></array>
     </dict>
   </array>
 </dict>
