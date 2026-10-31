@@ -10,6 +10,7 @@ use super::form::{self, b, muted, warn, Alert, Btn, PvCell, PvRow, Sty};
 use super::{has_table, Cmd, Command, Cx, Tool};
 use crate::job::Job;
 use csvfab_engine::combine::{self, OutCol, Source};
+use csvfab_engine::save::Switch;
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -33,7 +34,7 @@ struct Entry {
 enum Stage {
     Form,
     Picking(Job<Option<PathBuf>>),
-    Writing(Job<std::io::Result<usize>>, PathBuf, usize, usize),
+    Writing(Job<std::io::Result<Option<Switch>>>, PathBuf, usize, usize),
     Failed(Alert),
 }
 
@@ -117,7 +118,10 @@ impl Combine {
         let f = combine::format(&sources);
         let total: usize = sources.iter().map(|s| s.len()).sum();
         let (n, d, source_col) = (sources.len(), dest.clone(), self.source_col);
-        let job = Job::spawn(cx.ctx, move |cancel, progress| combine::write(&sources, &cols, source_col, &f, &d, cancel, Some(progress)));
+        let job = Job::spawn(cx.ctx, move |cancel, progress| {
+            let sw = combine::switch(&sources, &f);
+            combine::write(&sources, &cols, source_col, &f, &d, cancel, Some(progress)).map(|_| sw)
+        });
         self.stage = Stage::Writing(job, dest, total, n);
     }
 
@@ -227,6 +231,15 @@ impl Combine {
     }
 }
 
+/// This tab and `file` combined at once into `dest` (a test cannot press the form's button).
+#[cfg(test)]
+pub fn written_to(cx: &mut Cx, file: &std::path::Path, dest: PathBuf) -> Option<Box<dyn Tool>> {
+    let mut c = Combine::new(cx)?;
+    c.entries.push(Entry { name: form::file_name(file), on: true, read: Read::Ok(Source::open(file).ok()?) });
+    c.write(dest, cx);
+    Some(Box::new(c))
+}
+
 impl Tool for Combine {
     fn show(&mut self, cx: &mut Cx) -> bool {
         match std::mem::replace(&mut self.stage, Stage::Form) {
@@ -237,8 +250,9 @@ impl Tool for Combine {
                 None => self.stage = Stage::Picking(j),
             },
             Stage::Writing(mut j, dest, total, n) => match j.poll() {
-                Some(Ok(_)) => {
+                Some(Ok(sw)) => {
                     cx.toast(format!("{} | {} rows of {} files combined into {}.", cx.tab.name, form::n(total), form::n(n), form::file_name(&dest)));
+                    if let Some(sw) = sw { cx.toast(format!("{} | {}", form::file_name(&dest), sw.says())); }
                     cx.out.push(Cmd::Open(dest));
                     return false;
                 }

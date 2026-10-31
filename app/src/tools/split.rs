@@ -159,6 +159,17 @@ impl SplitFiles {
     }
 }
 
+/// A split by column `col` written at once in `parent` (its buttons have no label to click).
+#[cfg(test)]
+pub fn written_in(cx: &mut Cx, col: usize, parent: PathBuf) -> Option<Box<dyn Tool>> {
+    let mut s = SplitFiles::new(cx, Some(col))?;
+    s.counting = None;
+    let name = cx.tab.name.clone();
+    s.groups = split::groups(&s.st, &s.rows, col, s.how, &name, &Default::default(), None).map(Arc::new);
+    s.write(parent, cx);
+    Some(Box::new(s))
+}
+
 impl Tool for SplitFiles {
     fn show(&mut self, cx: &mut Cx) -> bool {
         match std::mem::replace(&mut self.stage, Stage::Form) {
@@ -191,6 +202,8 @@ impl Tool for SplitFiles {
                     let n = self.groups.as_ref().map_or(0, |g| g.len());
                     let name = cx.tab.name.clone();
                     let folder = r.folder.as_ref().map(|f| form::file_name(f)).unwrap_or_default();
+                    // Every file of the folder, however the split ended.
+                    if let Some(sw) = r.switched { cx.toast(format!("{folder} | {}", sw.says())); }
                     match r.error {
                         Some(e) if e.kind() == std::io::ErrorKind::Interrupted => {
                             // Stopped: what is on disk now.

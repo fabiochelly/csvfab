@@ -2,6 +2,17 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.2.0 · 31 October 2026
+
+- **33 encodings, detected on open**: Cyrillic, Central European, Greek, Turkish, Baltic, Vietnamese, Thai, Hebrew, Arabic, Japanese, Korean, Simplified and Traditional Chinese, UTF-32. The status bar lists them by region, with a search. An untouched file saves back byte for byte.
+- **Nothing replaced behind your back**: a character the chosen encoding can't hold is announced before saving, with its count, and you can cancel, save as UTF-8 or replace it. Extract, Split, Combine and recovery copies say when they wrote UTF-8 instead.
+- **All the world's scripts**: fonts for other scripts load from your system only when a file needs them, with colour emoji. Arabic and Hebrew read right to left in cells and column titles; other places still show their words in the wrong order.
+- **More formats to open**: `.xls`, `.xlsb`, `.ods`, and compressed `.gz`, `.zst` and `.zip` files.
+- **More formats to export**: JSON, JSON Lines, TSV, any delimiter, HTML and Markdown.
+- **Search folding is more exact** for Korean, Japanese, Chinese and Greek; the sort order of these scripts can change.
+- **Faster and lighter**: the global search is 2 to 4 times faster on words with common letters on files with accents, the first filter on a column up to 2.7 times faster, and peak memory is about a third lower (Linux). The file profile is 6 to 9 % slower in exchange.
+- **Fixed: a search taken back letter by letter** could leave its marks in the cells.
+
 ## 2.1.2 · 31 October 2026
 
 - **Sorting huge text columns no longer runs out of memory.** A column of 128 million long values sorts in 1.75 s with 3.3 GB of memory, where it passed 16 GB before. Only the start of each value is held in memory; ties are read from the file. Everyday sorts are a little faster too, in the same order as before.

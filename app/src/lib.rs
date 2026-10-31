@@ -5,6 +5,7 @@
 
 pub mod about;
 pub mod app;
+pub mod bidi;
 pub mod chrome;
 pub mod colpanel;
 pub mod config;
@@ -81,6 +82,18 @@ fn compute_pool() {
             unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 4) };
         })
         .build_global();
+}
+
+/// glibc's allocator tuned, first thing in `main`, before any other thread exists: left to
+/// itself it raises both thresholds as big blocks are freed, up to 32 MB, and the blocks of a
+/// big job then stay in the heap after it. 4 MB and up go back to the system when freed.
+pub fn tune_malloc() {
+    // SAFETY: mallopt only sets the allocator's parameters; no other thread is using it yet.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 4 << 20);
+        libc::mallopt(libc::M_TRIM_THRESHOLD, 4 << 20);
+    }
 }
 
 /// Opens the window on `files` (or hands them to a window already open).

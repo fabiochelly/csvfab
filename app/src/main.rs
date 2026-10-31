@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() -> eframe::Result {
+    csvfab::tune_malloc();
     let r = csvfab::run();
     // Started from a menu or a file manager there is no console: a failure to open the
     // window is said the way the desktop says things (as the web launcher's `die`).

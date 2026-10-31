@@ -1,15 +1,16 @@
 //! Save as, export and extract (14-save-export.js): the save dialog — a file
-//! name, a format (CSV with its delimiter and encoding, an Excel workbook, a
-//! SQLite database, a Parquet file), only the rows shown — written in a job; Extract (the
+//! name, a format (CSV with its delimiter and encoding; as a copy, an Excel workbook, a
+//! SQLite database, a Parquet file, JSON, JSON Lines, TSV or any delimiter, an HTML or
+//! Markdown table), only the rows shown — written in a job; Extract (the
 //! rows shown to a new file beside the source, opened as a tab); Discard (the
 //! edits dropped, the file read again).
 //!
 //! A new CSV name is a save-as: the tab moves onto the new file and the
-//! source keeps its last saved content. A workbook, a database or a Parquet
-//! file is a second artefact and never takes the tab over.
+//! source keeps its last saved content. A copy is a second artefact and never
+//! takes the tab over.
 //!
 //! What is an export and what is a save decides what is written. An export
-//! (a workbook, a database, a Parquet file, a CSV of the rows shown, Extract)
+//! (every copy above, a CSV of the rows shown, Extract)
 //! leaves out the hidden columns, and writes the rows shown, in the view's
 //! order, unless "Only the rows shown" is unticked. A save or a save-as writes
 //! the table whole: the tab goes on from that file, so anything left out
@@ -19,8 +20,9 @@ use super::form::{self, Alert, Answer, Ask, Btn};
 use super::{has_table, Cmd, Command, Cx, Tool};
 use crate::job::Job;
 use crate::tab::Tab;
+use csvfab_engine::convert::text_write::{self, TextFormat};
 use csvfab_engine::convert::{self, Format};
-use csvfab_engine::save::{self, SaveError, SaveOptions};
+use csvfab_engine::save::{self, SaveError, SaveOptions, Switch};
 use csvfab_engine::table::RowMask;
 use csvfab_engine::{Enc, RowId, State};
 use eframe::egui;
@@ -33,6 +35,11 @@ pub fn commands() -> Vec<Command> {
         Command { name: "Save as Excel workbook", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Xlsx)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Save as SQLite database", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Sqlite)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Save as Parquet file", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Parquet)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Export as JSON", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Json)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Export as JSON Lines", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::JsonLines)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Export as TSV", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Delim(b'\t'))); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Export as an HTML table", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Html)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Export as a Markdown table", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Markdown)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Extract the rows shown to a new file", group: "Save", keys: None, enabled: has_table, run: |cx| cx.out.push(Cmd::Tool(extract())) },
         Command { name: "Discard all edits and reload from disk", group: "Save", keys: None, enabled: |t| t.dirty() && t.path.is_some(), run: |cx| cx.out.push(Cmd::Tool(discard())) },
     ]
@@ -63,24 +70,63 @@ enum Fmt {
     Xlsx,
     Sqlite,
     Parquet,
+    /// A delimited copy (TSV, any delimiter): an export, where `Csv` is the table saved.
+    Delim(u8),
+    Json,
+    JsonLines,
+    Html,
+    Markdown,
+}
+
+impl Fmt {
+    /// What a file of this format ends in, when it has its own extension.
+    fn ext(self) -> Option<&'static str> {
+        Some(match self {
+            Fmt::Xlsx => ".xlsx",
+            Fmt::Sqlite => ".sqlite",
+            Fmt::Parquet => ".parquet",
+            Fmt::Delim(b'\t') => ".tsv",
+            Fmt::Json | Fmt::JsonLines | Fmt::Html | Fmt::Markdown => self.text()?.ext(),
+            _ => return None,
+        })
+    }
+
+    fn text(self) -> Option<TextFormat> {
+        Some(match self { Fmt::Json => TextFormat::Json, Fmt::JsonLines => TextFormat::JsonLines, Fmt::Html => TextFormat::Html, Fmt::Markdown => TextFormat::Markdown, _ => return None })
+    }
+
+    /// Written through `save`, with an encoding.
+    fn delimited(self) -> bool {
+        matches!(self, Fmt::Csv(_) | Fmt::Text | Fmt::Delim(_))
+    }
+
+    /// What the file is, in the note and the messages.
+    fn noun(self) -> &'static str {
+        match self {
+            Fmt::Xlsx => "workbook",
+            Fmt::Sqlite => "database",
+            Fmt::Parquet => "Parquet file",
+            Fmt::Delim(b'\t') => "TSV file",
+            Fmt::Delim(_) => "delimited file",
+            Fmt::Json => "JSON file",
+            Fmt::JsonLines => "JSON Lines file",
+            Fmt::Html => "HTML table",
+            Fmt::Markdown => "Markdown table",
+            _ => "file",
+        }
+    }
 }
 
 const DELIMS: [(u8, &str, &str); 4] = [(b';', "CSV — semicolon", ";"), (b',', "CSV — comma", ","), (b'\t', "CSV — tab", "\\t"), (b'|', "CSV — pipe", "|")];
-const ENCS: [(Enc, &str); 6] = [
-    (Enc::Utf8, "UTF-8"),
-    (Enc::Windows1252, "Windows-1252"),
-    (Enc::Latin1, "ISO-8859-1 (Latin-1)"),
-    (Enc::Latin9, "ISO-8859-15 (Latin-9, with €)"),
-    (Enc::MacRoman, "Mac Roman (Excel for Mac)"),
-    (Enc::Utf16Le, "UTF-16"),
-];
 
 fn enc_name(e: Enc) -> &'static str {
     e.label()
 }
 
-pub(crate) fn single_byte(e: Enc) -> bool {
-    matches!(e, Enc::Windows1252 | Enc::Latin1 | Enc::Latin9 | Enc::MacRoman)
+/// The one ASCII character typed as a delimiter (`\t` for a tab): never a quote or a line break.
+fn custom_delim(s: &str) -> Option<u8> {
+    let s = if s == "\\t" { "\t" } else { s };
+    (s.len() == 1 && s.is_ascii()).then(|| s.as_bytes()[0]).filter(|&d| d != b'"' && d != b'\n' && d != b'\r' && d != 0)
 }
 
 /// The name without its table extension.
@@ -113,13 +159,50 @@ pub fn next_name(name: &str) -> String {
     format!("{head}{}{ext}", String::from_utf8(d).unwrap())
 }
 
-/// Cells (headers included) holding a character `enc` cannot write, and the
-/// first such character. None if cancelled. In the file's own encoding only the edited
-/// cells are looked at (a cell as read holds none); in another, every cell, each row read
-/// in one pass, the rows in parallel.
-pub(crate) fn unencodable(st: &State, enc: Enc, rows: Option<&[RowId]>, cancel: &AtomicBool) -> Option<(usize, char)> {
+/// What an encoding cannot write of a table.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Lossy {
+    /// Cells holding at least one such character.
+    pub cells: usize,
+    /// How many there are.
+    pub chars: usize,
+    /// The first few, each once.
+    pub first: Vec<char>,
+}
+
+impl Lossy {
+    const FIRST: usize = 5;
+
+    fn add(&mut self, v: &str, enc: Enc) {
+        let chars = self.chars;
+        csvfab_engine::enc::each_unencodable(enc, v, |c| {
+            self.chars += 1;
+            if self.first.len() < Self::FIRST && !self.first.contains(&c) { self.first.push(c); }
+        });
+        self.cells += (self.chars > chars) as usize;
+    }
+
+    fn merge(&mut self, o: Lossy) {
+        self.cells += o.cells;
+        self.chars += o.chars;
+        for c in o.first {
+            if self.first.len() < Self::FIRST && !self.first.contains(&c) { self.first.push(c); }
+        }
+    }
+
+    /// The question's first line: how many, in how many cells, naming the first few.
+    pub fn say(&self, enc: Enc) -> String {
+        let named = self.first.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ");
+        let more = if self.chars > self.first.len() { ", and others" } else { "" };
+        format!("{} cannot write {} in {}: {named}{more}.", enc.label(), form::plural(self.chars, "character"), form::plural(self.cells, "cell"))
+    }
+}
+
+/// What `enc` cannot write of the rows (headers included). None if cancelled. In the file's own
+/// encoding only the edited cells are looked at (a cell as read holds none); in another, every
+/// cell, each row read in one pass, the rows in parallel.
+pub(crate) fn unencodable(st: &State, enc: Enc, rows: Option<&[RowId]>, cancel: &AtomicBool) -> Option<Lossy> {
     use rayon::prelude::*;
-    let bad = |v: &str| csvfab_engine::enc::unencodable(enc, v);
     if st.base.enc == enc {
         // The rows written: these (and the titles), or every row of the table.
         let head = (st.header && st.all_len() > 0).then(|| st.all_id(0));
@@ -128,40 +211,57 @@ pub(crate) fn unencodable(st: &State, enc: Enc, rows: Option<&[RowId]>, cancel: 
             (None, Some(o)) => Some(RowMask::new(o.iter().copied())),
             (None, None) => None,
         };
-        let parts: Vec<(usize, Option<char>)> = (0..st.ncols).into_par_iter().map(|c| {
+        let parts: Vec<Lossy> = (0..st.ncols).into_par_iter().map(|c| {
             let mut ids: Vec<RowId> = st.cols[c].iter().flat_map(|l| l.ids().iter().copied()).filter(|&id| keep.as_ref().map_or((id as usize) < st.base.n, |k| k.contains(id))).collect();
             ids.par_sort_unstable();
             ids.dedup();
-            let (mut n, mut first) = (0, None);
+            let mut l = Lossy::default();
             for id in ids {
-                if let Some(ch) = st.edited(id, c).and_then(bad) { n += 1; first.get_or_insert(ch); }
+                if let Some(v) = st.edited(id, c) { l.add(v, enc); }
             }
-            (n, first)
+            l
         }).collect();
         if cancel.load(Ordering::Relaxed) { return None; }
-        return Some((parts.iter().map(|p| p.0).sum(), parts.iter().find_map(|p| p.1).unwrap_or('?')));
+        return Some(parts.into_iter().fold(Lossy::default(), |mut a, b| { a.merge(b); a }));
     }
-    let mut n = 0;
-    let mut first = None;
-    for h in st.headers() {
-        if let Some(c) = bad(&h) { n += 1; first.get_or_insert(c); }
-    }
-    let all: Vec<RowId>;
+    let mut all = Lossy::default();
+    for h in st.headers() { all.add(&h, enc); }
+    let every: Vec<RowId>;
     let ids: &[RowId] = match rows {
         Some(r) => r,
-        None => { all = (0..st.len()).map(|p| st.data_id(p)).collect(); &all }
+        None => { every = (0..st.len()).map(|p| st.data_id(p)).collect(); &every }
     };
-    let parts: Vec<(usize, Option<char>)> = ids.par_chunks(8192).map(|chunk| {
-        let (mut n, mut first) = (0, None);
-        if cancel.load(Ordering::Relaxed) { return (n, first); }
+    let parts: Vec<Lossy> = ids.par_chunks(8192).map(|chunk| {
+        let mut l = Lossy::default();
+        if cancel.load(Ordering::Relaxed) { return l; }
         for &id in chunk {
-            st.visit(id, |_, v| if let Some(c) = bad(v) { n += 1; first.get_or_insert(c); });
+            st.visit(id, |_, v| l.add(v, enc));
         }
-        (n, first)
+        l
     }).collect();
     if cancel.load(Ordering::Relaxed) { return None; }
-    n += parts.iter().map(|p| p.0).sum::<usize>();
-    Some((n, first.or(parts.iter().find_map(|p| p.1)).unwrap_or('?')))
+    for p in parts { all.merge(p); }
+    Some(all)
+}
+
+/// The encoding of a file written: a select, its list grouped and searchable.
+fn enc_select(ui: &mut egui::Ui, p: &crate::theme::Palette, enc: Enc, current: Enc) -> Option<Enc> {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 31.0), egui::Sense::click());
+    let id = resp.id.with("menu");
+    let open = egui::Popup::is_id_open(ui.ctx(), id);
+    crate::widgets::field_frame(ui, p, resp.id, r, open, false, 6.0);
+    let text = if enc == current { format!("{} (current)", enc.label()) } else { enc.label().to_string() };
+    ui.painter().text(egui::pos2(r.min.x + 12.0, r.center().y), egui::Align2::LEFT_CENTER, text, form::ui_font(14.0), p.txt_hi);
+    let chev = egui::Rect::from_center_size(egui::pos2(r.max.x - 20.0, r.center().y), egui::vec2(16.0, 12.0));
+    crate::icons::paint(ui.painter(), crate::icons::Icon::SelectChevron, chev, p.txt_dim);
+    if resp.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+    let mut pick = None;
+    egui::Popup::menu(&resp).id(id).frame(crate::widgets::menu_frame(p)).width(r.width()).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        crate::widgets::width(ui, r.width() - 12.0);
+        pick = crate::widgets::enc_list(ui, p, Some(enc));
+        if pick.is_some() { ui.close(); }
+    });
+    pick
 }
 
 // --- Save as --------------------------------------------------------------------
@@ -188,8 +288,8 @@ enum Stage {
     Form,
     Picking(Job<Option<PathBuf>>, Plan),
     ConfirmOverwrite(Plan),
-    Checking(Job<Option<(usize, char)>>, Plan),
-    ConfirmLossy(usize, char, Plan),
+    Checking(Job<Option<Lossy>>, Plan),
+    ConfirmLossy(Lossy, Plan),
     Writing { job: Job<Result<Done, (bool, String)>>, plan: Plan, version: u64, total: usize },
     /// The file changed on disk since it was read: overwrite?
     Changed(Plan),
@@ -204,6 +304,8 @@ struct SaveAs {
     bom: bool,
     /// "Only the rows shown" as ticked by hand. None: on for an export, off for a save-as.
     only_shown: Option<bool>,
+    /// What is typed as "Other delimiter".
+    custom: String,
     stage: Stage,
     focus: bool,
     /// The "Writing…" message was hidden.
@@ -217,19 +319,17 @@ impl SaveAs {
             None => (Fmt::Csv(b';'), Enc::Utf8, false),
         };
         let fmt = preset.unwrap_or(cur_fmt);
-        let name = match fmt {
-            Fmt::Xlsx => convert::export_name(&tab.name, Format::Xlsx),
-            Fmt::Sqlite => convert::export_name(&tab.name, Format::Sqlite),
-            Fmt::Parquet => convert::export_name(&tab.name, Format::Parquet),
-            _ => tab.name.clone(),
+        let name = match fmt.ext() {
+            Some(e) => format!("{}{e}", stem_of(&tab.name)),
+            None => tab.name.clone(),
         };
         let name = if name.is_empty() { "table.csv".into() } else { name };
-        SaveAs { uid: tab.uid, name, fmt, enc, bom, only_shown: None, stage: Stage::Form, focus: true, quiet: false }
+        SaveAs { uid: tab.uid, name, fmt, enc, bom, only_shown: None, custom: String::new(), stage: Stage::Form, focus: true, quiet: false }
     }
 
     /// A second artefact, not the table saved.
     fn exports(fmt: Fmt) -> bool {
-        matches!(fmt, Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet)
+        !matches!(fmt, Fmt::Csv(_) | Fmt::Text)
     }
 
     fn only(&self) -> bool {
@@ -246,7 +346,7 @@ impl SaveAs {
         let where_ = if tab.path.is_some() { "beside the source" } else { "where you choose" };
         let hides = !tab.grid.hidden.is_empty();
         if Self::exports(self.fmt) {
-            let what = match self.fmt { Fmt::Xlsx => "workbook", Fmt::Sqlite => "database", _ => "Parquet file" };
+            let what = self.fmt.noun();
             let rows = if self.subset(tab) { format!("the {} rows shown as a {what}", form::n(tab.shown())) } else { format!("the {what}") };
             return format!("Writes {rows} {where_}. {} is left as it is{}.{}", tab.name, if tab.dirty() { " and keeps its pending edits" } else { "" }, if hides { " Hidden columns are left out." } else { "" });
         }
@@ -289,8 +389,17 @@ impl SaveAs {
             Fmt::Xlsx if !lower.ends_with(".xlsx") => name.push_str(".xlsx"),
             Fmt::Sqlite if ![".sqlite", ".sqlite3", ".db", ".db3"].iter().any(|e| lower.ends_with(e)) => name.push_str(".sqlite"),
             Fmt::Parquet if ![".parquet", ".parq", ".pqt"].iter().any(|e| lower.ends_with(e)) => name.push_str(".parquet"),
-            Fmt::Csv(_) | Fmt::Text if Path::new(&name).extension().is_none() => name.push_str(".csv"),
+            Fmt::Json if !lower.ends_with(".json") => name.push_str(".json"),
+            Fmt::JsonLines if ![".jsonl", ".ndjson"].iter().any(|e| lower.ends_with(e)) => name.push_str(".jsonl"),
+            Fmt::Html if ![".html", ".htm"].iter().any(|e| lower.ends_with(e)) => name.push_str(".html"),
+            Fmt::Markdown if ![".md", ".markdown"].iter().any(|e| lower.ends_with(e)) => name.push_str(".md"),
+            Fmt::Csv(_) | Fmt::Text | Fmt::Delim(_) if Path::new(&name).extension().is_none() => name.push_str(if self.fmt == Fmt::Delim(b'\t') { ".tsv" } else { ".csv" }),
             _ => {}
+        }
+        // A copy never replaces the file the tab stands on.
+        if Self::exports(self.fmt) && self.fmt.delimited() && name == tab.name {
+            self.stage = Stage::Failed(Alert::new("A copy needs another file name."));
+            return;
         }
         let rows = self.subset(tab).then(|| tab.shown_ids());
         let csv = matches!(self.fmt, Fmt::Csv(_) | Fmt::Text);
@@ -325,11 +434,10 @@ impl SaveAs {
         self.check(plan, cx);
     }
 
-    /// A single-byte encoding holds ~250 characters: what would be lost is said first.
+    /// An encoding short of Unicode: what would be lost is said first.
     fn check(&mut self, plan: Plan, cx: &mut Cx) {
         let Some(st) = cx.tab.st().cloned() else { return };
-        let csv = matches!(plan.fmt, Fmt::Csv(_) | Fmt::Text);
-        if csv && single_byte(plan.enc) && (plan.enc != st.base.enc || cx.tab.dirty()) {
+        if plan.fmt.delimited() && plan.enc.limited() && (plan.enc != st.base.enc || cx.tab.dirty()) {
             let (enc, rows) = (plan.enc, plan.rows.clone());
             let job = Job::spawn(cx.ctx, move |cancel, _| unencodable(&st, enc, rows.as_deref().map(|v| v.as_slice()), cancel));
             self.stage = Stage::Checking(job, plan);
@@ -362,6 +470,22 @@ impl SaveAs {
                     convert::export(f, &st, rows.as_deref().map(|v| v.as_slice()), &dest, &sheet, Some(progress), cancel).map(Done::Workbook).map_err(|e| (false, e))
                 })
             }
+            Fmt::Json | Fmt::JsonLines | Fmt::Html | Fmt::Markdown => {
+                let f = fmt.text().unwrap();
+                let name = convert::export_sheet_name(&form::file_name(&dest));
+                Job::spawn(cx.ctx, move |cancel, progress| {
+                    text_write::write(f, &st, rows.as_deref().map(|v| v.as_slice()), &dest, &name, Some(progress), cancel).map(Done::Workbook).map_err(|e| (false, e))
+                })
+            }
+            // A copy: nothing to keep in step with, the tab stays on its file.
+            Fmt::Delim(d) => {
+                let opts = SaveOptions { enc: Some(plan.enc), delim: Some(d), bom: Some(plan.bom), backup: true, rows: rows.as_deref().cloned() };
+                let n = total as u64;
+                Job::spawn(cx.ctx, move |_, _| match save::save(&st, &dest, &opts, None, &mut false) {
+                    Ok(_) => Ok(Done::Workbook(convert::Exported { rows: n + st.header as u64, cols: st.ncols, ..Default::default() })),
+                    Err(e) => Err((false, e.to_string())),
+                })
+            }
             Fmt::Csv(_) | Fmt::Text => {
                 let cur = Self::cur_fmt(&st);
                 let delim = match fmt { Fmt::Csv(d) if fmt != cur => Some(d), Fmt::Text if cur != Fmt::Text => Some(0), _ => None };
@@ -386,7 +510,9 @@ impl SaveAs {
         let tab = &mut *cx.tab;
         match d {
             Done::Workbook(j) => {
-                let what = match plan.fmt { Fmt::Xlsx => "Workbook", Fmt::Sqlite => "Database", _ => "Parquet file" };
+                let what = plan.fmt.noun();
+                let mut what = what.to_string();
+                if let Some(c) = what.get_mut(0..1) { c.make_ascii_uppercase(); }
                 let limits = if j.truncated_rows || j.truncated_cols { " · truncated to Excel's limits" } else { "" };
                 // A cell holds 32 767 characters at most in a workbook: the rest is not written.
                 let cut = match j.truncated_cells {
@@ -461,39 +587,66 @@ impl SaveAs {
             for (d, l, k) in DELIMS {
                 choices.push((Fmt::Csv(d), if Fmt::Csv(d) == cur { format!("{l} (current)") } else { l.to_string() }, k));
             }
-            choices.push((Fmt::Xlsx, "Excel workbook".into(), ".xlsx"));
-            choices.push((Fmt::Sqlite, "SQLite database — one table, typed columns".into(), ".sqlite"));
-            choices.push((Fmt::Parquet, "Parquet file — typed columns, compressed".into(), ".parquet"));
             for (f, l, k) in &choices {
                 if form::radio_key(ui, &p, self.fmt == *f, l, k) { pick = Some(*f); }
                 ui.add_space(6.0);
             }
+            form::label(ui, &p, "Or a copy, without hidden columns", 8.0);
+            const COPIES: [(Fmt, &str, &str); 8] = [
+                (Fmt::Xlsx, "Excel", ".xlsx"), (Fmt::Json, "JSON", ".json"),
+                (Fmt::Sqlite, "SQLite", ".sqlite"), (Fmt::JsonLines, "JSON Lines", ".jsonl"),
+                (Fmt::Parquet, "Parquet", ".parquet"), (Fmt::Html, "HTML table", ".html"),
+                (Fmt::Delim(b'\t'), "TSV", ".tsv"), (Fmt::Markdown, "Markdown table", ".md"),
+            ];
+            let half = (ui.available_width() - 16.0) / 2.0;
+            for pair in COPIES.chunks(2) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 16.0;
+                    for (f, l, k) in pair {
+                        ui.allocate_ui(egui::vec2(half, 20.0), |ui| {
+                            ui.set_width(half);
+                            if form::radio_key(ui, &p, self.fmt == *f, l, k) { pick = Some(*f); }
+                        });
+                    }
+                });
+                ui.add_space(6.0);
+            }
+            let other = matches!(self.fmt, Fmt::Delim(d) if d != b'\t');
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.allocate_ui(egui::vec2(half, 20.0), |ui| {
+                    ui.set_width(half);
+                    if form::radio(ui, &p, other, "Other delimiter") { pick = Some(Fmt::Delim(custom_delim(&self.custom).unwrap_or(b'~'))); }
+                });
+                if other {
+                    let was = self.custom.clone();
+                    let r = form::field(ui, &p, id.with("custom"), &mut self.custom, 56.0, true, "~");
+                    if self.custom != was || r.lost_focus() {
+                        let d = custom_delim(&self.custom).unwrap_or(b'~');
+                        self.fmt = Fmt::Delim(d);
+                    }
+                }
+            });
+            ui.add_space(6.0);
             if let Some(f) = pick {
                 // The extension follows the format; the stem typed is kept.
                 let stem = stem_of(self.name.trim()).to_string();
                 let ext = Path::new(&self.name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
-                match f {
-                    Fmt::Xlsx => self.name = format!("{stem}.xlsx"),
-                    Fmt::Sqlite => self.name = format!("{stem}.sqlite"),
-                    Fmt::Parquet => self.name = format!("{stem}.parquet"),
-                    _ if matches!(ext.as_deref(), Some("xlsx" | "sqlite" | "parquet")) => self.name = format!("{stem}{}", csv_ext(&tab_name)),
-                    _ => {}
+                match f.ext() {
+                    Some(e) => self.name = format!("{stem}{e}"),
+                    None if matches!(ext.as_deref(), Some("xlsx" | "sqlite" | "parquet" | "json" | "jsonl" | "html" | "md" | "tsv")) => self.name = format!("{stem}{}", csv_ext(&tab_name)),
+                    None => {}
                 }
                 self.fmt = f;
             }
-            if matches!(self.fmt, Fmt::Csv(_) | Fmt::Text) {
+            if self.fmt.delimited() {
                 form::label(ui, &p, "Encoding", 6.0);
-                let mut encs: Vec<(Enc, &str)> = ENCS.to_vec();
-                if !encs.iter().any(|e| e.0 == st.base.enc) { encs.push((st.base.enc, st.base.enc.label())); }
-                for (e, l) in encs {
-                    let label = if e == st.base.enc { format!("{l} (current)") } else { l.to_string() };
-                    if form::radio(ui, &p, self.enc == e, &label) {
-                        self.enc = e;
-                        // Written as read: the BOM if the file had one; UTF-16 always with one.
-                        self.bom = if e == st.base.enc { st.base.bom } else { e.is_utf16() };
-                    }
-                    ui.add_space(6.0);
+                if let Some(e) = enc_select(ui, &p, self.enc, st.base.enc) {
+                    self.enc = e;
+                    // Written as read: the BOM if the file had one; UTF-16 and UTF-32 always with one.
+                    self.bom = if e == st.base.enc { st.base.bom } else { e.wide() };
                 }
+                ui.add_space(6.0);
                 if self.enc == Enc::Utf8 {
                     ui.add_space(4.0);
                     form::check(ui, &p, &mut self.bom, "With a BOM — Excel then reads the accents right");
@@ -525,7 +678,7 @@ impl SaveAs {
 
     /// The rows shown never overwrite the file itself.
     fn subset_same_name(&self, tab_name: &str) -> bool {
-        self.only() && self.name.trim() == tab_name && matches!(self.fmt, Fmt::Csv(_) | Fmt::Text)
+        self.only() && self.name.trim() == tab_name && self.fmt.delimited()
     }
 }
 
@@ -542,7 +695,7 @@ impl Tool for SaveAs {
             Stage::ConfirmOverwrite(plan) => {
                 let a = Ask {
                     main: &format!("\"{}\" already exists. Overwrite it?", form::file_name(&plan.dest)),
-                    sub: if matches!(plan.fmt, Fmt::Csv(_) | Fmt::Text) { "A timestamped .bak copy of it is kept." } else { "" },
+                    sub: if plan.fmt.delimited() { "A timestamped .bak copy of it is kept." } else { "" },
                     choices: &[],
                     cancel: Some("Cancel"),
                     ok: "Overwrite",
@@ -555,24 +708,25 @@ impl Tool for SaveAs {
                 }
             }
             Stage::Checking(mut job, plan) => match job.poll() {
-                Some(Some((0, _))) => self.write(plan, false, cx),
-                Some(Some((n, c))) => self.stage = Stage::ConfirmLossy(n, c, plan),
+                Some(Some(l)) if l.chars == 0 => self.write(plan, false, cx),
+                Some(Some(l)) => self.stage = Stage::ConfirmLossy(l, plan),
                 Some(None) => {}
                 None => self.stage = Stage::Checking(job, plan),
             },
-            Stage::ConfirmLossy(n, c, plan) => {
+            Stage::ConfirmLossy(l, plan) => {
                 let a = Ask {
-                    main: &format!("{} cells contain characters {} cannot represent (e.g. \"{c}\").", form::n(n), enc_name(plan.enc)),
-                    sub: "They will be written as \"?\".",
-                    choices: &[],
+                    main: &l.say(plan.enc),
+                    sub: "UTF-8 holds them all. Replaced, each is written as \"?\" and is lost.",
+                    choices: &["Save as UTF-8"],
                     cancel: Some("Cancel"),
-                    ok: "Write them as \"?\"",
-                    danger: false,
+                    ok: "Replace with \"?\"",
+                    danger: true,
                 };
                 match form::ask(cx, "save-lossy", &a) {
                     Some(Answer::Ok) => self.write(plan, false, cx),
+                    Some(Answer::Choice(_)) => self.write(Plan { enc: Enc::Utf8, bom: true, ..plan }, false, cx),
                     Some(_) => {}
-                    None => self.stage = Stage::ConfirmLossy(n, c, plan),
+                    None => self.stage = Stage::ConfirmLossy(l, plan),
                 }
             }
             Stage::Writing { mut job, plan, version, total } => match job.poll() {
@@ -583,7 +737,7 @@ impl Tool for SaveAs {
                 Some(Err((true, _))) => self.stage = Stage::Changed(plan),
                 Some(Err((_, e))) if e == convert::CANCELLED => {}
                 Some(Err((_, e))) => {
-                    let what = match plan.fmt { Fmt::Xlsx => "Could not build the workbook:".into(), Fmt::Sqlite => "Could not build the database:".into(), Fmt::Parquet => "Could not build the Parquet file:".into(), _ => format!("Could not write \"{}\":", plan.dest.display()) };
+                    let what = if Self::exports(plan.fmt) && !plan.fmt.delimited() { format!("Could not build the {}:", plan.fmt.noun()) } else { format!("Could not write \"{}\":", plan.dest.display()) };
                     // Written beside, then renamed: a failed save leaves the file as it was.
                     let safe = if plan.in_place { "\n\nThe original file is untouched." } else { "" };
                     self.stage = Stage::Failed(Alert::new(format!("{what}\n\n{e}{safe}")));
@@ -591,7 +745,7 @@ impl Tool for SaveAs {
                 None => {
                     // A big file takes a moment: say so, and let it be stopped.
                     if job.elapsed().as_millis() > 300 && !self.quiet {
-                        let book = matches!(plan.fmt, Fmt::Xlsx | Fmt::Sqlite | Fmt::Parquet);
+                        let book = Self::exports(plan.fmt) && !plan.fmt.delimited();
                         let k = job.progress.load(Ordering::Relaxed);
                         let sub = if book { format!("{} %", (k as f32 / (2 * total.max(1)) as f32 * 100.0).min(100.0) as u32) } else { format!("{} rows.", form::n(total)) };
                         // A workbook can be stopped; a CSV save is atomic and short: only hidden.
@@ -646,7 +800,7 @@ pub fn shown_csv(tab: &Tab, name: &str) -> Box<dyn Tool> {
 enum XStage {
     Start,
     Picking(Job<Option<PathBuf>>, Arc<Vec<RowId>>),
-    Writing(Job<Result<(), String>>, PathBuf, usize),
+    Writing(Job<Result<Option<Switch>, String>>, PathBuf, usize),
     Failed(Alert),
 }
 
@@ -663,8 +817,9 @@ impl Extract {
         let n = rows.len();
         let d = dest.clone();
         let job = Job::spawn(cx.ctx, move |_, _| {
-            let opts = SaveOptions { rows: Some((*rows).clone()), backup: false, ..Default::default() };
-            save::save(&st, &d, &opts, None, &mut true).map(|_| ()).map_err(|e| e.to_string())
+            let sw = save::new_file_switch(&st);
+            let opts = SaveOptions { rows: Some((*rows).clone()), enc: sw.map(|_| Enc::Utf8), backup: false, ..Default::default() };
+            save::save(&st, &d, &opts, None, &mut true).map(|_| sw).map_err(|e| e.to_string())
         });
         self.stage = XStage::Writing(job, dest, n);
     }
@@ -699,8 +854,9 @@ impl Tool for Extract {
                 None => self.stage = XStage::Picking(job, rows),
             },
             XStage::Writing(mut job, dest, n) => match job.poll() {
-                Some(Ok(())) => {
+                Some(Ok(sw)) => {
                     cx.toast(format!("{} | {} rows exported to {}.", cx.tab.name, form::n(n), form::file_name(&dest)));
+                    if let Some(sw) = sw { cx.toast(format!("{} | {}", form::file_name(&dest), sw.says())); }
                     cx.out.push(Cmd::Open(dest));
                     return false;
                 }
@@ -773,7 +929,12 @@ mod tests {
     fn counts_unencodable() {
         let t = csvfab_engine::Table::new(Arc::new(csvfab_engine::Base::from_bytes("a,b\né,€\n✓,Ā\n".as_bytes().to_vec(), Default::default())), None);
         let no = AtomicBool::new(false);
-        assert_eq!(unencodable(&t.st, Enc::Windows1252, None, &no), Some((2, '✓')));
-        assert_eq!(unencodable(&t.st, Enc::Utf8, None, &no), Some((0, '?')));
+        let l = unencodable(&t.st, Enc::Windows1252, None, &no).unwrap();
+        assert_eq!((l.cells, l.chars, l.first), (2, 2, vec!['✓', 'Ā']));
+        assert_eq!(unencodable(&t.st, Enc::Utf8, None, &no), Some(Lossy::default()));
+        let t = csvfab_engine::Table::new(Arc::new(csvfab_engine::Base::from_bytes("a,b\n한글,東\n한,x\n".as_bytes().to_vec(), Default::default())), None);
+        let l = unencodable(&t.st, Enc::ShiftJis, None, &no).unwrap();
+        assert_eq!((l.cells, l.chars, &l.first), (2, 3, &vec!['한', '글']));
+        assert_eq!(l.say(Enc::ShiftJis), "Shift_JIS cannot write 3 characters in 2 cells: \"한\", \"글\", and others.");
     }
 }

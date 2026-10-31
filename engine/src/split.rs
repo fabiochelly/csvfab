@@ -4,7 +4,8 @@
 //! delimiter, encoding, BOM and line breaks, untouched rows copied as their
 //! bytes), the title line repeated in each. The source is never touched.
 
-use crate::save::{self, SaveOptions};
+use crate::enc::Enc;
+use crate::save::{self, SaveOptions, Switch};
 use crate::table::{RowId, State};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -109,7 +110,7 @@ pub fn safe_file_name(s: &str) -> String {
 /// The name without its table extension.
 pub fn stem_of(name: &str) -> &str {
     let lower = name.to_ascii_lowercase();
-    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet"] {
+    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet", ".json", ".jsonl", ".html", ".md"] {
         if lower.ends_with(ext) && name.is_char_boundary(name.len() - ext.len()) {
             return &name[..name.len() - ext.len()];
         }
@@ -229,6 +230,8 @@ pub struct Split {
     pub written: usize,
     /// None: every file written.
     pub error: Option<io::Error>,
+    /// Why the files written are in UTF-8, if they are not in the table's encoding.
+    pub switched: Option<Switch>,
 }
 
 /// A writer that stops when the job is cancelled.
@@ -273,17 +276,19 @@ fn new_folder(parent: &Path, folder: &str) -> io::Result<PathBuf> {
 pub fn write(st: &State, groups: &[Group], parent: &Path, folder: &str, cancel: &AtomicBool, progress: Option<&AtomicUsize>) -> Split {
     let dir = match new_folder(parent, folder) {
         Ok(d) => d,
-        Err(e) => return Split { folder: None, written: 0, error: Some(e) },
+        Err(e) => return Split { folder: None, written: 0, error: Some(e), switched: None },
     };
     let stop = AtomicBool::new(false);
     let written = AtomicUsize::new(0);
     let first_err: std::sync::Mutex<Option<io::Error>> = Default::default();
+    let switched = save::new_file_switch(st);
+    let enc = switched.map(|_| Enc::Utf8);
     groups.par_iter().with_max_len(1).for_each(|g| {
         if stop.load(Ordering::Relaxed) || cancel.load(Ordering::Relaxed) { return; }
         let path = dir.join(&g.name);
         let res = (|| -> io::Result<()> {
             let f = std::fs::File::create(&path)?;
-            let o = SaveOptions { rows: Some(g.rows.clone()), backup: false, ..Default::default() };
+            let o = SaveOptions { rows: Some(g.rows.clone()), enc, backup: false, ..Default::default() };
             let w = save::write_to(st, &o, BufWriter::with_capacity(256 << 10, Guard { w: f, stop: &stop, cancel }))?;
             w.into_inner().map_err(|e| e.into_error())?;
             Ok(())
@@ -306,7 +311,8 @@ pub fn write(st: &State, groups: &[Group], parent: &Path, folder: &str, cancel: 
     if error.is_none() && cancel.load(Ordering::Relaxed) {
         error = Some(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
-    Split { folder: Some(dir), written: written.into_inner(), error }
+    let written = written.into_inner();
+    Split { folder: Some(dir), written, error, switched: switched.filter(|_| written > 0) }
 }
 
 #[cfg(test)]

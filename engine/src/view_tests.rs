@@ -443,3 +443,49 @@ fn search_after_columns_moved_or_added() {
         }
     }
 }
+
+/// An accented character's neighbours read before folding around it change no result: against
+/// the path that folds around each one (and the reference, on valid UTF-8), on random text in
+/// many scripts, broken UTF-8 included.
+#[test]
+fn neighbours_change_no_result() {
+    const BITS: &[&str] = &[
+        "e", "a", "s", "o", "l", "E", "A", "S", "L", " ", "x", "1", "é", "è", "ê", "ë", "É", "à", "â", "ä", "ç", "ñ", "ö", "ß", "ẞ", "œ", "Œ", "æ", "Æ",
+        "ı", "İ", "ǆ", "ſ", "\u{212a}", "ﬁ", "\u{a0}", "\u{202f}", "\u{301}", "σ", "ς", "Σ", "ά", "й", "ё", "Я", "ש", "ع", "か", "が", "日", "한", "€", "😀",
+    ];
+    let needles = ["e", "a", "s", "ee", "es", "se", "ss", "ea", "ae", "oe", "aes", "sse", "le", "el", "ele", "a e", "e l", "sel", "alle", "elles", "x1", "1e", "k", "i", "fi", "dz"];
+    let no = AtomicBool::new(false);
+    let mut r = Rng(0x9E37_79B9_7F4A_7C15);
+    let mut found = 0;
+    for broken in [false, true] {
+        let mut csv = b"a;b;c\n".to_vec();
+        let mut folded = Vec::new();
+        for _ in 0..3000 {
+            for c in 0..3 {
+                if c > 0 { csv.push(b';'); }
+                let cell: String = (0..r.below(12)).map(|_| r.pick(BITS)).collect();
+                if r.chance(3) { csv.push(b'"'); csv.extend_from_slice(cell.as_bytes()); csv.extend_from_slice(b";\"\"\""); } else { csv.extend_from_slice(cell.as_bytes()); }
+                if broken && r.chance(2) { csv.push([0xFF, 0xC3, 0x80, 0xE2][r.below(4)]); }
+                if r.chance(5) { folded.push(crate::text::fold(&cell)); }
+            }
+            csv.push(b'\n');
+        }
+        let t = Table::new(Arc::new(Base::from_bytes(csv, OpenOptions { enc: Some(crate::enc::Enc::Utf8), delim: Some(b';') })), None);
+        // Pieces of the cells, folded: what is there to find.
+        let pieces = folded.iter().map(|f: &String| f.chars().filter(|c| c.is_ascii_alphanumeric()).take(2 + r.below(4)).collect::<String>()).filter(|p| !p.is_empty());
+        let specs: Vec<String> = needles.iter().map(|n| n.to_string()).chain(pieces.take(60)).collect();
+        for g in specs {
+            let spec = FilterSpec { global: format!("\"{g}\""), ..Default::default() };
+            let f = Filter::compile(&spec).unwrap();
+            let mut without = Filter::compile(&spec).unwrap();
+            for p in &mut without.global {
+                if let Pat::Sub { near, .. } = p { *near = false; }
+            }
+            let got = filter(&t.st, &f, &no).unwrap();
+            found += got.len();
+            assert_eq!(got, filter(&t.st, &without, &no).unwrap(), "{g:?}, broken {broken}");
+            if !broken { assert_eq!(got, old::filter(&t.st, &old::Filter::compile(&spec).unwrap(), &no).unwrap(), "{g:?} (reference)"); }
+        }
+    }
+    assert!(found > 3000, "{found}");
+}

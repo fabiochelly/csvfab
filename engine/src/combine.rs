@@ -8,6 +8,7 @@
 
 use crate::base::{Base, OpenOptions};
 use crate::enc::{self, Enc};
+use crate::save::Switch;
 use crate::split::{csv_ext, slugify, stem_of};
 use crate::table::{RowId, State, Table};
 use rayon::prelude::*;
@@ -111,9 +112,18 @@ pub struct Format {
 pub fn format(sources: &[Source]) -> Format {
     let f = &sources[0].st;
     let b = &f.base;
-    let same = sources.iter().all(|x| x.st.base.enc == b.enc);
+    let same = sources.iter().all(|x| x.st.base.enc == b.enc && crate::save::new_file_enc(&x.st).is_none());
     let (enc, bom) = if same { (b.enc, b.bom) } else { (Enc::Utf8, b.bom && b.enc == Enc::Utf8) };
     Format { delim: b.dialect.delim, eol: b.eol, enc, bom, header: f.header }
+}
+
+/// Why the result is not in the first file's encoding, if it is not. Apart from `format`,
+/// which runs every frame of the form: this one counts every edit's characters.
+pub fn switch(sources: &[Source], f: &Format) -> Option<Switch> {
+    let from = sources[0].st.base.enc;
+    if f.enc == from { return None; }
+    if sources.iter().any(|x| x.st.base.enc != from) { return Some(Switch::Mixed { from }); }
+    Some(Switch::Edits { from, chars: sources.iter().map(|x| crate::save::unfit_chars(&x.st)).sum() })
 }
 
 /// `<stem> - combined<ext>` beside the first file, or (2), (3)… — a name not taken.
@@ -139,13 +149,13 @@ fn put_field(s: &str, d: u8, enc: Enc, out: &mut Vec<u8>) {
     }
 }
 
-/// Bytes in the encoding kept in memory → bytes written (UTF-16 transcoded).
+/// Bytes in the encoding kept in memory → bytes written (transcoded where UTF-8 is kept).
 fn emit<W: Write>(w: &mut W, enc: Enc, b: &[u8]) -> io::Result<()> {
-    if !enc.is_utf16() {
+    if !enc.transcoded() {
         return w.write_all(b);
     }
     let mut o = Vec::with_capacity(b.len() * 2);
-    enc::utf8_to_utf16(&String::from_utf8_lossy(b), enc == Enc::Utf16Be, &mut o);
+    enc::encode_file(enc, &String::from_utf8_lossy(b), &mut o);
     w.write_all(&o)
 }
 
@@ -157,8 +167,8 @@ pub fn write_to<W: Write>(sources: &[Source], cols: &[OutCol], source_col: bool,
     const CH: usize = 8192;
     const BATCH: usize = 64;
     let cancelled = || io::Error::new(io::ErrorKind::Interrupted, "cancelled");
-    // Single-byte encodings are written as such; UTF-16 is built as UTF-8 then transcoded.
-    let mem = if f.enc.is_utf16() { Enc::Utf8 } else { f.enc };
+    // Single-byte encodings are written as such; the others are built as UTF-8 then transcoded.
+    let mem = if f.enc.transcoded() { Enc::Utf8 } else { f.enc };
     let d = f.delim;
     if f.bom {
         w.write_all(f.enc.bom())?;
@@ -242,6 +252,30 @@ mod tests {
     fn src(name: &str, bytes: &[u8]) -> Source {
         let base = Base::from_bytes(bytes.to_vec(), OpenOptions::default());
         Source { name: name.into(), st: Table::new(Arc::new(base), None).st, rows: None }
+    }
+
+    fn in_enc(name: &str, text: &str, e: Enc) -> Source {
+        let mut b = Vec::new();
+        enc::encode_into(e, text, &mut b);
+        let base = Base::from_bytes(b, OpenOptions { enc: Some(e), delim: Some(b';') });
+        Source { name: name.into(), st: Table::new(Arc::new(base), None).st, rows: None }
+    }
+
+    /// The reason given is the true one, and none when the first file's encoding stays.
+    #[test]
+    fn a_switch_tells_why() {
+        let sw = |s: &[Source]| switch(s, &format(s));
+        let (a, b) = (in_enc("a", "x;y\nМосква;1\n", Enc::Windows1251), in_enc("b", "x;y\nКиев;2\n", Enc::Windows1251));
+        assert_eq!(sw(&[a.clone(), b.clone()]), None);
+        let u = in_enc("u", "x;y\nЁлка;3\n", Enc::Utf8);
+        assert_eq!(sw(&[a.clone(), u.clone()]), Some(Switch::Mixed { from: Enc::Windows1251 }));
+        // The first file's encoding kept: nothing changed.
+        assert_eq!(sw(&[u, a.clone()]), None);
+        let mut t = Table::new(b.st.base.clone(), None);
+        let id = t.st.data_id(0);
+        t.set_cells(&[(id, 1, "東京".into())]);
+        let edited = Source { st: t.st.clone(), ..b };
+        assert_eq!(sw(&[a, edited]), Some(Switch::Edits { from: Enc::Windows1251, chars: 2 }));
     }
 
     fn run(s: &[Source], loose: bool, common: bool, source: bool) -> (Vec<String>, Format, Vec<u8>) {

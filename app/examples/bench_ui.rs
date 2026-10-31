@@ -1026,6 +1026,7 @@ impl Bench {
 }
 
 fn main() {
+    csvfab::tune_malloc();
     let t_main = Instant::now();
     let args: Vec<String> = std::env::args().collect();
     let Some(file) = args.get(1).filter(|a| !a.starts_with("--")) else {

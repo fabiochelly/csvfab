@@ -3,6 +3,12 @@
    Only what a product page would show: a release that fixed or tuned things has no entry.
    Each item is [title, one sentence]. */
 window.CSVFAB_RELEASES = [
+    { v: '2.2.0', date: '2026-10-31', items: [
+        ['Every language', 'Thirty-three encodings, detected on open: Cyrillic, Greek, Turkish, Arabic, Hebrew, Thai, Vietnamese, Chinese, Japanese, Korean and more.'],
+        ['All the world\'s scripts', 'Fonts for other scripts load from your system when a file needs them, with colour emoji.'],
+        ['More formats', 'Open .xls, .xlsb, .ods and compressed .gz, .zst or .zip files; export to JSON, JSON Lines, TSV, HTML and Markdown.'],
+        ['Nothing replaced behind your back', 'A character the chosen encoding cannot hold is announced before saving, with the choice to save as UTF-8.'],
+    ] },
     { v: '2.1.2', date: '2026-10-31', items: [
         ['Exact duplicates', 'A new option counts case and spaces when comparing rows.'],
     ] },

@@ -13,6 +13,12 @@ the system UI font…), **ui 500** = `Name(fonts::UI_MEDIUM)`, **ui 600** =
 `Name(fonts::UI_SEMIBOLD)`, **mono 600** = `Name(fonts::MONO_BOLD)`. The web page's
 body font is the mono one: anything not said to be ui is mono.
 
+Characters neither font has (CJK, Arabic, Devanagari, emoji…): egui asks `SystemFaces` the first
+time one is laid out, and that face is added behind the family (fontconfig's choice, the known
+files on macOS and Windows). Nothing bundled, nothing loaded before. Colour emoji come from
+epaint's `color_fonts`. egui shapes (Arabic joins, Indic clusters) but has no paragraph direction:
+grid cells and column titles go through `bidi.rs`, word by word in display order.
+
 Numbers shown to the user (row numbers, counts) are formatted French style: groups
 of three separated by U+202F (narrow no-break space): `1 000 000`.
 
@@ -381,6 +387,8 @@ The pills stay pills (the user's choice, not the first draft's plain text). Grad
      `accent_2` on `alpha(accent, .13)`, borders at .4.
    - "Titles on line 1 AUTO" / "No titles": neutral.
    - line endings "CRLF" / "LF" / "CR": neutral, click switches.
+   - other encodings (Windows-1251, Shift_JIS…): `violet_txt` / `violet`. Its menu lists them
+     by region under a search field (`widgets::enc_list`, min 230), focused on opening.
    - the pills' menus open upwards, above the clicked pill (`.dd-menu`, min 210).
 6. **Density**, 14 after the pills (when 900 are left for it: the Density menu has it
    anyway): a segmented control 24 tall, radius 7, `alpha(gray, .12)`, padding 2, its three
@@ -665,7 +673,7 @@ reduced-motion setting by skipping them.
 - Fonts: cells `FontId::monospace(13.0)`; titles
   `FontId::new(12.5, FontFamily::Name(fonts::UI_SEMIBOLD.into()))`; chrome
   `FontId::proportional(…)`. A value's width for column sizing: chars × the advance of
-  "0" in the mono font, measured once:
+  "0" in the mono font (CJK and emoji count two, `grid::columns_of`), measured once:
   `ctx.fonts_mut(|f| f.glyph_width(&FontId::monospace(13.0), '0'))`.
 - Text vertical centring: `Align2::LEFT_CENTER` at the row's centre (y + (row_h − 1) / 2).
 - Selection fill, marks and the column's tint are translucent: paint them after the row fill.

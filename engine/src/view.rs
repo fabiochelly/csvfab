@@ -184,6 +184,9 @@ enum Pat {
         /// Bit `u - 0x80`: the two-byte character U+u (up to U+07FF) folds into one of the
         /// needle's letters (`text::folds_into`) — the accents of a text told by a table.
         fold2: Box<[u64; 30]>,
+        /// Read an accented character's neighbours before folding around it (always; off for
+        /// the test against the path without).
+        near: bool,
     },
     Re {
         re: crate::re::Re,
@@ -240,7 +243,7 @@ impl Pat {
                 if char::from_u32(u).is_some_and(|c| crate::text::folds_into(c, mask)) { fold2[(u - 0x80) as usize / 64] |= 1 << ((u - 0x80) % 64); }
             }
         }
-        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask, ci, fold2 })
+        Ok(Pat::Sub { needle, finder, raw_ok, rec_ok, blank, mask, ci, fold2, near: true })
     }
 
     #[inline]
@@ -752,6 +755,12 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
         Pat::Sub { needle, blank, .. } => (needle.len(), trust(needle, *blank, b)),
         Pat::Re { .. } => (0, false),
     };
+    // Searched block by block, a needle is ASCII (`raw_ok`).
+    let near = match g {
+        Pat::Sub { needle, near: true, .. } => needle.as_bytes(),
+        _ => &[],
+    };
+    let one = crate::text::one_letter();
     if let Some(m) = mask.filter(|&m| m != s.fold3_mask || s.fold3.is_empty()) {
         s.fold3 = vec![(0, false); 64];
         s.fold3_mask = m;
@@ -810,6 +819,16 @@ fn block_search(b: &crate::Base, a: usize, len: usize, g: &Pat, case: bool, s: &
                     if (0xC2..=0xDF).contains(&c0) && c1 & 0xC0 == 0x80 {
                         let u = ((c0 as usize & 0x1F) << 6 | (c1 as usize & 0x3F)) - 0x80;
                         if case || t[u / 64] >> (u % 64) & 1 == 0 {
+                            i = p + 2;
+                            continue;
+                        }
+                        // It folds to one letter: the needle can be around it only where the
+                        // bytes beside it fit that letter's neighbours in the needle (a
+                        // non-ASCII byte may fold to anything). Every character of a match
+                        // passes, so none is lost, whatever the fold of the others.
+                        let (l, prev, next) = (one[u], if p > 0 { raw[p - 1] } else { b'\n' }, at(2));
+                        let fits = |x: u8, want: u8| x >= 0x80 || x.to_ascii_lowercase() == want;
+                        if l != 0xFF && !near.is_empty() && !near.iter().enumerate().any(|(q, &n)| n == l && (q == 0 || fits(prev, near[q - 1])) && near.get(q + 1).is_none_or(|&w| fits(next, w))) {
                             i = p + 2;
                             continue;
                         }

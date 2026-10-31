@@ -14,6 +14,7 @@ use crate::radix::{self, Sorted, Text};
 use crate::table::{RowId, State};
 use crate::text::{fold_into, parse_date, parse_number};
 use rayon::prelude::*;
+use std::hash::BuildHasher;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, Weak};
 
@@ -562,6 +563,22 @@ fn build_nums(b: &Base, field: usize, parse: fn(&str) -> Option<f64>, cancel: &A
 
 type Map = hashbrown::HashMap<Box<[u8]>, u32, foldhash::fast::FixedState>;
 
+/// A chunk of records read for a dictionary: each one's code, and the chunk's distinct values
+/// end to end, one allocation for all.
+struct Part {
+    codes: Vec<u32>,
+    arena: Vec<u8>,
+    /// Where each value ends in `arena`.
+    ends: Vec<usize>,
+}
+
+impl Part {
+    #[inline]
+    fn value(&self, c: usize) -> &[u8] {
+        &self.arena[if c == 0 { 0 } else { self.ends[c - 1] }..self.ends[c]]
+    }
+}
+
 /// A dictionary of the field. Err(true): it holds too many distinct values to pay (more
 /// than one row in 8); Err(false): cancelled, or `sure` and the sample left it in doubt
 /// (more than three quarters of it distinct): not tried.
@@ -581,58 +598,73 @@ fn build_dict(b: &Base, field: usize, sure: bool, cancel: &AtomicBool) -> Result
         if sure && seen.len() > k * 3 / 4 { return Err(false); }
     }
     let abort = AtomicBool::new(false);
-    let parts: Vec<(Vec<u32>, Vec<Box<[u8]>>)> = chunks(n)
+    let hasher = foldhash::fast::FixedState::default();
+    let parts: Vec<Part> = chunks(n)
         .map(|r| {
-            let mut map = Map::default();
-            let mut vals: Vec<Box<[u8]>> = Vec::new();
-            let mut codes = Vec::with_capacity(r.len());
+            let mut table = hashbrown::HashTable::<u32>::new();
+            let mut p = Part { codes: Vec::with_capacity(r.len()), arena: Vec::new(), ends: Vec::new() };
             let mut tmp = Vec::new();
             // Past half a chunk distinct, the column hardly repeats: the others stop too.
             let limit = (r.len() / 2).max(64);
             for id in r {
                 if cancel.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed) { break; }
                 with_raw(b, id, field, &mut tmp, |v| {
-                    let c = match map.get(v) {
+                    let h = hasher.hash_one(v);
+                    let c = match table.find(h, |&c| p.value(c as usize) == v) {
                         Some(&c) => c,
                         None => {
-                            let c = vals.len() as u32;
-                            vals.push(v.into());
-                            map.insert(v.into(), c);
+                            let c = p.ends.len() as u32;
+                            p.arena.extend_from_slice(v);
+                            p.ends.push(p.arena.len());
+                            table.insert_unique(h, c, |&c| hasher.hash_one(p.value(c as usize)));
                             c
                         }
                     };
-                    codes.push(c);
+                    p.codes.push(c);
                 });
-                if vals.len() > limit { abort.store(true, Ordering::Relaxed); }
+                if p.ends.len() > limit { abort.store(true, Ordering::Relaxed); }
             }
-            (codes, vals)
+            p
         })
         .collect();
     if cancel.load(Ordering::Relaxed) { return Err(false); }
     if abort.load(Ordering::Relaxed) { return Err(true); }
-    // One code space: each chunk's codes renumbered.
-    let mut map = Map::default();
-    let mut raw: Vec<Box<[u8]>> = Vec::new();
-    let remaps: Vec<Vec<u32>> = parts
-        .iter()
-        .map(|(_, vals)| {
-            vals.iter()
-                .map(|v| {
-                    *map.entry(v.clone()).or_insert_with(|| {
-                        raw.push(v.clone());
-                        raw.len() as u32 - 1
-                    })
-                })
-                .collect()
-        })
-        .collect();
-    if raw.len() > cap { return Err(true); }
-    drop(map);
-    let mut codes = Vec::with_capacity(n);
-    for ((c, _), m) in parts.iter().zip(&remaps) {
-        codes.extend(c.iter().map(|&k| m[k as usize]));
+    // One code space: each chunk's codes renumbered. Past the cap, nothing more to learn.
+    let mut map: hashbrown::HashMap<&[u8], u32, foldhash::fast::FixedState> = Default::default();
+    let mut raw: Vec<&[u8]> = Vec::new();
+    let mut remaps: Vec<Vec<u32>> = Vec::with_capacity(parts.len());
+    for p in &parts {
+        let mut remap = Vec::with_capacity(p.ends.len());
+        for c in 0..p.ends.len() {
+            let v = p.value(c);
+            remap.push(match map.get(v) {
+                Some(&k) => k,
+                None => {
+                    let k = raw.len() as u32;
+                    raw.push(v);
+                    if raw.len() > cap { return Err(true); }
+                    map.insert(v, k);
+                    k
+                }
+            });
+        }
+        remaps.push(remap);
     }
+    drop(map);
+    let mut codes = vec![0u32; parts.iter().map(|p| p.codes.len()).sum()];
+    let mut rest = &mut codes[..];
+    let mut spans = Vec::with_capacity(parts.len());
+    for p in &parts {
+        let (span, tail) = rest.split_at_mut(p.codes.len());
+        spans.push(span);
+        rest = tail;
+    }
+    spans.into_par_iter().zip(&parts).zip(&remaps).for_each(|((span, p), m)| {
+        for (x, &k) in span.iter_mut().zip(&p.codes) { *x = m[k as usize]; }
+    });
     let values: Vec<Box<str>> = raw.par_iter().map(|v| b.text(v).into()).collect();
+    drop((remaps, raw));
+    drop(parts);
     let folded: Vec<Box<str>> = values.par_iter().map(|v| crate::text::fold(v).into()).collect();
     let num: Vec<f64> = values.par_iter().map(|v| parse_number(v).unwrap_or(f64::NAN)).collect();
     let date: Vec<f64> = values.par_iter().map(|v| parse_date(v).unwrap_or(f64::NAN)).collect();
@@ -834,6 +866,46 @@ mod tests {
     use super::*;
     use crate::base::OpenOptions;
     use crate::table::Table;
+
+    /// The dictionary is the one a plain pass gives: values by first appearance over the chunks
+    /// (empty, quoted, short records included), or refused once merged past the cap.
+    #[test]
+    fn dict_as_a_plain_pass_gives_it() {
+        let mut csv = String::from("a,b,c\n");
+        let mut x = 0x2545_F491_4F6C_DD1Du64;
+        for i in 0..3 * CH + 20_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let v = x % 5000;
+            // Column c: the rows the sample reads repeat, the others hardly.
+            let c = if (i + 1) % 26 == 0 { 0 } else { i / 7 };
+            csv += &match v % 50 {
+                0 => format!("{i},,{c}\n"),
+                1 => format!("{i},\"q\"\"{v}; é\nz\",{c}\n"),
+                2 => format!("{i}\n"),
+                _ => format!("{i},é{v},{c}\n"),
+            };
+        }
+        let b = Base::from_bytes(csv.into_bytes(), OpenOptions::default());
+        let no = AtomicBool::new(false);
+        let (mut seen, mut values, mut codes) = (std::collections::HashMap::new(), Vec::new(), Vec::new());
+        let mut tmp = Vec::new();
+        for id in 0..b.n {
+            with_raw(&b, id, 1, &mut tmp, |v| {
+                let k = *seen.entry(v.to_vec()).or_insert_with(|| { values.push(b.text(v).to_string()); values.len() as u32 - 1 });
+                codes.push(k);
+            });
+        }
+        let d = build_dict(&b, 1, false, &no).ok().unwrap();
+        assert_eq!(d.codes, codes);
+        assert_eq!(d.values.iter().map(|v| v.to_string()).collect::<Vec<_>>(), values);
+        // Few enough in each chunk, too many together: not a dictionary. And the column of ids.
+        assert!(matches!(build_dict(&b, 2, false, &no), Err(true)));
+        assert!(matches!(build_dict(&b, 0, false, &no), Err(true)));
+        no.store(true, Ordering::Relaxed);
+        assert!(matches!(build_dict(&b, 1, false, &no), Err(false)));
+    }
 
     #[test]
     fn dict_counts_match_cells() {

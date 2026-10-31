@@ -1,4 +1,4 @@
-//! A file as read: its bytes (memory-mapped, never copied — UTF-16 aside) and
+//! A file as read: its bytes (memory-mapped, never copied — transcoded encodings aside) and
 //! where each record starts. Immutable once built, shared with background jobs.
 
 use crate::enc::{self, Enc};
@@ -132,8 +132,10 @@ pub struct Base {
     /// Where the data starts in `data` (after a BOM).
     skip: usize,
     pub enc: Enc,
-    /// The bytes kept are known to be valid UTF-8 (checked whole by the scan, or transcoded
-    /// from UTF-16): a field — cut on ASCII delimiters — is then text as it is, unchecked.
+    /// A multi-byte file's own bytes, behind the UTF-8 kept in `data`.
+    raw: Option<Arc<Raw>>,
+    /// The bytes kept are known to be valid UTF-8 (checked whole by the scan, or
+    /// transcoded): a field — cut on ASCII delimiters — is then text as it is, unchecked.
     valid_utf8: bool,
     pub bom: bool,
     pub dialect: Dialect,
@@ -150,6 +152,17 @@ pub struct Base {
     /// Only the first records (`open_head`): the whole index is being built.
     pub partial: bool,
 }
+
+/// The file behind a base read through UTF-8: rows written as they were come from here (the
+/// same text can have other bytes, or none, in the file's encoding), and a head grows from here.
+struct Raw {
+    data: Data,
+    /// `enc::Transcoded::marks`.
+    marks: Vec<(u64, u64)>,
+}
+
+/// Where the last run of a save was found (`Base::raw_run`): (offset kept, offset in the file).
+pub(crate) type RawPos = (usize, usize);
 
 /// What `open_head` scans: enough rows for the first screens, the column
 /// widths and kinds, read in a few milliseconds even from a cold disk.
@@ -187,7 +200,7 @@ impl Base {
     /// already in), every record indexed.
     pub fn complete(&self, o: OpenOptions, progress: Option<&AtomicUsize>) -> Base {
         let t0 = Instant::now();
-        let mut b = Base::from_data(self.data.clone(), o, progress);
+        let mut b = Base::from_data(self.source().clone(), o, progress);
         b.path = self.path.clone();
         b.stamp = self.stamp;
         b.size = self.size;
@@ -197,10 +210,10 @@ impl Base {
 
     /// The same bytes read with other options (another encoding, another
     /// delimiter), without reading the file again: None when the file changed
-    /// on disk since, or UTF-16 is involved (the bytes held are transcoded) —
-    /// then `open` it. Only the encoding changing keeps the index as it is.
+    /// on disk since, or a transcoded encoding is involved (the bytes held are
+    /// not the file's) — then `open` it. Only the encoding changing keeps the index as it is.
     pub fn reopen(&self, o: OpenOptions, progress: Option<&AtomicUsize>) -> Option<Base> {
-        if self.partial || self.enc.is_utf16() || o.enc.is_some_and(|e| e.is_utf16()) {
+        if self.partial || self.enc.transcoded() || o.enc.is_some_and(|e| e.transcoded()) {
             return None;
         }
         if let Some(p) = &self.path {
@@ -215,7 +228,7 @@ impl Base {
         let enc = o.enc.unwrap_or(sniffed);
         let skip = if enc == sniffed { bom_len } else { 0 };
         let mut b = if same_split && o.enc.is_some() && skip == self.skip {
-            Base { enc, valid_utf8: self.valid_utf8 && enc == self.enc, starts: self.starts.clone(), odd: self.odd.clone(), data: self.data.clone(), path: None, stamp: None, ..*self }
+            Base { enc, valid_utf8: self.valid_utf8 && enc == self.enc, starts: self.starts.clone(), odd: self.odd.clone(), data: self.data.clone(), raw: None, path: None, stamp: None, ..*self }
         } else {
             Base::from_data(self.data.clone(), o, progress)
         };
@@ -231,7 +244,7 @@ impl Base {
     /// as they are. None when that does not apply — then `open` it again.
     pub fn append(&self) -> std::io::Result<Option<Base>> {
         let Some(path) = &self.path else { return Ok(None) };
-        if self.partial || !self.dialect.lines || self.enc.is_utf16() || !matches!(self.data, Data::Map(_)) || self.skip > 0 {
+        if self.partial || !self.dialect.lines || self.enc.transcoded() || !matches!(self.data, Data::Map(_)) || self.skip > 0 {
             return Ok(None);
         }
         let old = self.bytes().len();
@@ -258,6 +271,7 @@ impl Base {
             stamp,
             size,
             load_time: t0.elapsed(),
+            raw: None,
             valid_utf8: false,
             ..*self
         }))
@@ -270,24 +284,22 @@ impl Base {
         b
     }
 
-    /// Sniffs the encoding (BOM, UTF-16), the BOM to skip, transcodes UTF-16.
-    fn prepare(data: Data, o: OpenOptions) -> (Data, Enc, bool, usize) {
+    /// Sniffs the encoding (BOM, UTF-16…), the BOM to skip, transcodes what is not read in place.
+    fn prepare(data: Data, o: OpenOptions) -> (Data, Enc, bool, usize, Option<Arc<Raw>>) {
         let (sniffed, bom_len) = enc::sniff(&data);
         let enc = o.enc.unwrap_or(sniffed);
         // A BOM is only skipped when it belongs to the encoding used.
-        let skip = if enc == sniffed || (enc.is_utf16() && sniffed.is_utf16()) { bom_len } else { 0 };
-        let data = if enc.is_utf16() {
-            Data::Owned(Arc::new(enc::transcode_utf16(&data[skip..], enc)))
-        } else {
-            data
-        };
-        let bom = skip > 0;
-        let skip = if enc.is_utf16() { 0 } else { skip };
-        (data, enc, bom, skip)
+        let skip = if enc == sniffed || (enc.wide() && sniffed.wide()) { bom_len } else { 0 };
+        if !enc.transcoded() {
+            return (data, enc, skip > 0, skip, None);
+        }
+        let t = enc::transcode(&data[skip..], enc);
+        let raw = enc.multi_byte().then(|| Arc::new(Raw { data, marks: t.marks }));
+        (Data::Owned(Arc::new(t.text)), enc, skip > 0, 0, raw)
     }
 
     fn from_data(data: Data, o: OpenOptions, progress: Option<&AtomicUsize>) -> Base {
-        let (data, mut enc, bom, skip) = Base::prepare(data, o);
+        let (data, mut enc, bom, skip, raw) = Base::prepare(data, o);
         let bytes = &data[skip..];
         let (dialect, eol) = detect_dialect(bytes, o.delim);
         // UTF-8 unless a byte says otherwise: checked by the scan, in the same pass over the bytes.
@@ -296,9 +308,14 @@ impl Base {
         // A UTF-8 BOM decides (as the web app: no check then): a few bad bytes stay U+FFFD,
         // the BOM is written back.
         if check && !s.utf8 && !bom {
-            enc = Enc::Windows1252;
+            enc = enc::detect(bytes);
+            // Its delimiter bytes may be inside characters: the scan is of no use.
+            if enc.multi_byte() {
+                if let Some(p) = progress { p.store(0, std::sync::atomic::Ordering::Relaxed); }
+                return Base::from_data(data, OpenOptions { enc: Some(enc), ..o }, progress);
+            }
         }
-        let valid_utf8 = ((check && s.utf8) || enc.is_utf16()) && cuts_on_ascii(dialect);
+        let valid_utf8 = ((check && s.utf8) || enc.transcoded()) && cuts_on_ascii(dialect);
         // The slices' offsets, freed on the scanning threads, would stay in their
         // allocator arenas: given back, the heap is the index alone.
         #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -311,6 +328,7 @@ impl Base {
             path: None,
             skip,
             enc,
+            raw,
             bom,
             dialect,
             eol,
@@ -330,10 +348,14 @@ impl Base {
     /// The records starting in the first `HEAD_BYTES`, one thread; the whole
     /// base when that is all there is.
     fn head(data: Data, o: OpenOptions) -> Base {
-        if data.len() <= HEAD_BYTES || enc::sniff(&data).0.is_utf16() || o.enc.is_some_and(|e| e.is_utf16()) {
+        let sniffed = enc::sniff(&data).0;
+        if data.len() <= HEAD_BYTES || sniffed.wide() || o.enc.is_some_and(|e| e.wide()) {
             return Base::from_data(data, o, None);
         }
-        let (data, mut enc, bom, skip) = Base::prepare(data, o);
+        if let Some(e) = o.enc.or(Some(sniffed)).filter(|e| e.multi_byte()) {
+            return Base::head_multi(data, e, o);
+        }
+        let (data, mut enc, bom, skip, raw) = Base::prepare(data, o);
         let bytes = &data[skip..];
         let (dialect, eol) = detect_dialect(bytes, o.delim);
         let (mut s, width) = scan::scan_range(bytes, 0, HEAD_BYTES, dialect, None, usize::MAX, None);
@@ -342,7 +364,8 @@ impl Base {
         }
         let head_ok = std::str::from_utf8(&bytes[..s.next]).is_ok();
         if o.enc.is_none() && enc == Enc::Utf8 && !head_ok && !bom {
-            enc = Enc::Windows1252;
+            enc = enc::detect(bytes);
+            if enc.multi_byte() { return Base::head_multi(data, enc, o); }
         }
         let valid_utf8 = o.enc.is_none() && enc == Enc::Utf8 && head_ok && cuts_on_ascii(dialect);
         let n = s.starts.len();
@@ -352,6 +375,7 @@ impl Base {
             path: None,
             skip,
             enc,
+            raw,
             bom,
             dialect,
             eol,
@@ -368,7 +392,45 @@ impl Base {
         }
     }
 
-    /// The data, BOM excluded (UTF-8 for a UTF-16 file).
+    /// `head` for a multi-byte file: its first lines transcoded alone, the file behind them
+    /// for `complete`.
+    fn head_multi(data: Data, enc: Enc, o: OpenOptions) -> Base {
+        let Some(cut) = memchr::memrchr2(b'\n', b'\r', &data[..HEAD_BYTES]).filter(|_| enc != Enc::Iso2022Jp) else {
+            return Base::from_data(data, OpenOptions { enc: Some(enc), ..o }, None);
+        };
+        let text = enc::transcode(&data[..=cut], enc).text;
+        let (dialect, eol) = detect_dialect(&text, o.delim);
+        let (mut s, width) = scan::scan_range(&text, 0, text.len(), dialect, None, usize::MAX, None);
+        let n = s.starts.len();
+        s.starts.push(s.next.min(text.len()) as u64);
+        Base {
+            valid_utf8: cuts_on_ascii(dialect),
+            path: None,
+            skip: 0,
+            enc,
+            raw: Some(Arc::new(Raw { data, marks: Vec::new() })),
+            bom: false,
+            dialect,
+            eol,
+            n,
+            width: width as usize,
+            odd: s.odd,
+            qerr: s.qerr,
+            starts: s.starts,
+            data: Data::Owned(Arc::new(text)),
+            size: 0,
+            stamp: None,
+            load_time: Default::default(),
+            partial: true,
+        }
+    }
+
+    /// The file's bytes as mapped: the UTF-8 kept for most, the bytes behind it for a multi-byte file.
+    fn source(&self) -> &Data {
+        self.raw.as_ref().map_or(&self.data, |r| &r.data)
+    }
+
+    /// The data, BOM excluded (UTF-8 for a transcoded file).
     #[inline]
     pub fn bytes(&self) -> &[u8] {
         &self.data[self.skip..]
@@ -435,18 +497,63 @@ impl Base {
         matches!(self.data, Data::Map(_))
     }
 
+    /// Whether the file's own bytes are at hand, mapped (behind a transcoded base too).
+    pub fn file_mapped(&self) -> bool {
+        matches!(self.source(), Data::Map(_))
+    }
+
     /// `file_sample` of the file as it was read (from the bytes mapped; None: not mapped, or
     /// cut short since).
     pub fn sample(&self) -> Option<u64> {
-        if !self.mapped() || self.cut_short() { return None; }
-        let d: &[u8] = &self.data;
+        if !self.file_mapped() || self.cut_short() { return None; }
+        let d: &[u8] = self.source();
         sample_of(d.len() as u64, |at, buf| { buf.copy_from_slice(&d[at as usize..at as usize + buf.len()]); Ok(()) })
     }
 
     /// Whether another program cut the file short while it was open: the bytes past
     /// its new end read as zeros, so they must not be written anywhere as the file's.
     pub fn cut_short(&self) -> bool {
-        matches!(&self.data, Data::Map(m) if m.cut_short())
+        matches!(self.source(), Data::Map(m) if m.cut_short())
+    }
+
+    /// The offset in the file of `at`, an offset in `bytes()` with only ASCII since the line
+    /// start before it: as many line breaks lie before it there and here. From `pos` when that
+    /// is nearer than the mark before it: a save goes through the file in order.
+    fn raw_at(&self, raw: &Raw, at: usize, pos: &mut RawPos) -> Option<usize> {
+        let (mem, nl) = (self.bytes(), self.dialect.nl);
+        let k = raw.marks.partition_point(|m| m.0 as usize <= at).checked_sub(1)?;
+        let (mut m0, mut r0) = (raw.marks[k].0 as usize, raw.marks[k].1 as usize);
+        if pos.0 <= at && pos.0 >= m0 { (m0, r0) = *pos; }
+        let last = memchr::memrchr(nl, &mem[m0..at]).map_or(m0, |k| m0 + k + 1);
+        if !mem[last..at].is_ascii() { return None; }
+        let lines = memchr::memchr_iter(nl, &mem[m0..last]).count();
+        let line = if lines == 0 { r0 } else { r0 + memchr::memchr_iter(nl, &raw.data[r0..]).nth(lines - 1)? + 1 };
+        *pos = (last, line);
+        Some(line + at - last)
+    }
+
+    /// The file's own bytes for `at..z`, a run of whole records of `bytes()` (`z` before its
+    /// line break). None when they cannot be told apart: the run is then encoded anew.
+    pub(crate) fn raw_run(&self, at: usize, z: usize, pos: &mut RawPos) -> Option<&[u8]> {
+        let raw = self.raw.as_ref()?;
+        let mem = self.bytes();
+        let a = self.raw_at(raw, at, pos)?;
+        // The line break after `z`: the same distance from it in both.
+        let e = match memchr::memchr(self.dialect.nl, &mem[z..]) {
+            Some(k) => { let p = z + k; self.raw_at(raw, p + 1, pos)? - 1 - (p - z) }
+            None => raw.data.len().checked_sub(mem.len() - z).filter(|_| mem[z..].is_ascii())?,
+        };
+        raw.data.get(a..e)
+    }
+
+    /// The offset in the file of `at`, a line start in `bytes()` (itself when it cannot be told).
+    pub(crate) fn raw_offset(&self, at: usize) -> usize {
+        self.raw.as_ref().and_then(|r| self.raw_at(r, at, &mut (0, 0))).unwrap_or(at)
+    }
+
+    /// Whether the rows left as they were keep the file's bytes when saved in its encoding.
+    pub(crate) fn has_raw(&self) -> bool {
+        self.raw.as_ref().is_some_and(|r| !r.marks.is_empty())
     }
 
     /// A file just written whose index is known (`save::save_indexed`):
@@ -471,6 +578,7 @@ impl Base {
             data,
             skip,
             enc: like.enc,
+            raw: None,
             valid_utf8: like.valid_utf8,
             bom,
             dialect,
@@ -489,7 +597,7 @@ impl Base {
 
     /// Whether both hold the very same bytes (one map, one buffer).
     pub fn same_bytes(&self, other: &Base) -> bool {
-        match (&self.data, &other.data) {
+        match (self.source(), other.source()) {
             (Data::Map(a), Data::Map(b)) => Arc::ptr_eq(a, b),
             (Data::Owned(a), Data::Owned(b)) => Arc::ptr_eq(a, b),
             _ => false,

@@ -8,7 +8,10 @@ license.workspace = true
 memmap2 = "0.9"
 memchr = "2.8"
 rayon = "1.12"
-encoding_rs = "0.8"
+# Saving to the legacy CJK encodings: tables of reverse lookups, where the default is a linear search.
+encoding_rs = { version = "0.8", features = ["fast-legacy-encode"] }
+# A file that is not UTF-8 and has no BOM: what it most likely is, on a sample (enc::detect).
+chardetng = "1"
 regex = "1.13"
 regex-syntax = "0.8"
 aho-corasick = "1"
@@ -20,6 +23,8 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # The workbook's sheet written by hand, in parallel (convert/xlsx_write.rs): all four already
 # built for zip, rust_xlsxwriter and serde_json — no new crate.
 flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+# `.zst` files (convert/packed.rs): the crate parquet already links.
+zstd = { version = "0.14", default-features = false }
 crc32fast = "1.5"
 itoa = "1"
 zmij = "1"

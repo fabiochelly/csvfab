@@ -82,6 +82,8 @@ pub struct Left {
     /// The file the edits were made to.
     pub original: Option<PathBuf>,
     pub when: SystemTime,
+    /// A copy not in the file's encoding: why, said once when it comes back.
+    pub note: Option<String>,
 }
 
 /// Tab `uid`'s copy, journal and note (its name, its file) in `dir`.
@@ -94,7 +96,7 @@ fn files(dir: &Path, uid: u64) -> (PathBuf, PathBuf, PathBuf) {
 /// is still that on disk (else the edits' rows would be other rows).
 fn journaled(st: &State, path: Option<&Path>) -> bool {
     let b = &st.base;
-    path.is_some_and(|p| b.path.as_deref() == Some(p) && b.mapped() && !b.partial && !b.cut_short() && b.stamp.is_some() && Stamp::of(p) == b.stamp)
+    path.is_some_and(|p| b.path.as_deref() == Some(p) && b.file_mapped() && !b.partial && !b.cut_short() && b.stamp.is_some() && Stamp::of(p) == b.stamp)
 }
 
 /// Writes tab `uid`'s unsaved edits to `dir`: its journal, or a copy of the table (the other
@@ -102,6 +104,7 @@ fn journaled(st: &State, path: Option<&Path>) -> bool {
 /// a stop meanwhile leaves the one before.
 fn keep(dir: &Path, uid: u64, name: &str, path: Option<&Path>, opts: OpenOptions, st: &State) {
     let (copy, jpath, meta) = files(dir, uid);
+    let mut note = String::new();
     let (ok, other) = if journaled(st, path) {
         let tmp = jpath.with_extension("journal.tmp");
         let res = (|| -> std::io::Result<()> {
@@ -113,11 +116,16 @@ fn keep(dir: &Path, uid: u64, name: &str, path: Option<&Path>, opts: OpenOptions
         if res.is_err() { let _ = std::fs::remove_file(&tmp); }
         (res.is_ok(), copy)
     } else {
-        (save::save(st, &copy, &SaveOptions { backup: false, ..Default::default() }, None, &mut true).is_ok(), jpath)
+        // In UTF-8 when the file's encoding might not hold what was typed: no "?" in a rescue.
+        let enc = st.base.enc.limited().then_some(csvfab_engine::Enc::Utf8);
+        if enc.is_some() {
+            note = save::new_file_switch(st).map_or_else(|| format!("Written in UTF-8: recovery copies don't keep {}", st.base.enc.label()), |sw| sw.says());
+        }
+        (save::save(st, &copy, &SaveOptions { enc, bom: enc.map(|_| true), backup: false, ..Default::default() }, None, &mut true).is_ok(), jpath)
     };
     if ok {
         let _ = std::fs::remove_file(other);
-        let _ = std::fs::write(&meta, format!("{name}\n{}\n", path.map(|p| p.display().to_string()).unwrap_or_default()));
+        let _ = std::fs::write(&meta, format!("{name}\n{}\n{note}\n", path.map(|p| p.display().to_string()).unwrap_or_default()));
     }
 }
 
@@ -168,7 +176,7 @@ impl Recovery {
             };
             // A whole copy of a big file is not rewritten every few seconds (a journal is small).
             let b = &table.st.base;
-            let big = b.size > BIG && !(b.mapped() && !b.partial && b.path.is_some() && b.path == t.path);
+            let big = b.size > BIG && !(b.file_mapped() && !b.partial && b.path.is_some() && b.path == t.path);
             let last = self.written.get(&t.uid).map_or(f64::NEG_INFINITY, |w| w.1);
             let due = (since + QUIET).max(if big { last + BIG_EVERY } else { 0.0 });
             if now < due {
@@ -225,7 +233,8 @@ pub fn left_in(dir: &Path) -> Vec<Left> {
         let mut l = info.lines();
         let name = l.next().unwrap_or("").to_string();
         let original = l.next().filter(|s| !s.is_empty()).map(PathBuf::from);
-        Some(Left { data, name, original, when })
+        let note = l.next().filter(|s| !s.is_empty()).map(str::to_string);
+        Some(Left { data, name, original, when, note })
     }).collect();
     out.sort_by_key(|l| std::cmp::Reverse(l.when));
     out

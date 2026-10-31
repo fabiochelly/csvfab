@@ -266,7 +266,7 @@ impl GridState {
         for (c, w) in self.widths.iter_mut().enumerate() {
             let mut chars = 0usize;
             for p in 0..n {
-                st.with_cell(st.data_id(p), c, &mut tmp, |s| chars = chars.max(s.chars().count().min(200)));
+                st.with_cell(st.data_id(p), c, &mut tmp, |s| chars = chars.max(columns_of(s).min(200)));
             }
             // The title whole: its measured width, the kind badge before it, its number after
             // it, the ▾'s room (a column is never narrower than its name).
@@ -730,10 +730,16 @@ pub fn fit_width(ctx: &egui::Context, st: &State, tab: &Tab, c: usize, m: &Metri
     let chars = (0..take).into_par_iter().with_min_len(4096).map_init(Vec::new, |tmp, k| {
         let pos = if take == n { k } else { k * n / take };
         let id = view.map_or_else(|| st.data_id(pos), |v| v[pos]);
-        st.with_cell(id, c, tmp, |s| display(s).chars().count())
+        st.with_cell(id, c, tmp, |s| columns_of(&display(s)))
     }).max().unwrap_or(0);
     w = w.max(chars as f32 * cw + 2.0 * m.cell_pad_x + 1.0 + extra);
     w.clamp(m.col_min_w, m.col_fit_max)
+}
+
+/// The width of a text in monospace cells: CJK and emoji take two.
+fn columns_of(s: &str) -> usize {
+    if s.is_ascii() { return s.len(); }
+    s.chars().map(|c| 1 + matches!(c as u32, 0x1100..=0x115F | 0x2E80..=0x9FFF | 0xA960..=0xA97F | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1FAFF | 0x20000..=0x3FFFD) as usize).sum()
 }
 
 /// Fill by example's ghosts coming in (as the web's `ffin`): the delay from one row to the
@@ -1141,7 +1147,9 @@ impl Look<'_> {
                 }
                 if colored.is_some() { marks_key ^= (u32::from_le_bytes(p.sy_kw.to_array()) as u64) << 32 | u32::from_le_bytes(p.sy_str.to_array()) as u64; }
                 look = TextLook { color, font, max_w: max_w.to_bits(), marks: marks_key };
-                reuse = entry.look == look && entry.galley.as_ref().is_some_and(|g| g.job.text == text);
+                // (A right-to-left line is laid out in another order: its text tells nothing, the
+                // value's hash, `src`, does.)
+                reuse = entry.look == look && entry.galley.as_ref().is_some_and(|g| g.job.text == text || (entry.src == src && crate::bidi::has_rtl(text)));
             }
             entry.hl = self.hl_gen;
             let marks_key = look.marks;
@@ -1163,6 +1171,8 @@ impl Look<'_> {
                 if let Some(g) = colored {
                     let mut marks: Vec<(usize, usize, bool)> = hits.iter().map(|&(a, b)| (a, b & !(1 << 63), b >> 63 == 1)).collect();
                     crate::syntax::append(&mut job, text, g, &mut marks, &plain, &self.font_bold, p);
+                } else if marks_key == 0 && crate::bidi::has_rtl(text) {
+                    crate::bidi::append(&mut job, text, &plain);
                 } else if marks_key == 0 {
                     put(&mut job, 0, text.len());
                 } else {
@@ -1901,7 +1911,8 @@ pub fn show(ui: &mut Ui, tab: &mut Tab, p: &Palette, m: &Metrics) -> Vec<Action>
             lit: tabr.spark.lit.and_then(|(c, pk)| spark_base.as_ref().filter(|s| c < s.cols.len()).map(|s| (c, s.keep(c, pk)))),
             hl: &hl,
             hl_gen: {
-                let mut h = Fx(hl_n);
+                // Doubled: the `| 1` below must not make two searches in a row one number.
+                let mut h = Fx(hl_n << 1);
                 if let Some(f) = &find {
                     h.mix(Arc::as_ptr(&f.matches) as u64 ^ (f.matches.len() as u64) << 44);
                     h.mix(f.needle.len() as u64 ^ (f.case as u64) << 40 ^ (f.regex as u64) << 41 ^ (f.col.map_or(u64::MAX, |c| c as u64)) << 8);
@@ -2929,7 +2940,8 @@ fn header_col(ui: &mut Ui, tab: &mut Tab, st: &State, heads: &[String], painter:
     let with_num = room - arrow_w - num_w >= full_title_w.min(28.0);
     let mut tf = TextFormat { font_id: title_font.clone(), color: tcolor, extra_letter_spacing: 0.125, ..Default::default() };
     tf.italics = !st.header;
-    let mut job = LayoutJob::single_section(title.clone(), tf);
+    let mut job = LayoutJob::default();
+    if crate::bidi::has_rtl(&title) { crate::bidi::append(&mut job, &title, &tf); } else { job.append(&title, 0.0, tf); }
     job.wrap = TextWrapping { max_width: (room - arrow_w - if with_num { num_w } else { 0.0 }).max(1.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
     let g = hclip.layout_job(job);
     let mut ex = tx + g.size().x;

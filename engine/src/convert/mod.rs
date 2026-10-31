@@ -1,8 +1,8 @@
 //! Conversions between CSV and other formats. The editor only edits CSV: an
-//! Excel workbook, a SQLite database, a JSON or a Parquet file is first written
-//! as a CSV beside it (`<name>.csv`, `<name> - <sheet>.csv`), and that CSV is
-//! what opens; a table is exported as a formatted workbook, a typed database
-//! or a typed Parquet file.
+//! Excel or OpenDocument workbook, a SQLite database, a JSON or a Parquet file is first
+//! written as a CSV beside it (`<name>.csv`, `<name> - <sheet>.csv`), and that CSV is
+//! what opens; a compressed file is unpacked beside itself; a table is exported as a
+//! formatted workbook, a typed database, a typed Parquet file, JSON, HTML or Markdown.
 //!
 //! Ported from the web app's bridge (`xlsx_reader.py`, `xlsx_writer.py`,
 //! `xlsx_columns.py`, `sqlite_io.py`) and its JSON import (`27-import.js`),
@@ -10,11 +10,14 @@
 //! column is typed. Long operations report progress and can be cancelled:
 //! they then return `Err(CANCELLED)`.
 
+pub mod book_read;
 mod columns;
 pub mod json;
+pub mod packed;
 pub mod parquet_read;
 pub mod parquet_write;
 pub mod sqlite;
+pub mod text_write;
 pub mod xlsx_read;
 pub mod xlsx_write;
 
@@ -35,12 +38,18 @@ pub enum Format {
     Sqlite,
     Json,
     Parquet,
+    /// `.xls`, `.xlsb`, `.ods`.
+    Book,
+    /// `.gz`, `.zst`: one file.
+    Packed,
+    /// `.zip`: its tables, listed as sheets.
+    Zip,
 }
 
 impl Format {
     /// What a sheet is called in this format, for messages and pickers.
     pub fn noun(self) -> &'static str {
-        if self == Format::Sqlite { "table" } else { "sheet" }
+        match self { Format::Sqlite => "table", Format::Zip => "file", _ => "sheet" }
     }
 }
 
@@ -53,6 +62,9 @@ pub fn import_format(path: &Path) -> Option<Format> {
         "json" | "jsonl" | "ndjson" => Format::Json,
         "sqlite" | "sqlite3" | "db" | "db3" => Format::Sqlite,
         "parquet" | "parq" | "pqt" => Format::Parquet,
+        "xls" | "xlsb" | "ods" => Format::Book,
+        "gz" | "gzip" | "zst" | "zstd" => Format::Packed,
+        "zip" => Format::Zip,
         _ => return None,
     })
 }
@@ -105,6 +117,15 @@ pub fn csv_path_for(src: &Path, sheet: Option<&str>) -> PathBuf {
     src.with_file_name(out)
 }
 
+/// Where a file opened through `format` is written, `sheet` picked in it.
+pub fn dest_for(format: Format, src: &Path, sheet: Option<&str>) -> PathBuf {
+    match (format, sheet) {
+        (Format::Packed, _) => packed::out_path(src),
+        (Format::Zip, Some(m)) => packed::member_path(src, m),
+        _ => csv_path_for(src, sheet),
+    }
+}
+
 /// Whether files can be made in `dir` (not a read-only mount, an archive's view, a share or a
 /// folder of someone else's).
 pub fn dir_writable(dir: &Path) -> bool {
@@ -141,7 +162,7 @@ pub fn fallback_dir() -> Option<PathBuf> {
 /// The stem of a table's file name, without the extension of a CSV, a text
 /// file, a workbook, a database or a Parquet file.
 fn stem_of(name: &str) -> &str {
-    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet"] {
+    for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet", ".json", ".jsonl", ".html", ".md"] {
         if name.len() > ext.len() && name.is_char_boundary(name.len() - ext.len()) && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext) {
             return &name[..name.len() - ext.len()];
         }
@@ -151,7 +172,7 @@ fn stem_of(name: &str) -> &str {
 
 /// The file name an export suggests for the table file `name`: `clients.csv` → `clients.xlsx`.
 pub fn export_name(name: &str, to: Format) -> String {
-    let ext = match to { Format::Xlsx => ".xlsx", Format::Sqlite => ".sqlite", Format::Json => ".json", Format::Parquet => ".parquet" };
+    let ext = match to { Format::Sqlite => ".sqlite", Format::Json => ".json", Format::Parquet => ".parquet", _ => ".xlsx" };
     format!("{}{ext}", stem_of(name))
 }
 
@@ -183,6 +204,9 @@ pub struct Imported {
 
 /// The note shown once a file is converted: `book.xlsx → book.csv: 4 rows, sheet "Data", 6 columns.`
 pub fn import_note(from: &str, to: &str, format: Format, j: &Imported) -> String {
+    if matches!(format, Format::Packed | Format::Zip) {
+        return format!("{from} → {to}: {} MB unpacked.", group(j.size.div_ceil(1 << 20)));
+    }
     let noun = format.noun();
     let mut s = format!("{from} → {to}: {} rows", group(j.rows));
     if let Some(sh) = &j.sheet {
@@ -221,6 +245,9 @@ pub fn import(format: Format, src: &Path, sheet: Option<&str>, delim: u8, dest: 
         Format::Sqlite => sqlite::to_csv(src, sheet, delim, w, progress, cancel),
         Format::Json => json::to_csv(src, delim, w, progress, cancel),
         Format::Parquet => parquet_read::to_csv(src, delim, w, progress, cancel),
+        Format::Book => book_read::to_csv(src, sheet, delim, w, progress, cancel),
+        Format::Packed => packed::unpack(src, w, progress, cancel),
+        Format::Zip => packed::unzip(src, sheet.unwrap_or_default(), w, progress, cancel),
     })?;
     info.size = size;
     info.backup = bak;
@@ -252,7 +279,7 @@ pub fn export(format: Format, st: &State, rows: Option<&[RowId]>, dest: &Path, n
         Format::Xlsx => xlsx_write::write(st, rows, dest, name, progress, cancel),
         Format::Sqlite => sqlite::write(st, rows, dest, name, progress, cancel),
         Format::Parquet => parquet_write::write(st, rows, dest, progress, cancel),
-        Format::Json => Err("no JSON export".into()),
+        _ => Err("not an export format".into()),
     }
 }
 

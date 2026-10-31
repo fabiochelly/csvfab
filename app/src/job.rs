@@ -54,7 +54,7 @@ impl<X> Failed for Result<X, csvfab_engine::pivot::PivotError> {
     fn failed(_: &str) -> Self { Err(csvfab_engine::pivot::PivotError::Cancelled) }
 }
 impl Failed for csvfab_engine::split::Split {
-    fn failed(msg: &str) -> Self { csvfab_engine::split::Split { folder: None, written: 0, error: Some(std::io::Error::other(msg.to_string())) } }
+    fn failed(msg: &str) -> Self { csvfab_engine::split::Split { folder: None, written: 0, error: Some(std::io::Error::other(msg.to_string())), switched: None } }
 }
 
 /// The panics caught in jobs since last asked, for the app to tell.

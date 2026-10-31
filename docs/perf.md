@@ -363,6 +363,62 @@ customers-5m (98 % of the rows) 371–470 → 473–497 ms on a noisy machine; a
   "`dupes_delete` not done after 100 s" was the benchmark: pressed the frame the count appeared, its
   click fell where the button had been, beside a box about to be re-centred, which closed it.
 
+## Encodings and fonts of every script (2026-10-31, `bench_ui --startup` off screen, medians of 11, A/B back to back)
+
+| measure | before | after |
+|---|---|---|
+| start-up, Latin file (6 186 rows) | 22.4 ms, 28.5 MB peak | 22.4 ms, 29.3 MB peak |
+| start-up, CJK file | panics off screen, tofu in a window | 40.7 ms, 29 MB peak |
+
+Nothing about fonts happens at start: the fallback is a `FontProvider`, asked by egui the first time a
+character no face has is laid out. The cost for a CJK file is `fc-match` (≈ 12 ms, once per script:
+Han, Kana, Hangul, then a block) and a map of the font: only the pages of the glyphs drawn are read.
+The 0.8 MB: chardetng's tables and encoding_rs's `fast-legacy-encode`.
+
+A multi-byte file (67 MB of GBK, 766 390 rows, 16 threads, `encodings.rs` `perf_…`, medians of 3): first
+rows 20 ms; whole 100 ms (670 MB/s; 4 threads: 280 ms), detection included; 87 MB of UTF-8 in memory, which
+a mapped file does not cost: 1.3 × the file for CJK text, so about 2.6 GB and 3 s for a 2 GB file. The
+file stays mapped behind it. Untouched rows are written from those bytes: an in-place save is one
+block. GBK → Big5, every cell encoded: 320 ms (3 to 4 s on 4 threads without `fast-legacy-encode`, a linear search).
+UTF-16 and UTF-32 keep their one read of the whole file, no first rows before it (UTF-16: one thread).
+
+## Search, dictionaries, malloc (2026-10-31, the user's 2 GB file, 16 threads, release, A/B back to back)
+
+`view_bench` medians of 7, alternated three times (median of those; the machine went through a slow
+spell, so compare within a line), checksums identical on every `f global` case; `col_bench`
+(`COL_BENCH_DICT=1`, new: the dictionary alone, with a checksum of its codes and values, identical).
+
+| measure | before | after |
+|---|---|---|
+| global search marseille | 362 ms | 122 ms |
+| associes | 339 ms | 74 ms |
+| bordeaux | 191 ms | 47 ms |
+| gaelle | 277 ms | 104 ms |
+| gaëlle | 225 ms | 113 ms |
+| émile | 272 ms | 123 ms |
+| lyon, l (no change expected) | 41, 76 ms | 43, 75 ms |
+| dictionary date_naissance | 254 ms | 109 ms |
+| code_postal | 179 ms | 99 ms |
+| score | 96 ms | 94 ms |
+| commentaire (refused) | 582 ms | 217 ms |
+| montant (refused) | 188 ms | 85 ms |
+| peak anonymous, the five dictionaries | 526 MB | 226 MB |
+| peak anonymous, `bench_ui` 17 ops, no save, no totals | 824 MB | 523 MB |
+| `bench_ui` profile, medians of 3 | 489 ms | 532 ms |
+
+- **An accented character's neighbours read before folding** (`view::block_search`, `text::one_letter`):
+  a two-byte character folding to one letter can be part of the needle only where the bytes beside it
+  fit that letter's neighbours in the needle; a non-ASCII byte fits anything, several-letter folds
+  (œ, ß) keep the window. Most é of a French file then cost two byte compares, not a fold of 8·L bytes.
+- **`build_dict` without an allocation per value**: one arena per chunk, a `HashTable` of indices into
+  it, `get` before `insert` at the merge, codes renumbered in parallel, chunks freed before the sort.
+  The merge stops at the cap: commentaire, 1.1M distinct against 662K, stops as soon as it is past.
+- **Fixed malloc thresholds** (`tune_malloc`, glibc only, first line of `main`): 4 MB, where glibc would
+  raise both up to 32 MB as big blocks are freed and keep them in its heap. **A real cost, kept for
+  the 300 MB:** `profile` is 6 to 9 % slower, its big blocks mapped again each time (497 → 526 ms from
+  this alone through `GLIBC_TUNABLES` on the old binary); find, insights, dupes, sort_multi and the
+  other ops stay within noise.
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

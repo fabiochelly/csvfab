@@ -56,9 +56,17 @@ fn main() {
         let c = h.iter().position(|x| x == name).unwrap_or_else(|| panic!("no column {name}"));
         let (ms, _) = time(&mut || (0..base.n).into_par_iter().map_init(Vec::new, |tmp, i| scan::with_field(base.record(i), d, c, tmp, |f| f.len()).unwrap_or(0)).sum());
         println!("{name:<14} field {c:>2}  read {ms:>7.1} ms");
-        for need in [Need::Dict, Need::Num, Need::Date, Need::Text, Need::Rank] {
+        // COL_BENCH_DICT: the dictionary alone (a run's peak memory is then its own).
+        let needs: &[Need] = if std::env::var_os("COL_BENCH_DICT").is_some() { &[Need::Dict] } else { &[Need::Dict, Need::Num, Need::Date, Need::Text, Need::Rank] };
+        for &need in needs {
             let (ms, ok) = time(&mut || { colcache::clear(); colcache::ensure(st, c, need, &no).map_or(0, |col| col.has(need) as usize + 2 * col.dict.is_some() as usize) });
-            println!("{name:<14} {need:?}{:<w$} {ms:>7.1} ms  {}", "", ["none", "built", "", "dict"][ok], w = 10 - format!("{need:?}").len());
+            // The dictionary's checksum tells two builds apart.
+            let sum = colcache::ensure(st, c, Need::Dict, &no).and_then(|col| col.dict.clone()).map_or(0, |d| {
+                let h = |a: u64, x: u64| a.wrapping_mul(1_000_003).wrapping_add(x);
+                let codes = d.codes.iter().fold(0u64, |a, &x| h(a, x as u64));
+                d.values.iter().fold(codes, |a, v| v.bytes().fold(h(a, 0x100), |a, x| h(a, x as u64)))
+            });
+            println!("{name:<14} {need:?}{:<w$} {ms:>7.1} ms  {} {sum:016x}", "", ["none", "built", "", "dict"][ok], w = 10 - format!("{need:?}").len());
         }
     }
 }

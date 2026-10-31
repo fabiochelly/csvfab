@@ -65,7 +65,11 @@ fn fold_char(c: char, out: &mut String) {
         'œ' | 'Œ' => out.push_str("oe"),
         'æ' | 'Æ' => out.push_str("ae"),
         'ß' => out.push_str("ss"),
+        'ς' => out.push('σ'),
         '\u{a0}' | '\u{202f}' => out.push(' '),
+        // Kana, Han, Hangul: no case, and their marks are no accents (か is not が), a Hangul
+        // syllable's first letter not the syllable.
+        '\u{3040}'..='\u{D7A3}' => out.push(c),
         _ => {
             let mut first = None;
             decompose_canonical(c, |d| {
@@ -96,6 +100,21 @@ fn latin() -> &'static [(u8, [u8; 7])] {
                 (s.len() as u8, b)
             })
             .collect()
+    })
+}
+
+/// The ASCII byte each two-byte character folds to, by code point less 0x80 (0xFF: its fold is
+/// something else, several letters or not ASCII).
+pub fn one_letter() -> &'static [u8; 1920] {
+    static T: std::sync::OnceLock<[u8; 1920]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [0xFF; 1920];
+        for u in 0x80..0x800u32 {
+            let mut s = String::new();
+            if let Some(c) = char::from_u32(u) { fold_char(c, &mut s); }
+            if let &[b] = s.as_bytes() { t[(u - 0x80) as usize] = b; }
+        }
+        t
     })
 }
 

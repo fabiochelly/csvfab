@@ -192,7 +192,7 @@ struct Place<'a> {
     /// File offset of the record's first byte.
     s: u64,
     bom: usize,
-    utf16: bool,
+    transcoded: bool,
 }
 
 impl Place<'_> {
@@ -200,17 +200,21 @@ impl Place<'_> {
     fn at(&self, i: usize) -> u64 {
         let i = i.min(self.text.len());
         let b = &self.st.base;
-        if self.utf16 { return self.s + 2 * self.text[..i].encode_utf16().count() as u64; }
+        if self.transcoded {
+            let mut o = Vec::new();
+            enc::encode_file(b.enc, &self.text[..i], &mut o);
+            return self.s + o.len() as u64;
+        }
         if b.enc.mem_utf8() { self.s + i as u64 } else { self.s + self.text[..i].chars().count() as u64 }
     }
 
     /// The file's byte at file offset k (the BOM included), as far as it can be told.
     fn file(&self) -> (Vec<u8>, u64) {
         let b = &self.st.base;
-        if self.utf16 {
-            // The file's UTF-16 is not kept: the record's text, encoded again (a lone surrogate, read as U+FFFD, shows as FD FF).
+        if self.transcoded {
+            // The file's bytes are not at hand: the record's text, encoded again (a lone surrogate, read as U+FFFD, shows as FD FF).
             let mut out = Vec::new();
-            enc::utf8_to_utf16(self.text, b.enc == Enc::Utf16Be, &mut out);
+            enc::encode_file(b.enc, self.text, &mut out);
             return (out, self.s);
         }
         let mut v = b.enc.bom()[..self.bom].to_vec();
@@ -223,20 +227,11 @@ impl Place<'_> {
         // Within the file: a text decoded with U+FFFD for bad bytes is longer than they were.
         let rel = ((at - base.min(at)) as usize).min(f.len());
         let (a, z) = (rel.saturating_sub(8), (rel + len + 8).min(f.len()));
-        let a2 = if self.utf16 { a - (a & 1) } else { a };
+        let e = self.st.base.enc;
+        let a2 = if e.is_utf16() { a - (a & 1) } else if e.wide() { a - (a & 3) } else { a };
         let hex = (a..z).map(|i| (f[i], i >= rel && i < rel + len)).collect();
-        let enc = if self.utf16 { if self.st.base.enc == Enc::Utf16Be { encoding_rs::UTF_16BE } else { encoding_rs::UTF_16LE } } else { enc_of(self.st.base.enc) };
-        let text = enc.decode_without_bom_handling(&f[a2..z]).0.into_owned();
+        let text = enc::decode_file(e, &f[a2..z]);
         Near { at, from: base + a as u64, hex, text }
-    }
-}
-
-fn enc_of(e: Enc) -> &'static encoding_rs::Encoding {
-    match e {
-        Enc::Windows1252 | Enc::Latin1 => encoding_rs::WINDOWS_1252,
-        Enc::Latin9 => encoding_rs::ISO_8859_15,
-        Enc::MacRoman => encoding_rs::MACINTOSH,
-        _ => encoding_rs::UTF_8,
     }
 }
 
@@ -266,16 +261,20 @@ pub fn diagnose(st: &State, id: RowId) -> Diagnosis {
     let rec = b.record(i);
     let text = enc::decode(b.enc, rec).into_owned();
     let d = b.dialect.delim as char;
-    let utf16 = b.enc.is_utf16();
-    let bom = if b.bom && !utf16 { b.enc.bom().len() } else { 0 };
+    let transcoded = b.enc.transcoded();
+    let bom = if b.bom && !transcoded { b.enc.bom().len() } else { 0 };
     let start = b.starts.get(i);
-    let s = if utf16 {
+    let s = if b.enc.is_utf16() {
         let units: u64 = b.bytes()[..start].iter().map(|&x| u64::from(x & 0xC0 != 0x80) + u64::from(x >= 0xF0)).sum();
         2 * (units + u64::from(b.bom))
+    } else if b.enc.wide() {
+        4 * (b.bytes()[..start].iter().filter(|&&x| x & 0xC0 != 0x80).count() as u64 + u64::from(b.bom))
+    } else if transcoded {
+        b.raw_offset(start) as u64
     } else {
         (bom + start) as u64
     };
-    let place = Place { st, text: &text, s, bom, utf16 };
+    let place = Place { st, text: &text, s, bom, transcoded };
     let fields = if b.dialect.lines { vec![Span { start: 0, end: text.len(), value: text.clone(), issues: vec![] }] } else { field_spans(&text, d) };
     let width = kinds::expected_width(st);
     let dominant = dominant_width(st);
@@ -355,15 +354,15 @@ pub fn diagnose(st: &State, id: RowId) -> Diagnosis {
         if cp == 0 {
             add(&mut out, "nul", Severity::Error, format!("NUL byte{where_}"), "Many programs stop reading a value, or the whole file, at a NUL.".into(), Some(place.at(k)), 1);
         } else if cp == 0xFFFD {
-            let detail = if utf16 { "Invalid UTF-16 here (a lone surrogate): kept byte for byte in the file, shown as �." } else { "U+FFFD is in the file itself: a character was already lost by the program that wrote it." };
-            add(&mut out, "replacement", Severity::Error, format!("Replacement character �{where_}"), detail.into(), Some(place.at(k)), if utf16 { 2 } else { 3 });
+            let detail = if b.enc.is_utf16() { "Invalid UTF-16 here (a lone surrogate): kept byte for byte in the file, shown as �.".to_string() } else if transcoded { format!("Bytes that are not {} here: kept as they are in the file, shown as �.", b.enc.label()) } else { "U+FFFD is in the file itself: a character was already lost by the program that wrote it.".to_string() };
+            add(&mut out, "replacement", Severity::Error, format!("Replacement character �{where_}"), detail, Some(place.at(k)), if transcoded { 2 } else { 3 });
         } else {
             add(&mut out, "invisible", if cp < 32 || cp == 127 { Severity::Warn } else { Severity::Info }, format!("{} (U+{cp:04X}){where_}", kinds::inv_name(cp)),
                 "Invisible in most programs; it makes two values that look the same compare different.".into(), Some(place.at(k)), 1);
         }
     }
     // --- encoding
-    if !utf16 {
+    if !transcoded {
         let high = rec.iter().filter(|&&x| x >= 0x80).count();
         let first_high = rec.iter().position(|&x| x >= 0x80);
         if b.enc == Enc::Utf8 {

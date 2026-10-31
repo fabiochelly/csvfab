@@ -37,9 +37,14 @@
         <string>org.openxmlformats.spreadsheetml.sheet.macroenabled</string>
         <string>public.json</string>
         <string>public.database</string>
+        <string>com.microsoft.excel.xls</string>
+        <string>com.microsoft.excel.xlsb</string>
+        <string>org.oasis-open.opendocument.spreadsheet</string>
+        <string>org.gnu.gnu-zip-archive</string>
+        <string>public.zip-archive</string>
       </array>
       <key>CFBundleTypeExtensions</key>
-      <array><string>parquet</string><string>parq</string><string>pqt</string><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string><string>sqlite</string><string>sqlite3</string><string>db3</string></array>
+      <array><string>parquet</string><string>parq</string><string>pqt</string><string>xls</string><string>xlsb</string><string>ods</string><string>gz</string><string>zst</string><string>zip</string><string>xlsx</string><string>xlsm</string><string>json</string><string>jsonl</string><string>ndjson</string><string>sqlite</string><string>sqlite3</string><string>db3</string></array>
     </dict>
   </array>
 </dict>

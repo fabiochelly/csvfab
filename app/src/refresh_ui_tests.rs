@@ -319,3 +319,111 @@ fn a_chart_drag_keeps_its_end_bar() {
     assert!((27..32).any(|b| c.cnt[b..].iter().sum::<u32>() as usize == shown.len()), "{}", shown.len());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn back(h: &mut H) {
+    h.event(Event::Key { key: egui::Key::Backspace, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+    h.event(Event::Key { key: egui::Key::Backspace, physical_key: None, pressed: false, repeat: false, modifiers: Default::default() });
+}
+
+/// A filter emptied with Backspace, in the search box or a column's: every row is back.
+#[test]
+fn a_filter_emptied_with_backspace_shows_every_row() {
+    for sorted in [false, true] {
+        for column in [false, true] {
+            let (mut h, dir) = app_on(CSV, &format!("bs{sorted}{column}"));
+            if sorted {
+                let ctx = h.ctx.clone();
+                let t = &mut h.state_mut().tabs[0];
+                t.sort = vec![csvfab_engine::view::SortKey { col: 1, desc: false }];
+                t.refresh(&ctx);
+                wait(&mut h, &|a| !a.tabs[0].busy());
+            }
+            if column { h.state_mut().tabs[0].grid.focus_filter = Some(0); } else { h.state_mut().focus_search = true; }
+            h.run_steps(4);
+            h.event(Event::Text("L".into()));
+            wait(&mut h, &|a| !a.tabs[0].busy() && a.tabs[0].shown() < 8);
+            let filtered = h.state().tabs[0].shown();
+            back(&mut h);
+            h.run_steps(3);
+            wait(&mut h, &|a| !a.tabs[0].busy());
+            h.run_steps(5);
+            let t = &h.state().tabs[0];
+            assert_eq!(t.shown(), 8, "sorted {sorted} column {column}: {filtered} rows filtered, global {:?} cols {:?}", t.filter.global, t.col_filters);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
+
+/// The same with the last letter gone while its filter is still running, on a file big enough.
+#[test]
+fn a_filter_emptied_while_it_runs_shows_every_row() {
+    let csv: String = std::iter::once("city,amount\n".to_string()).chain((0..400_000).map(|i| format!("{},{i}\n", ["Lyon", "Paris", "Nice", "Lille"][i % 4]))).collect();
+    for sorted in [false, true] {
+        for column in [false, true] {
+            for gap in [0, 1, 2, 4, 8] {
+                let (mut h, dir) = app_on(&csv, &format!("bb{sorted}{column}{gap}"));
+                if sorted {
+                    let ctx = h.ctx.clone();
+                    let t = &mut h.state_mut().tabs[0];
+                    t.sort = vec![csvfab_engine::view::SortKey { col: 1, desc: false }];
+                    t.refresh(&ctx);
+                    wait(&mut h, &|a| !a.tabs[0].busy());
+                }
+                if column { h.state_mut().tabs[0].grid.focus_filter = Some(0); } else { h.state_mut().focus_search = true; }
+                h.run_steps(4);
+                h.event(Event::Text("L".into()));
+                h.run_steps(1);
+                h.event(Event::Text("y".into()));
+                h.run_steps(gap);
+                back(&mut h);
+                h.run_steps(gap);
+                back(&mut h);
+                h.run_steps(3);
+                wait(&mut h, &|a| !a.tabs[0].busy());
+                h.run_steps(5);
+                let t = &h.state().tabs[0];
+                assert_eq!(t.shown(), 400_000, "sorted {sorted} column {column} gap {gap}: global {:?} cols {:?} view {}", t.filter.global, t.col_filters, t.view.is_some());
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+    }
+}
+
+/// The search typed then taken back letter by letter: no mark is left in the cells.
+#[test]
+fn no_mark_left_once_the_search_is_empty() {
+    let csv = "city,note\nHelsinki,the hebrew\nZürich,chat\nHanoï,hôtel\nLyon,rien\nGhent,hier\n";
+    macro_rules! grid { ($im:expr) => {{ let w = $im.width() as usize; $im.as_raw()[150 * w * 4..500 * w * 4].to_vec() }}; }
+    let (mut h, dir) = app_on(csv, "marks");
+    h.state_mut().focus_search = true;
+    h.run_steps(6);
+    wait(&mut h, &|a| !a.tabs[0].busy());
+    std::thread::sleep(Duration::from_millis(400));
+    h.run_steps(8);
+    let shot_a = h.render().unwrap();
+    let before = grid!(shot_a);
+    let word = "hebreu";
+    for k in 0..word.len() {
+        h.event(Event::Text(word[k..k + 1].into()));
+        h.run_steps(2);
+        wait(&mut h, &|a| !a.tabs[0].busy());
+        h.run_steps(2);
+    }
+    let shot_m = h.render().unwrap();
+    let mid = grid!(shot_m);
+    assert!(mid != before, "the search changed nothing on screen");
+    for _ in 0..word.len() {
+        back(&mut h);
+        h.run_steps(2);
+        wait(&mut h, &|a| !a.tabs[0].busy());
+        h.run_steps(2);
+    }
+    std::thread::sleep(Duration::from_millis(400));
+    h.run_steps(8);
+    let shot_b = h.render().unwrap();
+    let after = grid!(shot_b);
+    assert_eq!(h.state().tabs[0].filter.global, "");
+    let diff = before.chunks(4).zip(after.chunks(4)).filter(|(a, b)| a != b).count();
+    assert_eq!(diff, 0, "pixels differ once the search is empty");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -4,7 +4,7 @@ use crate::app::App;
 use eframe::egui::{self, Event, PointerButton};
 use std::time::Duration;
 
-fn app_on(csv: &str, tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf) {
+fn app_on(csv: impl AsRef<[u8]>, tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("csvfab-ui-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.csv");
@@ -1016,5 +1016,228 @@ fn saves_keep_what_is_hidden() {
     // The tab moved onto it and still hides the column.
     assert_eq!(h.state().tabs[0].name, "copy.csv");
     assert!(h.state().tabs[0].grid.hidden.contains(&2));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The toasts saying a new file left its table's encoding.
+fn switches(h: &egui_kittest::Harness<'static, App>) -> Vec<String> {
+    h.state().toasts.iter().filter(|t| t.text.contains("Written in UTF-8")).map(|t| t.text.clone()).collect()
+}
+
+/// A table in Windows-1251, its one tab active, nothing told yet.
+fn cyrillic(tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf, egui::Context) {
+    let text = "имя;город\n".to_string() + &"Иван Петров;Москва, улица Ленина\nАнна Иванова;Самара, улица Гагарина\n".repeat(20);
+    let (h, dir) = app_on(encoding_rs_bytes(&text), tag);
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().tabs[0].st().unwrap().base.enc, csvfab_engine::Enc::Windows1251);
+    (h, dir, ctx)
+}
+
+/// `text` typed in the second column of a row.
+fn type_in(h: &mut egui_kittest::Harness<'static, App>, ctx: &egui::Context, row: usize, text: &str) {
+    let t = &mut h.state_mut().tabs[0];
+    let id = t.shown_id(row);
+    t.table.as_mut().unwrap().set_cells(&[(id, 1, text.into())]);
+    t.after_edit(false, ctx);
+    until(h, &|a| !a.tabs[0].busy());
+}
+
+/// Extract goes to UTF-8 when an edit needs it, and says so, naming the file; not otherwise.
+#[test]
+fn extract_tells_of_a_switch_to_utf8() {
+    let (mut h, dir, ctx) = cyrillic("sw-extract");
+    let run = |h: &mut egui_kittest::Harness<'static, App>, want: &str| {
+        h.state_mut().active = 0;
+        h.state_mut().toasts.clear();
+        let c = crate::tools::commands().into_iter().find(|c| c.name == "Extract the rows shown to a new file").unwrap();
+        h.state_mut().run_command(c.run, &ctx);
+        until(h, &|a| a.toasts.iter().any(|t| t.text.contains(&format!("exported to {want}"))));
+    };
+    run(&mut h, "t-2.csv");
+    assert_eq!(switches(&h), Vec::<String>::new());
+    assert_eq!(std::fs::read(dir.join("t-2.csv")).unwrap(), std::fs::read(dir.join("t.csv")).unwrap());
+    // Typed and in the encoding: still nothing to say.
+    type_in(&mut h, &ctx, 3, "Киев");
+    run(&mut h, "t-3.csv");
+    assert_eq!(switches(&h), Vec::<String>::new());
+    assert!(std::str::from_utf8(&std::fs::read(dir.join("t-3.csv")).unwrap()).is_err());
+    type_in(&mut h, &ctx, 3, "東京é");
+    run(&mut h, "t-4.csv");
+    assert_eq!(switches(&h), ["t-4.csv | Written in UTF-8: 3 characters don't exist in Windows-1251"]);
+    let out = std::fs::read_to_string(dir.join("t-4.csv")).unwrap();
+    assert!(out.contains("東京é") && out.contains("Москва"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Split says so too, naming the folder, every file of which is in UTF-8.
+#[test]
+fn split_tells_of_a_switch_to_utf8() {
+    let (mut h, dir, ctx) = cyrillic("sw-split");
+    h.state_mut().run_command(|cx| {
+        let parent = cx.tab.path.as_ref().unwrap().parent().unwrap().to_path_buf();
+        let t = crate::tools::split::written_in(cx, 1, parent).unwrap();
+        cx.out.push(crate::tools::Cmd::Tool(t));
+    }, &ctx);
+    until(&mut h, &|a| a.toasts.iter().any(|t| t.text.contains("2 files written")));
+    assert_eq!(switches(&h), Vec::<String>::new());
+    type_in(&mut h, &ctx, 3, "東");
+    h.state_mut().toasts.clear();
+    h.state_mut().run_command(|cx| {
+        let parent = cx.tab.path.as_ref().unwrap().parent().unwrap().to_path_buf();
+        let t = crate::tools::split::written_in(cx, 0, parent).unwrap();
+        cx.out.push(crate::tools::Cmd::Tool(t));
+    }, &ctx);
+    until(&mut h, &|a| a.toasts.iter().any(|t| t.text.contains("2 files written")));
+    let folder = csvfab_engine::split::folder_name("t.csv", "имя", 0);
+    assert_eq!(switches(&h), [format!("{folder} | Written in UTF-8: 1 character doesn't exist in Windows-1251")]);
+    for f in std::fs::read_dir(dir.join(&folder)).unwrap().flatten() {
+        assert!(std::fs::read_to_string(f.path()).is_ok(), "{:?} is not in UTF-8", f.path());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Combine says so when an edit needs it, and when the first file's encoding is not shared.
+#[test]
+fn combine_tells_of_a_switch_to_utf8() {
+    let (mut h, dir, ctx) = cyrillic("sw-combine");
+    std::fs::copy(dir.join("t.csv"), dir.join("same.csv")).unwrap();
+    std::fs::write(dir.join("utf8.csv"), "имя;город\nЁлка;Тула\n").unwrap();
+    let run = |h: &mut egui_kittest::Harness<'static, App>, file: &'static str, dest: &'static str| {
+        h.state_mut().active = 0;
+        h.state_mut().toasts.clear();
+        CASE.with_borrow_mut(|c| *c = (file, dest));
+        h.state_mut().run_command(|cx| {
+            let (file, dest) = CASE.with_borrow(|c| *c);
+            let dir = cx.tab.path.as_ref().unwrap().parent().unwrap().to_path_buf();
+            let t = crate::tools::combine::written_to(cx, &dir.join(file), dir.join(dest)).unwrap();
+            cx.out.push(crate::tools::Cmd::Tool(t));
+        }, &ctx);
+        until(h, &|a| a.toasts.iter().any(|t| t.text.contains(&format!("combined into {dest}"))));
+    };
+    thread_local! { static CASE: std::cell::RefCell<(&'static str, &'static str)> = const { std::cell::RefCell::new(("", "")) }; }
+    run(&mut h, "same.csv", "a.csv");
+    assert_eq!(switches(&h), Vec::<String>::new());
+    assert!(std::str::from_utf8(&std::fs::read(dir.join("a.csv")).unwrap()).is_err());
+    run(&mut h, "utf8.csv", "b.csv");
+    assert_eq!(switches(&h), ["b.csv | Written in UTF-8: the files aren't all in Windows-1251"]);
+    assert!(std::fs::read_to_string(dir.join("b.csv")).unwrap().contains("Ёлка"));
+    type_in(&mut h, &ctx, 3, "東京");
+    run(&mut h, "same.csv", "c.csv");
+    assert_eq!(switches(&h), ["c.csv | Written in UTF-8: 2 characters don't exist in Windows-1251"]);
+    assert!(std::fs::read_to_string(dir.join("c.csv")).unwrap().contains("東京"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A recovery copy is in UTF-8: nothing said at each autosave, once when it comes back, and
+/// why it truly is. A journal, on the file itself, has nothing to say.
+#[test]
+fn a_recovery_copy_tells_of_utf8_once() {
+    let (mut h, dir, ctx) = cyrillic("sw-recov");
+    let rdir = dir.join("recovery");
+    h.state_mut().recovery = crate::recovery::Recovery::at(rdir.clone());
+    let meta = || std::fs::read_dir(&rdir).ok().into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "meta"));
+    let wait_for = |h: &mut egui_kittest::Harness<'static, App>, ext: &str, note: &str| {
+        for _ in 0..600 {
+            h.run_steps(5);
+            if let Some(m) = meta() {
+                if m.with_extension(ext).exists() && std::fs::read_to_string(&m).unwrap().lines().nth(2).unwrap_or("") == note { return m; }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("no .{ext} kept with {note:?}");
+    };
+    type_in(&mut h, &ctx, 1, "Киев");
+    wait_for(&mut h, "journal", "");
+    // The file changed under the table: a copy, in UTF-8 even though the edit fits.
+    let bytes = std::fs::read(dir.join("t.csv")).unwrap();
+    std::fs::write(dir.join("other.csv"), bytes).unwrap();
+    std::fs::rename(dir.join("other.csv"), dir.join("t.csv")).unwrap();
+    type_in(&mut h, &ctx, 2, "Омск");
+    wait_for(&mut h, "csv", "Written in UTF-8: recovery copies don't keep Windows-1251");
+    type_in(&mut h, &ctx, 3, "東京");
+    let m = wait_for(&mut h, "csv", "Written in UTF-8: 2 characters don't exist in Windows-1251");
+    assert_eq!(switches(&h), Vec::<String>::new());
+    assert!(std::fs::read_to_string(m.with_extension("csv")).unwrap().contains("東京"));
+    // As if left by a run no longer there: told when it is taken back, then gone.
+    let stem = m.file_stem().unwrap().to_str().unwrap().to_string();
+    let other = stem.replacen(&std::process::id().to_string(), "999999999", 1);
+    std::fs::rename(m.with_extension("csv"), rdir.join(format!("{other}.csv"))).unwrap();
+    std::fs::rename(&m, rdir.join(format!("{other}.meta"))).unwrap();
+    let left = crate::recovery::left_in(&rdir);
+    assert_eq!(left.len(), 1);
+    assert_eq!(switches(&h), Vec::<String>::new());
+    h.state_mut().take_back(&left, true, &ctx);
+    assert_eq!(switches(&h), ["t.csv (recovered) | Written in UTF-8: 2 characters don't exist in Windows-1251"]);
+    assert!(crate::recovery::left_in(&rdir).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Ctrl+S with a character the file's encoding cannot hold: it asks, and "Save as UTF-8" keeps it.
+#[test]
+fn a_character_the_encoding_lacks_is_asked_about() {
+    use egui_kittest::kittest::Queryable;
+    let text = "имя;город\n".to_string() + &"Иван Петров;Москва, улица Ленина\n".repeat(40);
+    let (mut h, dir) = app_on(encoding_rs_bytes(&text), "lossy");
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().tabs[0].st().unwrap().base.enc, csvfab_engine::Enc::Windows1251);
+    {
+        let t = h.state_mut().tabs[0].table.as_mut().unwrap();
+        let id = t.st.data_id(3);
+        t.set_cells(&[(id, 1, "東京".into())]);
+    }
+    h.state_mut().save(None, false, &ctx);
+    for _ in 0..100 {
+        h.run_steps(1);
+        if !h.state().saving() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.run_steps(3);
+    h.get_by_label("Save as UTF-8").click();
+    for _ in 0..100 {
+        h.run_steps(1);
+        if !h.state().saving() && !h.state().tabs[0].busy() && !h.state().tabs[0].dirty() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let b = std::fs::read(dir.join("t.csv")).unwrap();
+    assert!(b.starts_with(b"\xEF\xBB\xBF"));
+    let s = std::str::from_utf8(&b[3..]).unwrap();
+    assert!(s.contains("東京") && s.contains("Москва") && !s.contains('?'), "{s}");
+    assert_eq!(h.state().tabs[0].open_opts.enc, Some(csvfab_engine::Enc::Utf8));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn encoding_rs_bytes(s: &str) -> Vec<u8> {
+    let mut o = Vec::new();
+    for c in s.chars() {
+        o.push(match c as u32 {
+            0x410..=0x44F => (c as u32 - 0x410 + 0xC0) as u8,
+            u => u as u8,
+        });
+    }
+    o
+}
+
+/// A zip of one table: unpacked beside it, what comes out opens in a tab.
+#[test]
+fn a_zip_opens_through_its_table() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-zip-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("pack.zip");
+    let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    z.start_file("in/table.csv", zip::write::SimpleFileOptions::default()).unwrap();
+    z.write_all("name;n\nZoé;1\n東京;2\n".as_bytes()).unwrap();
+    z.finish().unwrap();
+    let p2 = path.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![p2]));
+    for _ in 0..400 {
+        h.step();
+        if h.state().tabs.first().is_some_and(|t| t.table.is_some() && !t.busy()) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let t = &h.state().tabs[0];
+    assert_eq!(t.name, "table.csv");
+    assert_eq!(t.st().unwrap().cell(t.st().unwrap().data_id(1), 0), "東京");
+    assert!(dir.join("table.csv").is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }
