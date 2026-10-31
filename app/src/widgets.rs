@@ -354,6 +354,42 @@ pub fn select(ui: &mut Ui, p: &Palette, id: Id, r: Rect, resp: &Response, sel: &
     changed
 }
 
+/// The encodings by region, under a search field (typing goes there at once); the one clicked.
+pub fn enc_list(ui: &mut Ui, p: &Palette, current: Option<csvfab_engine::Enc>) -> Option<csvfab_engine::Enc> {
+    use csvfab_engine::Enc;
+    let id = ui.scope_id().with("enc-search");
+    // A list opened anew: an empty search, the field focused, the current one in view.
+    let frame = ui.ctx().cumulative_frame_nr();
+    let fresh = ui.data(|d| d.get_temp::<u64>(id.with("frame"))).is_none_or(|f| f + 1 < frame);
+    ui.data_mut(|d| d.insert_temp(id.with("frame"), frame));
+    let mut q = if fresh { String::new() } else { ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default() };
+    ui.add_space(2.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+    let field = text_field(ui, p, id.with("field"), r, &mut q, "Search: 1251, japanese, polish…", FontId::proportional(12.5), 8.0, false);
+    if fresh { field.request_focus(); }
+    ui.data_mut(|d| d.insert_temp(id, q.clone()));
+    ui.add_space(4.0);
+    let want = q.trim().to_lowercase();
+    let mut pick = None;
+    egui::ScrollArea::vertical().id_salt(id.with("list")).max_height(340.0).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        let mut shown = 0;
+        for (group, encs) in Enc::GROUPS {
+            let hits: Vec<Enc> = encs.iter().copied().filter(|e| want.is_empty() || e.matches(&want)).collect();
+            if hits.is_empty() { continue; }
+            head(ui, p, group);
+            for e in hits {
+                shown += 1;
+                let it = Item::new(e.label()).checked(current == Some(e)).show(ui, p);
+                if fresh && current == Some(e) { ui.scroll_to_rect(it.rect, Some(egui::Align::Center)); }
+                if it.clicked() { pick = Some(e); }
+            }
+        }
+        if shown == 0 { ui.label(egui::RichText::new("No encoding found").color(p.txt_mut).size(12.0)); }
+    });
+    pick
+}
+
 // ---------------------------------------------------------------- checkboxes and radios
 
 /// A checkbox (radius 4) or radio (`round`) box, 16 × 16: `bg_deep`, 1 px `brd_2` (hover

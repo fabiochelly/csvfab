@@ -131,7 +131,7 @@ pub enum Dialog {
     OnDisk { tab: usize, what: OnDisk },
     /// Saving tab `tab` in its own single-byte encoding would write `n` cells' characters
     /// (the first `c`) as "?"; `force`: overwrite a file changed on disk.
-    Lossy { tab: usize, n: usize, c: char, force: bool },
+    Lossy { tab: usize, what: tools::export::Lossy, force: bool },
     /// Read tab `tab` again in another encoding or with another delimiter, losing its edits.
     Reread { tab: usize, enc: crate::tab::Choice<csvfab_engine::Enc>, delim: crate::tab::Choice<u8> },
     /// A deletion asked about first: its question, its button, then the action (taken on OK).
@@ -183,6 +183,8 @@ struct Saving {
     path: PathBuf,
     same_file: bool,
     force: bool,
+    /// Written in this encoding, not the file's.
+    to: Option<csvfab_engine::Enc>,
 }
 
 impl<X> crate::job::Failed for Result<X, SaveFail> {
@@ -201,7 +203,7 @@ type Written = (Option<csvfab_engine::Stamp>, csvfab_engine::Stamp, Option<u64>)
 enum SaveFail {
     Save(SaveError),
     /// Edits hold characters the file's single-byte encoding cannot write: (cells, the first).
-    Lossy(usize, char),
+    Lossy(tools::export::Lossy),
 }
 
 pub struct Toast {
@@ -441,12 +443,13 @@ impl App {
         // The system dialog blocks its thread: never the UI's.
         self.picking = Some(Job::spawn(ctx, |_, _| {
             rfd::FileDialog::new()
-                .add_filter("Tables: CSV, text, Excel, JSON, SQLite, Parquet", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3", "parquet", "parq", "pqt"])
+                .add_filter("Tables: CSV, text, Excel, OpenDocument, JSON, SQLite, Parquet, compressed", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "xls", "xlsb", "ods", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3", "parquet", "parq", "pqt", "gz", "gzip", "zst", "zstd", "zip"])
                 .add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log"])
-                .add_filter("Excel", &["xlsx", "xlsm"])
+                .add_filter("Excel, OpenDocument", &["xlsx", "xlsm", "xls", "xlsb", "ods"])
                 .add_filter("JSON", &["json", "jsonl", "ndjson"])
                 .add_filter("SQLite", &["sqlite", "sqlite3", "db", "db3"])
                 .add_filter("Parquet", &["parquet", "parq", "pqt"])
+                .add_filter("Compressed", &["gz", "gzip", "zst", "zstd", "zip"])
                 .add_filter("All files", &["*"])
                 .pick_files()
                 .unwrap_or_default()
@@ -480,11 +483,12 @@ impl App {
             if let Some(uid) = self.tabs.get(self.active).map(|t| t.uid) { self.status = Some((uid, "Nothing to save.".into(), ctx.input(|i| i.time))); }
             return;
         }
-        self.save_checked(as_path, force, false, ctx);
+        self.save_checked(as_path, force, false, None, ctx);
     }
 
-    /// `save`; `lossy_ok`: characters the encoding cannot hold were already accepted as "?".
-    fn save_checked(&mut self, as_path: Option<PathBuf>, force: bool, lossy_ok: bool, ctx: &egui::Context) {
+    /// `save`; `lossy_ok`: characters the encoding cannot hold were already accepted as "?";
+    /// `to`: written in this encoding, with its BOM, not the file's.
+    fn save_checked(&mut self, as_path: Option<PathBuf>, force: bool, lossy_ok: bool, to: Option<csvfab_engine::Enc>, ctx: &egui::Context) {
         if self.saving.is_some() { return; }
         // Over a file another tab holds: refused (that tab would no longer match its file).
         if let Some(p) = &as_path {
@@ -509,22 +513,23 @@ impl App {
         let same_file = Some(&path) == tab.path.as_ref();
         let expect = if force || !same_file { None } else { Self::expected(&self.written, tab) };
         let mut backed = if same_file { tab.backed_up } else { true };
-        // A single-byte encoding holds ~250 characters: an edit beyond them is said before
-        // it is written as "?" (rows untouched since reading need no look).
-        let check = !lossy_ok && tab.dirty() && tools::export::single_byte(st.base.enc);
+        // An edit beyond what the encoding holds is said before it is written as "?" (rows
+        // untouched since reading need no look).
+        let check = !lossy_ok && tab.dirty() && st.base.enc.limited();
+        let opts = SaveOptions { enc: to, bom: to.map(|_| true), ..Default::default() };
         let p2 = path.clone();
         let job = Job::spawn(ctx, move |cancel, _| {
             if check {
-                if let Some((n, c)) = tools::export::unencodable(&st, st.base.enc, None, cancel).filter(|x| x.0 > 0) {
-                    return Err(SaveFail::Lossy(n, c));
+                if let Some(l) = tools::export::unencodable(&st, st.base.enc, None, cancel).filter(|l| l.chars > 0) {
+                    return Err(SaveFail::Lossy(l));
                 }
             }
             // The saved file's index comes from the save itself: nothing is read again.
-            save::save_indexed(&st, &p2, &SaveOptions::default(), expect, &mut backed)
+            save::save_indexed(&st, &p2, &opts, expect, &mut backed)
                 .map(|(stamp, b)| (stamp, csvfab_engine::base::file_sample(&p2, stamp.len), b.map(|b| crate::tab::Ready::saved(&st, b)), crate::tab::renumbering(&st)))
                 .map_err(SaveFail::Save)
         });
-        self.saving = Some(Saving { tab: tab.uid, version, job, path, same_file, force });
+        self.saving = Some(Saving { tab: tab.uid, version, job, path, same_file, force, to });
     }
 
     /// The stamp the tab's file should have on disk: the one it was read with, or the one
@@ -634,6 +639,8 @@ impl App {
                     self.told.remove(&tab.uid);
                     // Its .bak is made: later saves this session overwrite without another.
                     if s.same_file { tab.backed_up = true; }
+                    // Written in another encoding: the next read must agree.
+                    if let Some(e) = s.to { tab.open_opts.enc = Some(e); }
                     let renamed = tab.path.as_ref() != Some(&s.path);
                     tab.path = Some(s.path.clone());
                     tab.name = s.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -652,7 +659,7 @@ impl App {
             }
             Err(SaveFail::Save(SaveError::Changed)) => self.dialog = Some(Dialog::ReplaceChanged(i.unwrap_or(self.active))),
             Err(SaveFail::Save(e)) => self.dialog = Some(Dialog::Message(format!("Could not write \"{}\": {e}. The original file is untouched.", s.path.display()))),
-            Err(SaveFail::Lossy(n, c)) => self.dialog = Some(Dialog::Lossy { tab: i.unwrap_or(self.active), n, c, force: s.force }),
+            Err(SaveFail::Lossy(what)) => self.dialog = Some(Dialog::Lossy { tab: i.unwrap_or(self.active), what, force: s.force }),
         }
     }
 
@@ -1553,14 +1560,14 @@ impl App {
                     }
                     close |= keep_hit;
                 }
-                Dialog::Lossy { tab, n, c, force } => {
-                    let enc = self.tabs.get(*tab).and_then(|t| t.st()).map_or("This encoding", |st| st.base.enc.label());
-                    head(ui, &format!("{} cells contain characters {enc} cannot represent (e.g. \"{c}\")", grid::fmt_int(*n)));
-                    ui.label(RichText::new("They will be written as \"?\". Save as… keeps them, in UTF-8.").color(p.txt_mut));
-                    let (ok, cancel) = buttons(ui, "Write them as \"?\"", true);
-                    if ok {
+                Dialog::Lossy { tab, what, force } => {
+                    let enc = self.tabs.get(*tab).and_then(|t| t.st()).map_or(csvfab_engine::Enc::Utf8, |st| st.base.enc);
+                    head(ui, &what.say(enc));
+                    ui.label(RichText::new("UTF-8 holds them all. Replaced, each is written as \"?\" and is lost.").color(p.txt_mut));
+                    let (replace, utf8, cancel) = buttons3(ui, "Replace with \"?\"", true, Some("Save as UTF-8"), "Cancel");
+                    if replace || utf8 {
                         let (i, force, ctx) = (*tab, *force, ctx.clone());
-                        after = Some(Box::new(move |a: &mut App| { a.active = i; a.save_checked(None, force, true, &ctx); }));
+                        after = Some(Box::new(move |a: &mut App| { a.active = i; a.save_checked(None, force, true, utf8.then_some(csvfab_engine::Enc::Utf8), &ctx); }));
                         close = true;
                     }
                     close |= cancel;

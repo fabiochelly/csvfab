@@ -514,7 +514,7 @@ impl Tab {
 
     /// While reading: the share done.
     pub fn load_progress(&self) -> Option<f32> {
-        self.loading.as_ref().map(|l| l.progress.load(Ordering::Relaxed) as f32 / l.total.max(1) as f32)
+        self.loading.as_ref().map(|l| (l.progress.load(Ordering::Relaxed) as f32 / l.total.max(1) as f32).min(1.0))
     }
 
     /// Whether the rows shown are only the file's first ones, the rest being indexed.

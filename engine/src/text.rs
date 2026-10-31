@@ -65,7 +65,11 @@ fn fold_char(c: char, out: &mut String) {
         'œ' | 'Œ' => out.push_str("oe"),
         'æ' | 'Æ' => out.push_str("ae"),
         'ß' => out.push_str("ss"),
+        'ς' => out.push('σ'),
         '\u{a0}' | '\u{202f}' => out.push(' '),
+        // Kana, Han, Hangul: no case, and their marks are no accents (か is not が), a Hangul
+        // syllable's first letter not the syllable.
+        '\u{3040}'..='\u{D7A3}' => out.push(c),
         _ => {
             let mut first = None;
             decompose_canonical(c, |d| {

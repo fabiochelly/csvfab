@@ -80,29 +80,46 @@ trait Sink {
     }
 }
 
-/// Bytes kept in memory (UTF-8 for UTF-16 files) → bytes written.
-struct Out<W: Write> {
+/// Bytes kept in memory (UTF-8 for transcoded files) → bytes written. `to`: the encoding they
+/// are transcoded to. `raw`: rows left as they were go out as the file had them.
+struct Out<'a, W: Write> {
     w: W,
-    utf16: Option<bool>,
+    to: Option<Enc>,
     pending: Vec<u8>,
+    raw: Option<&'a Base>,
+    pos: crate::base::RawPos,
 }
 
-impl<W: Write> Sink for Out<W> {
+impl<W: Write> Sink for Out<'_, W> {
     fn put(&mut self, b: &[u8]) -> io::Result<()> {
-        match self.utf16 {
+        match self.to {
             None => self.w.write_all(b),
-            Some(be) => {
+            Some(to) => {
                 self.pending.extend_from_slice(b);
-                if self.pending.len() >= 32 << 20 { self.flush_utf16(be, false)?; }
+                if self.pending.len() >= 32 << 20 { self.flush_to(to, false)?; }
                 Ok(())
             }
         }
     }
+
+    fn copy(&mut self, b: &[u8], at: usize) -> io::Result<()> {
+        if let (Some(base), Some(to)) = (self.raw, self.to) {
+            let mut pos = self.pos;
+            if let Some(run) = base.raw_run(at, at + b.len(), &mut pos) {
+                self.pos = pos;
+                self.flush_to(to, true)?;
+                return self.w.write_all(run);
+            }
+        }
+        self.put(b)
+    }
 }
 
-impl<W: Write> Out<W> {
-    fn flush_utf16(&mut self, be: bool, all: bool) -> io::Result<()> {
-        let cut = if all { self.pending.len() } else {
+impl<W: Write> Out<'_, W> {
+    fn flush_to(&mut self, to: Enc, all: bool) -> io::Result<()> {
+        let cut = if all { self.pending.len() } else if let Some(k) = memchr::memrchr(b'\n', &self.pending).filter(|_| to == Enc::Iso2022Jp) {
+            k + 1 // (its mode goes back to ASCII at each piece's end: at a line's, it costs nothing)
+        } else {
             let mut c = self.pending.len();
             while c > 0 && self.pending[c - 1] & 0xC0 == 0x80 { c -= 1; }
             if c > 0 && self.pending[c - 1] >= 0xC0 { c - 1 } else { self.pending.len() }
@@ -112,7 +129,7 @@ impl<W: Write> Out<W> {
         let src = &self.pending[..cut];
         let mut bounds = vec![0];
         let piece = (cut / rayon::current_num_threads().max(1)).max(1 << 20);
-        while bounds.last().unwrap() + piece < cut {
+        while to != Enc::Iso2022Jp && bounds.last().unwrap() + piece < cut {
             let mut at = bounds.last().unwrap() + piece;
             while at > *bounds.last().unwrap() + 1 && src[at] & 0xC0 == 0x80 { at -= 1; }
             bounds.push(at);
@@ -120,7 +137,7 @@ impl<W: Write> Out<W> {
         bounds.push(cut);
         let parts: Vec<Vec<u8>> = bounds.par_windows(2).map(|w| {
             let mut o = Vec::with_capacity((w[1] - w[0]) * 2);
-            enc::utf8_to_utf16(&String::from_utf8_lossy(&src[w[0]..w[1]]), be, &mut o);
+            enc::encode_file(to, &String::from_utf8_lossy(&src[w[0]..w[1]]), &mut o);
             o
         }).collect();
         for o in &parts { self.w.write_all(o)?; }
@@ -129,7 +146,7 @@ impl<W: Write> Out<W> {
     }
 
     fn finish(mut self) -> io::Result<W> {
-        if let Some(be) = self.utf16 { self.flush_utf16(be, true)?; }
+        if let Some(to) = self.to { self.flush_to(to, true)?; }
         self.w.flush()?;
         Ok(self.w)
     }
@@ -219,12 +236,21 @@ fn put_row(st: &State, id: RowId, p: &Plan, out: &mut Vec<u8>) -> u32 {
     n as u32
 }
 
+/// The encoding a new file made from `st` without asking is written in: UTF-8 when an edit holds
+/// a character the table's own cannot, else None, the table's.
+pub fn new_file_enc(st: &State) -> Option<Enc> {
+    if !st.base.enc.limited() { return None; }
+    let lost = (0..st.ncols).any(|c| st.cols[c].iter().any(|l| l.ids().iter().any(|&id| st.edited(id, c).is_some_and(|v| enc::unencodable(st.base.enc, v).is_some()))));
+    lost.then_some(Enc::Utf8)
+}
+
 /// Every row of the table, in file order, to `w`.
 pub fn write_to<W: Write + Send>(st: &State, o: &SaveOptions, w: W) -> io::Result<W> {
     let p = Plan::new(st, o);
-    let mut out = Out { w, utf16: p.utf16, pending: Vec::new() };
+    let raw = p.exact.then_some(&*st.base);
+    let mut out = Out { w, to: p.to, pending: Vec::new(), raw, pos: (0, 0) };
     if p.bom {
-        // The BOM is written raw: through `put` a UTF-16 one would be transcoded.
+        // The BOM is written raw: through `put` it would be transcoded.
         out.w.write_all(p.enc.bom())?;
     }
     write_rows(st, o, &p, &mut out, None)?;
@@ -237,10 +263,13 @@ struct Plan {
     d: u8,
     lines: bool,
     bom: bool,
-    utf16: Option<bool>,
+    /// The encoding UTF-8 is transcoded to on its way out.
+    to: Option<Enc>,
     /// Records are copied as bytes (nothing about how they are written changed).
     same: bool,
-    /// The encoding records are made in (the bytes kept in memory are UTF-8 for UTF-16).
+    /// Records copied go out as the file had them, not transcoded back.
+    exact: bool,
+    /// The encoding records are made in (UTF-8 for a transcoded one).
     mem_enc: Enc,
 }
 
@@ -250,11 +279,11 @@ impl Plan {
         let enc = o.enc.unwrap_or(b.enc);
         let d = o.delim.unwrap_or(b.dialect.delim);
         let lines = b.dialect.lines && o.delim.is_none_or(|x| x == 0);
-        let bom = o.bom.unwrap_or(if enc == b.enc { b.bom } else { enc.is_utf16() });
-        let utf16 = match enc { Enc::Utf16Le => Some(false), Enc::Utf16Be => Some(true), _ => None };
+        let bom = o.bom.unwrap_or(if enc == b.enc { b.bom } else { enc.wide() });
+        let to = enc.transcoded().then_some(enc);
         let same = enc.mem_utf8() == b.enc.mem_utf8() && (enc == b.enc || enc.mem_utf8()) && d == b.dialect.delim && lines == b.dialect.lines;
-        let mem_enc = if enc.is_utf16() { Enc::Utf8 } else { enc };
-        Plan { enc, d, lines, bom, utf16, same, mem_enc }
+        let mem_enc = if enc.transcoded() { Enc::Utf8 } else { enc };
+        Plan { enc, d, lines, bom, to, same, exact: same && enc == b.enc && b.has_raw(), mem_enc }
     }
 }
 
@@ -302,6 +331,8 @@ enum Piece<'a> {
 struct Pipe<'a> {
     tx: std::sync::mpsc::SyncSender<Piece<'a>>,
     buf: Vec<u8>,
+    /// Every run goes as a run, however short: the writer needs to know them (`Plan::exact`).
+    runs: bool,
 }
 
 impl<'a> Pipe<'a> {
@@ -326,7 +357,7 @@ impl<'a> Pipe<'a> {
     }
 
     fn copy(&mut self, b: &'a [u8], at: usize) -> io::Result<()> {
-        if b.len() < KERNEL_COPY { return self.put(b); }
+        if b.len() < KERNEL_COPY && !self.runs { return self.put(b); }
         self.send(Piece::Copy(b, at))
     }
 }
@@ -345,7 +376,7 @@ fn write_rows(st: &State, o: &SaveOptions, p: &Plan, out: &mut (impl Sink + Send
             }
             Ok(())
         });
-        let mut pipe = Pipe { tx, buf: Vec::with_capacity(1 << 20) };
+        let mut pipe = Pipe { tx, buf: Vec::with_capacity(1 << 20), runs: p.exact };
         let made = make_rows(st, o, p, &mut pipe, ix).and_then(|_| pipe.send(Piece::Bytes(Vec::new())));
         drop(pipe);
         // The writer's own error first: the maker's is then only that it stopped.
@@ -715,12 +746,12 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Expect>, b
     // Its first rows only, the rest still being read: written, they would cut the file short.
     if b.partial { return Err(SaveError::Io(io::Error::other("the file is still loading"))); }
     let p = Plan::new(st, o);
-    let mut ix = (reindex && st.eol.is_none() && o.rows.is_none() && p.same && p.utf16.is_none() && p.enc == b.enc && b.qerr == 0 && b.n > 0 && !b.partial)
+    let mut ix = (reindex && st.eol.is_none() && o.rows.is_none() && p.same && p.to.is_none() && p.enc == b.enc && b.qerr == 0 && b.n > 0 && !b.partial)
         .then(|| Index { pos: 0, starts: Offsets::U32(Vec::with_capacity(st.all_len() + 1)), width: None, odd: Vec::new(), ok: true });
     let tmp = temp_beside(path);
     let res = (|| -> io::Result<()> {
         let f = File::create(&tmp)?;
-        let f = if p.utf16.is_some() {
+        let f = if p.to.is_some() {
             let w = write_to(st, o, BufWriter::with_capacity(1 << 20, f))?;
             w.into_inner().map_err(|e| e.into_error())?
         } else {

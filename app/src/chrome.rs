@@ -1242,13 +1242,11 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                     let o = &mut app.next_opts;
                     let elabel = o.enc.map_or("Encoding".to_string(), |e| e.label().to_string());
                     let er = pill(ui, "next-enc", None, &elabel, o.enc.is_none(), gray.0, gray.1, gray.2, m.sb_pill_h).on_hover_text("How the next file opened is read");
-                    egui::Popup::menu(&er).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
-                        crate::widgets::width(ui, 210.0);
+                    egui::Popup::menu(&er).frame(crate::theme::menu_frame(&p, &m)).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                        crate::widgets::width(ui, 230.0);
                         crate::widgets::head(ui, &p, "Read the next file as");
                         if crate::widgets::Item::new("Auto (detected)").checked(o.enc.is_none()).show(ui, &p).clicked() { o.enc = None; ui.close(); }
-                        for e in Enc::ALL {
-                            if crate::widgets::Item::new(e.label()).checked(o.enc == Some(e)).show(ui, &p).clicked() { o.enc = Some(e); ui.close(); }
-                        }
+                        if let Some(e) = crate::widgets::enc_list(ui, &p, o.enc) { o.enc = Some(e); ui.close(); }
                     });
                     // Line 1 of the next file: detected, titles, or data.
                     let nh = &mut app.next_header;
@@ -1453,14 +1451,16 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                     Enc::Utf8 => (p.ok_txt, p.ok_rgb),
                     Enc::Windows1252 | Enc::Latin1 | Enc::Latin9 => (p.warn, p.warn_rgb),
                     Enc::MacRoman => (p.cyan_txt, p.cyan),
-                    Enc::Utf16Le | Enc::Utf16Be => (p.accent_2, p.accent),
+                    e if e.wide() => (p.accent_2, p.accent),
+                    _ => (p.violet_txt, p.violet),
                 };
                 let etext = if st.base.bom && enc == Enc::Utf8 { "UTF-8 BOM".to_string() } else { enc.label().to_string() };
                 let er = pill(ui, "enc", None, &etext, tab.open_opts.enc.is_none(), ef, alpha(eb, 0.13), alpha(eb, 0.4), m.sb_pill_h);
+                if crate::shot::take("enc-menu").is_some() { egui::Popup::open_id(&ctx, egui::Popup::default_response_id(&er)); }
                 let mut reopen: (crate::tab::Choice<Enc>, crate::tab::Choice<u8>) = (None, None);
                 let enc_auto = tab.open_opts.enc.is_none();
-                egui::Popup::menu(&er).frame(crate::theme::menu_frame(&p, &m)).show(|ui| {
-                    crate::widgets::width(ui, 210.0);
+                egui::Popup::menu(&er).frame(crate::theme::menu_frame(&p, &m)).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                    crate::widgets::width(ui, 230.0);
                     crate::widgets::head(ui, &p, "Read as");
                     // What was detected, named (as the web's "Auto (UTF-8 BOM)") while it is in force.
                     let auto_l = if enc_auto { format!("Auto ({etext})") } else { "Auto (detected)".to_string() };
@@ -1468,11 +1468,9 @@ pub fn status_bar(app: &mut App, ui: &mut Ui) {
                         if !enc_auto { reopen.0 = Some(None); }
                         ui.close();
                     }
-                    for e in Enc::ALL {
-                        if crate::widgets::Item::new(e.label()).checked(!enc_auto && e == enc).show(ui, &p).clicked() {
-                            reopen.0 = Some(Some(e));
-                            ui.close();
-                        }
+                    if let Some(e) = crate::widgets::enc_list(ui, &p, (!enc_auto).then_some(enc)) {
+                        reopen.0 = Some(Some(e));
+                        ui.close();
                     }
                 });
                 let d = if st.base.dialect.lines { 0 } else { st.base.dialect.delim };

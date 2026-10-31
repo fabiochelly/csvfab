@@ -5,6 +5,7 @@
 
 pub mod about;
 pub mod app;
+pub mod bidi;
 pub mod chrome;
 pub mod colpanel;
 pub mod config;

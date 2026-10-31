@@ -449,10 +449,10 @@ fn same_as(t: &Table, m: &Model, ctx: &str) {
 
 /// What a cell holds once written in `enc` and read back.
 fn through(enc: Enc, v: &str) -> String {
-    if enc.mem_utf8() { return v.to_string(); }
+    if !enc.limited() { return v.to_string(); }
     let mut b = Vec::new();
-    enc::encode_into(enc, v, &mut b);
-    enc::decode(enc, &b).into_owned()
+    enc::encode_file(enc, v, &mut b);
+    enc::decode_file(enc, &b)
 }
 
 /// The saved bytes read again (the file's encoding, delimiter and title row): the model's cells,

@@ -15,9 +15,14 @@
 //! `UI_SEMIBOLD` (600, titles, chips) take the closest face of the same
 //! family (CSS matching rules), or the variable font at that `wght`. They
 //! always exist — the regular face when there is no other.
+//!
+//! Scripts the two fonts lack: a character no face in the family has asks `SystemFaces`, once
+//! per family and character, for a face of the system's. Nothing is looked up or loaded before
+//! such a character is laid out, so a file in Latin letters costs nothing; the face found is
+//! mapped, as the others are, its 20 MB read only where the glyphs drawn lie.
 
 use eframe::egui;
-use egui::epaint::text::{Blob, FontData, FontDefinitions, FontFamily, FontTweak, VariationCoords};
+use egui::epaint::text::{Blob, FallbackRequest, FontData, FontDefinitions, FontFamily, FontInsert, FontProvider, FontTweak, VariationCoords};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -148,8 +153,110 @@ pub fn install(ctx: &egui::Context, mono_pick: Option<&str>) -> FontsInfo {
         defs.families.insert(FontFamily::Name(key.clone().into()), std::iter::once(key).chain(behind.iter().cloned()).collect());
     }
     ctx.set_fonts(defs);
+    ctx.set_font_providers(vec![system_faces()]);
     info.ms = t0.elapsed().as_secs_f32() * 1000.0;
     info
+}
+
+// ---------------------------------------------------------------------------
+// Faces for the scripts the UI and mono fonts lack
+
+/// What a missing character is looked up by: a script of many blocks, else its block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Need {
+    Han,
+    Kana,
+    Hangul,
+    Emoji,
+    Block(u32),
+}
+
+fn need_of(c: char) -> Need {
+    match c as u32 {
+        0x3040..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9F | 0x1B000..=0x1B16F => Need::Kana,
+        0x1100..=0x11FF | 0x3130..=0x318F | 0xA960..=0xA97F | 0xAC00..=0xD7FF => Need::Hangul,
+        0x2E80..=0x2FDF | 0x3000..=0x303F | 0x3100..=0x312F | 0x3190..=0x31EF | 0x3200..=0x9FFF | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF65 | 0xFFA0..=0xFFEF | 0x20000..=0x3FFFF => Need::Han,
+        0x1F000..=0x1FAFF | 0x2600..=0x27BF => Need::Emoji,
+        u => Need::Block(u >> 8),
+    }
+}
+
+/// The language fontconfig is asked for Han characters in, which decides their shapes: the
+/// user's, or Simplified Chinese.
+fn han_lang() -> (&'static str, &'static str) {
+    let loc = ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_default();
+    match loc.get(..5).unwrap_or(&loc) {
+        "zh_TW" | "zh_HK" | "zh_MO" => ("zh-tw", "Noto Sans CJK TC"),
+        l if l.starts_with("ja") => ("ja", "Noto Sans CJK JP"),
+        l if l.starts_with("ko") => ("ko", "Noto Sans CJK KR"),
+        _ => ("zh-cn", "Noto Sans CJK SC"),
+    }
+}
+
+/// What fontconfig gives for `c`: its choice among the installed faces, the user's aliases
+/// included, for that character (and language, where one character has several shapes).
+fn fc_face(need: Need, c: char) -> Option<(PathBuf, u32)> {
+    let pattern = match need {
+        Need::Emoji => format!("emoji:scalable=true:charset={:x}", c as u32),
+        // (By name first: a collection's faces all claim every language, and fontconfig picks one.)
+        Need::Han => { let (l, f) = han_lang(); format!("{f},sans-serif:scalable=true:lang={l}:charset={:x}", c as u32) }
+        Need::Kana => format!("Noto Sans CJK JP,sans-serif:scalable=true:lang=ja:charset={:x}", c as u32),
+        Need::Hangul => format!("Noto Sans CJK KR,sans-serif:scalable=true:lang=ko:charset={:x}", c as u32),
+        Need::Block(_) => format!("sans-serif:scalable=true:charset={:x}", c as u32),
+    };
+    let o = std::process::Command::new("fc-match").args(["-f", "%{file}\t%{index}", &pattern]).output().ok().filter(|o| o.status.success())?;
+    let s = String::from_utf8_lossy(&o.stdout);
+    let (file, index) = s.split_once('\t')?;
+    // (Above 2^16: a named instance of a variable font, the font itself below.)
+    Some((file.into(), index.parse::<u32>().ok()? & 0xFFFF))
+}
+
+/// The files that hold these scripts on Windows and macOS, by name: no scan of the folders.
+fn known_files(need: Need, c: char) -> &'static [&'static str] {
+    match need {
+        Need::Han => &["msyh.ttc", "simsun.ttc", "PingFang.ttc", "Hiragino Sans GB.ttc", "STHeiti Light.ttc"],
+        Need::Kana => &["YuGothM.ttc", "meiryo.ttc", "msgothic.ttc", "ヒラギノ角ゴシック W3.ttc", "Hiragino Sans GB.ttc"],
+        Need::Hangul => &["malgun.ttf", "AppleSDGothicNeo.ttc"],
+        Need::Emoji => &["seguiemj.ttf", "seguisym.ttf", "Apple Symbols.ttf"],
+        Need::Block(_) => match c as u32 {
+            0x0370..=0x052F => &["segoeui.ttf", "arial.ttf", "Arial.ttf"],
+            0x0590..=0x05FF => &["segoeui.ttf", "arial.ttf", "ArialHB.ttc", "Arial.ttf"],
+            0x0600..=0x07BF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF => &["segoeui.ttf", "arial.ttf", "GeezaPro.ttc", "SFArabic.ttf", "Arial.ttf"],
+            0x0900..=0x0DFF => &["Nirmala.ttf", "Nirmala.ttc", "mangal.ttf", "Kohinoor.ttc", "DevanagariMT.ttc"],
+            0x0E00..=0x0EFF => &["LeelawUI.ttf", "leelawui.ttf", "tahoma.ttf", "Thonburi.ttc", "Tahoma.ttf"],
+            _ => &["seguisym.ttf", "Arial Unicode.ttf", "arialuni.ttf"],
+        },
+    }
+}
+
+fn system_face(need: Need, c: char) -> Option<FontInsert> {
+    let usable = |p: &Path| p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"));
+    let dirs = font_dirs();
+    let (path, index) = fc_face(need, c).filter(|f| usable(&f.0)).or_else(|| {
+        known_files(need, c).iter().flat_map(|f| dirs.iter().map(move |d| d.join(f))).find(|p| p.is_file()).map(|p| (p, 0))
+    })?;
+    let data = FontData::from_blob(map(&path)?, index);
+    Some(FontInsert { name: format!("system:{}:{index}", path.display()), data, families: Vec::new() })
+}
+
+/// Finds a face the first time a script shows up (`need_of`), and keeps it: the other characters
+/// of the script come here too, one by one, from each family that meets them.
+#[derive(Default)]
+struct SystemFaces {
+    found: std::sync::Mutex<HashMap<Need, Option<FontInsert>>>,
+}
+
+impl FontProvider for SystemFaces {
+    fn font_for(&self, r: &FallbackRequest<'_>) -> Option<FontInsert> {
+        let c = r.cluster.chars().next()?;
+        let need = need_of(c);
+        self.found.lock().ok()?.entry(need).or_insert_with(|| system_face(need, c)).clone()
+    }
+}
+
+fn system_faces() -> Arc<dyn FontProvider> {
+    static FACES: std::sync::OnceLock<Arc<SystemFaces>> = std::sync::OnceLock::new();
+    FACES.get_or_init(Default::default).clone()
 }
 
 /// A font file, mapped rather than read: no copy on the heap (a few MB per face, more than
@@ -705,6 +812,16 @@ mod tests {
         assert_eq!(w(400), PathBuf::from("/nonexistent/500false")); // upright first, then 400 → 500
         assert_eq!(w(600), PathBuf::from("/nonexistent/700false")); // heavier first
         assert_eq!(w(200), PathBuf::from("/nonexistent/300false"));
+    }
+
+    #[test]
+    fn needs() {
+        assert_eq!(need_of('中'), Need::Han);
+        assert_eq!(need_of('あ'), Need::Kana);
+        assert_eq!(need_of('한'), Need::Hangul);
+        assert_eq!(need_of('😀'), Need::Emoji);
+        assert_eq!(need_of('ק'), Need::Block(5));
+        assert_eq!(need_of('क'), Need::Block(9));
     }
 
     /// The table reader agrees with fontconfig on this machine's fonts (skipped without fc-list).

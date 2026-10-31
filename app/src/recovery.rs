@@ -94,7 +94,7 @@ fn files(dir: &Path, uid: u64) -> (PathBuf, PathBuf, PathBuf) {
 /// is still that on disk (else the edits' rows would be other rows).
 fn journaled(st: &State, path: Option<&Path>) -> bool {
     let b = &st.base;
-    path.is_some_and(|p| b.path.as_deref() == Some(p) && b.mapped() && !b.partial && !b.cut_short() && b.stamp.is_some() && Stamp::of(p) == b.stamp)
+    path.is_some_and(|p| b.path.as_deref() == Some(p) && b.file_mapped() && !b.partial && !b.cut_short() && b.stamp.is_some() && Stamp::of(p) == b.stamp)
 }
 
 /// Writes tab `uid`'s unsaved edits to `dir`: its journal, or a copy of the table (the other
@@ -113,7 +113,9 @@ fn keep(dir: &Path, uid: u64, name: &str, path: Option<&Path>, opts: OpenOptions
         if res.is_err() { let _ = std::fs::remove_file(&tmp); }
         (res.is_ok(), copy)
     } else {
-        (save::save(st, &copy, &SaveOptions { backup: false, ..Default::default() }, None, &mut true).is_ok(), jpath)
+        // In UTF-8 when the file's encoding might not hold what was typed: no "?" in a rescue.
+        let enc = st.base.enc.limited().then_some(csvfab_engine::Enc::Utf8);
+        (save::save(st, &copy, &SaveOptions { enc, bom: enc.map(|_| true), backup: false, ..Default::default() }, None, &mut true).is_ok(), jpath)
     };
     if ok {
         let _ = std::fs::remove_file(other);
@@ -168,7 +170,7 @@ impl Recovery {
             };
             // A whole copy of a big file is not rewritten every few seconds (a journal is small).
             let b = &table.st.base;
-            let big = b.size > BIG && !(b.mapped() && !b.partial && b.path.is_some() && b.path == t.path);
+            let big = b.size > BIG && !(b.file_mapped() && !b.partial && b.path.is_some() && b.path == t.path);
             let last = self.written.get(&t.uid).map_or(f64::NEG_INFINITY, |w| w.1);
             let due = (since + QUIET).max(if big { last + BIG_EVERY } else { 0.0 });
             if now < due {

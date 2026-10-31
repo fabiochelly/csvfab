@@ -363,6 +363,25 @@ customers-5m (98 % of the rows) 371–470 → 473–497 ms on a noisy machine; a
   "`dupes_delete` not done after 100 s" was the benchmark: pressed the frame the count appeared, its
   click fell where the button had been, beside a box about to be re-centred, which closed it.
 
+## Encodings and fonts of every script (2026-10-31, `bench_ui --startup` off screen, medians of 11, A/B back to back)
+
+| measure | before | after |
+|---|---|---|
+| start-up, Latin file (6 186 rows) | 22.4 ms, 28.5 MB peak | 22.4 ms, 29.3 MB peak |
+| start-up, CJK file | panics off screen, tofu in a window | 40.7 ms, 29 MB peak |
+
+Nothing about fonts happens at start: the fallback is a `FontProvider`, asked by egui the first time a
+character no face has is laid out. The cost for a CJK file is `fc-match` (≈ 12 ms, once per script:
+Han, Kana, Hangul, then a block) and a map of the font: only the pages of the glyphs drawn are read.
+The 0.8 MB: chardetng's tables and encoding_rs's `fast-legacy-encode`.
+
+A multi-byte file (67 MB of GBK, 766 390 rows, 16 threads, `encodings.rs` `perf_…`, medians of 3): first
+rows 20 ms; whole 100 ms (670 MB/s; 4 threads: 280 ms), detection included; 87 MB of UTF-8 in memory, which
+a mapped file does not cost: 1.3 × the file for CJK text, so about 2.6 GB and 3 s for a 2 GB file. The
+file stays mapped behind it. Untouched rows are written from those bytes: an in-place save is one
+block. GBK → Big5, every cell encoded: 320 ms (3 to 4 s on 4 threads without `fast-legacy-encode`, a linear search).
+UTF-16 and UTF-32 keep their one read of the whole file, no first rows before it (UTF-16: one thread).
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one

@@ -4,7 +4,7 @@ use crate::app::App;
 use eframe::egui::{self, Event, PointerButton};
 use std::time::Duration;
 
-fn app_on(csv: &str, tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf) {
+fn app_on(csv: impl AsRef<[u8]>, tag: &str) -> (egui_kittest::Harness<'static, App>, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("csvfab-ui-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.csv");
@@ -1016,5 +1016,75 @@ fn saves_keep_what_is_hidden() {
     // The tab moved onto it and still hides the column.
     assert_eq!(h.state().tabs[0].name, "copy.csv");
     assert!(h.state().tabs[0].grid.hidden.contains(&2));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Ctrl+S with a character the file's encoding cannot hold: it asks, and "Save as UTF-8" keeps it.
+#[test]
+fn a_character_the_encoding_lacks_is_asked_about() {
+    use egui_kittest::kittest::Queryable;
+    let text = "имя;город\n".to_string() + &"Иван Петров;Москва, улица Ленина\n".repeat(40);
+    let (mut h, dir) = app_on(encoding_rs_bytes(&text), "lossy");
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().tabs[0].st().unwrap().base.enc, csvfab_engine::Enc::Windows1251);
+    {
+        let t = h.state_mut().tabs[0].table.as_mut().unwrap();
+        let id = t.st.data_id(3);
+        t.set_cells(&[(id, 1, "東京".into())]);
+    }
+    h.state_mut().save(None, false, &ctx);
+    for _ in 0..100 {
+        h.run_steps(1);
+        if !h.state().saving() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.run_steps(3);
+    h.get_by_label("Save as UTF-8").click();
+    for _ in 0..100 {
+        h.run_steps(1);
+        if !h.state().saving() && !h.state().tabs[0].busy() && !h.state().tabs[0].dirty() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let b = std::fs::read(dir.join("t.csv")).unwrap();
+    assert!(b.starts_with(b"\xEF\xBB\xBF"));
+    let s = std::str::from_utf8(&b[3..]).unwrap();
+    assert!(s.contains("東京") && s.contains("Москва") && !s.contains('?'), "{s}");
+    assert_eq!(h.state().tabs[0].open_opts.enc, Some(csvfab_engine::Enc::Utf8));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn encoding_rs_bytes(s: &str) -> Vec<u8> {
+    let mut o = Vec::new();
+    for c in s.chars() {
+        o.push(match c as u32 {
+            0x410..=0x44F => (c as u32 - 0x410 + 0xC0) as u8,
+            u => u as u8,
+        });
+    }
+    o
+}
+
+/// A zip of one table: unpacked beside it, what comes out opens in a tab.
+#[test]
+fn a_zip_opens_through_its_table() {
+    use std::io::Write;
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-zip-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("pack.zip");
+    let mut z = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    z.start_file("in/table.csv", zip::write::SimpleFileOptions::default()).unwrap();
+    z.write_all("name;n\nZoé;1\n東京;2\n".as_bytes()).unwrap();
+    z.finish().unwrap();
+    let p2 = path.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![p2]));
+    for _ in 0..400 {
+        h.step();
+        if h.state().tabs.first().is_some_and(|t| t.table.is_some() && !t.busy()) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let t = &h.state().tabs[0];
+    assert_eq!(t.name, "table.csv");
+    assert_eq!(t.st().unwrap().cell(t.st().unwrap().data_id(1), 0), "東京");
+    assert!(dir.join("table.csv").is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }

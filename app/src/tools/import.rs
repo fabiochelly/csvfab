@@ -1,7 +1,9 @@
-//! Opening an Excel workbook, a SQLite database, a JSON or a Parquet file
-//! (27-import.js): it is first written as a CSV beside it — choosing the sheet
+//! Opening an Excel or OpenDocument workbook, a SQLite database, a JSON or a Parquet
+//! file (27-import.js): it is first written as a CSV beside it — choosing the sheet
 //! or table when several hold data, and for JSON whether to flatten it or read
-//! it as raw text — then that CSV opens. The conversion runs in a job, cancellable.
+//! it as raw text — then that CSV opens. A compressed file goes the same way, the
+//! file it holds written beside it (asking which, for a zip of several), and what
+//! comes out opens as any file does. The conversion runs in a job, cancellable.
 //! See engine/src/convert.
 
 use super::form::{self, Alert, Answer, Ask};
@@ -56,7 +58,7 @@ pub fn take_text_opens() -> Vec<PathBuf> {
     TEXT_OPENS.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
 }
 
-/// The tool that converts `path` (a workbook, a database, JSON or Parquet), None if it is none of them.
+/// The tool that converts `path` (a workbook, a database, JSON, Parquet, a compressed file), None if it is none of them.
 pub fn open(path: PathBuf) -> Option<Box<dyn Tool>> {
     let format = convert::import_format(&path)?;
     let name = file_name(&path);
@@ -71,7 +73,7 @@ fn file_name(p: &Path) -> String {
 impl Import {
     /// Sheets listed: pick one when several hold data, else go on.
     fn listed(&mut self, sheets: Vec<Sheet>, cx: &mut Cx) {
-        if self.format == Format::Sqlite && sheets.is_empty() {
+        if matches!(self.format, Format::Sqlite | Format::Zip) && sheets.is_empty() {
             self.stage = Stage::Failed(Alert::new(format!("\"{}\" has no table.", self.name)));
             return;
         }
@@ -80,14 +82,14 @@ impl Import {
             self.stage = Stage::Pick { sheets, act: 0 };
             return;
         }
-        // A database's CSV is always named after its table.
-        let sheet = (self.format == Format::Sqlite).then(|| offered.first().map_or(sheets[0].name.clone(), |s| s.name.clone()));
+        // A database's CSV is always named after its table, a zip's file is its own.
+        let sheet = matches!(self.format, Format::Sqlite | Format::Zip).then(|| offered.first().map_or(sheets[0].name.clone(), |s| s.name.clone()));
         self.go(sheet, cx);
     }
 
     /// The sheet is known: convert, unless its CSV is already there.
     fn go(&mut self, sheet: Option<String>, cx: &mut Cx) {
-        let mut dest = convert::csv_path_for(&self.path, sheet.as_deref());
+        let mut dest = convert::dest_for(self.format, &self.path, sheet.as_deref());
         // A folder that cannot be written (a read-only mount, an archive's view): the CSV goes
         // to the documents folder, and the toast says so.
         let dir = dest.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -141,10 +143,15 @@ impl Tool for Import {
                 }
             }
             // One table: nothing to list, nothing to ask.
-            Stage::Start if self.format == Format::Parquet => self.go(None, cx),
+            Stage::Start if matches!(self.format, Format::Parquet | Format::Packed) => self.go(None, cx),
             Stage::Start => {
                 let (path, f) = (self.path.clone(), self.format);
-                self.stage = Stage::Listing(Job::spawn(cx.ctx, move |_, _| if f == Format::Sqlite { convert::sqlite::tables(&path) } else { convert::xlsx_read::sheets(&path) }));
+                self.stage = Stage::Listing(Job::spawn(cx.ctx, move |_, _| match f {
+                    Format::Sqlite => convert::sqlite::tables(&path),
+                    Format::Book => convert::book_read::sheets(&path),
+                    Format::Zip => convert::packed::members(&path),
+                    _ => convert::xlsx_read::sheets(&path),
+                }));
             }
             Stage::Listing(job) => {
                 if let Some(r) = job.poll() {
@@ -204,8 +211,8 @@ impl Tool for Import {
                     // Said only when the conversion takes a while.
                     if job.elapsed().as_millis() > 400 || crate::shot::take("import-busy").is_some() {
                         let done = job.progress.load(Ordering::Relaxed);
-                        let what = if self.format == Format::Json { "records" } else { "rows" };
-                        let a = Ask { main: &format!("Converting {name}…"), sub: &format!("{} {what} read.", form::n(done)), choices: &[], cancel: None, ok: "Cancel", danger: false };
+                        let what = match self.format { Format::Json => "records read", Format::Packed | Format::Zip => "MB unpacked", _ => "rows read" };
+                        let a = Ask { main: &format!("Converting {name}…"), sub: &format!("{} {what}.", form::n(done)), choices: &[], cancel: None, ok: "Cancel", danger: false };
                         if form::ask(cx, "import-busy", &a).is_some() { job.cancel(); }
                     }
                     cx.ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -230,8 +237,8 @@ fn pick(cx: &mut Cx, file: &str, f: Format, sheets: &[Sheet], act: &mut usize) -
     let hidden = sheets.iter().filter(|s| s.filled && s.hidden).count();
     let pl = |k: usize, w: &str| format!("{k} {w}{noun}{}", if k > 1 { "s" } else { "" });
     let left: Vec<String> = [(empty, "empty "), (hidden, "hidden ")].iter().filter(|x| x.0 > 0).map(|&(k, w)| pl(k, w)).collect();
-    let sub = format!("Pick the one to open: it becomes a CSV of its own, named after the {noun}.{}", if left.is_empty() { String::new() } else { format!(" Not listed: {}.", left.join(" and ")) });
-    let main = format!("\"{file}\" has {} {noun}s with data", list.len());
+    let sub = if f == Format::Zip { "Pick the one to open: it is written beside the zip.".to_string() } else { format!("Pick the one to open: it becomes a CSV of its own, named after the {noun}.{}", if left.is_empty() { String::new() } else { format!(" Not listed: {}.", left.join(" and ")) }) };
+    let main = if f == Format::Zip { format!("\"{file}\" holds {} tables", list.len()) } else { format!("\"{file}\" has {} {noun}s with data", list.len()) };
     let (up, down) = cx.ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)));
     if up { *act = (*act + list.len() - 1) % list.len(); }
     if down { *act = (*act + 1) % list.len(); }

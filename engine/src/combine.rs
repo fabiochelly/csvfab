@@ -111,7 +111,7 @@ pub struct Format {
 pub fn format(sources: &[Source]) -> Format {
     let f = &sources[0].st;
     let b = &f.base;
-    let same = sources.iter().all(|x| x.st.base.enc == b.enc);
+    let same = sources.iter().all(|x| x.st.base.enc == b.enc && crate::save::new_file_enc(&x.st).is_none());
     let (enc, bom) = if same { (b.enc, b.bom) } else { (Enc::Utf8, b.bom && b.enc == Enc::Utf8) };
     Format { delim: b.dialect.delim, eol: b.eol, enc, bom, header: f.header }
 }
@@ -139,13 +139,13 @@ fn put_field(s: &str, d: u8, enc: Enc, out: &mut Vec<u8>) {
     }
 }
 
-/// Bytes in the encoding kept in memory → bytes written (UTF-16 transcoded).
+/// Bytes in the encoding kept in memory → bytes written (transcoded where UTF-8 is kept).
 fn emit<W: Write>(w: &mut W, enc: Enc, b: &[u8]) -> io::Result<()> {
-    if !enc.is_utf16() {
+    if !enc.transcoded() {
         return w.write_all(b);
     }
     let mut o = Vec::with_capacity(b.len() * 2);
-    enc::utf8_to_utf16(&String::from_utf8_lossy(b), enc == Enc::Utf16Be, &mut o);
+    enc::encode_file(enc, &String::from_utf8_lossy(b), &mut o);
     w.write_all(&o)
 }
 
@@ -157,8 +157,8 @@ pub fn write_to<W: Write>(sources: &[Source], cols: &[OutCol], source_col: bool,
     const CH: usize = 8192;
     const BATCH: usize = 64;
     let cancelled = || io::Error::new(io::ErrorKind::Interrupted, "cancelled");
-    // Single-byte encodings are written as such; UTF-16 is built as UTF-8 then transcoded.
-    let mem = if f.enc.is_utf16() { Enc::Utf8 } else { f.enc };
+    // Single-byte encodings are written as such; the others are built as UTF-8 then transcoded.
+    let mem = if f.enc.transcoded() { Enc::Utf8 } else { f.enc };
     let d = f.delim;
     if f.bom {
         w.write_all(f.enc.bom())?;

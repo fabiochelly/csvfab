@@ -19,7 +19,8 @@ centring, every padding, the original SVG icons, silky instant scrolling, no fli
 | `widgets.rs` | menu items (`Item`, `head`, `sep`, `width`, `row_buttons`), `centered_edit` | lead (use them) |
 | `icons.rs` + `assets/icons/` | the web app's SVG icons, tinted, crisp | icons agent |
 | `theme.rs` | `Palette` (every CSS variable, 6 themes), `Metrics`, `apply`, `menu_frame`, `dialog_frame`, `tooltip_frame` | done |
-| `fonts.rs` | system fonts as the web picked them; `UI_MEDIUM`, `UI_SEMIBOLD`, `MONO_BOLD` families | done |
+| `fonts.rs` | system fonts as the web picked them; `UI_MEDIUM`, `UI_SEMIBOLD`, `MONO_BOLD` families; system faces for other scripts, on demand | done |
+| `bidi.rs` | right-to-left lines in the grid: words in display order | done |
 | `job.rs` | `Job::spawn(ctx, |cancel, progress| …)`, `poll()`, `cancel()`; cancelled on drop; a panic in the job is caught: the job returns `Failed::failed()` (implement `job::Failed` for a new result type) and a toast tells it | done |
 | `recovery.rs` | unsaved edits kept in `<state>/recovery/` 3 s after the last edit — a journal of the edits (`engine/src/journal.rs`) while the file on disk is the one read, else a copy of the table (big files every 30 s) — offered back after a crash; the panic hook (`crash.log`, and on a UI-thread panic every unsaved table written at once) | lead |
 | `tools/mod.rs` | `Tool` trait, `Cx`, `Cmd`, `Command` registry, `dialog()` helper | lead |
@@ -108,6 +109,30 @@ cancel on close. Never block the UI thread on anything that grows with the file.
   the CSV goes to the documents folder (`convert::fallback_dir`: XDG's, else ~/Documents,
   else home) and the toast names both folders.
 
+## Encodings and formats
+
+`enc.rs` holds 33 encodings, `Enc::GROUPS` listing them by region for the pickers (status bar, next
+file, Save dialog: `widgets::enc_list`, searchable by label, region or language). `Enc::ALL` is a
+journal index: new ones go at its end. Single-byte encodings stay as the file's bytes, decoded by
+field. UTF-16, UTF-32 and the multi-byte ones (`Enc::transcoded`) are UTF-8 in memory: their bytes
+can hold a delimiter's inside a character. A multi-byte base keeps the file mapped behind it
+(`Base::raw`): rows left as they were are written as the file had them (`Plan::exact`,
+`Base::raw_run`: line breaks counted from marks taken at the transcoding), so a character two byte
+sequences give, or bytes that mean nothing, survive. Not done for ISO-2022-JP when a line break
+fell inside a Japanese run (the counts differ, `marks` is empty): rows are encoded anew.
+
+Detection, without BOM and when the file is not UTF-8 (`enc::detect`): `looks_western` first, then
+chardetng on two samples of whole lines. A Western file stays Windows-1252: Hungarian in 1250 reads
+as Western too, one click on the pill puts it right. ISO-2022-JP is told by its escape (`sniff`).
+
+A character the target cannot hold is never written without a word: count, first few, Cancel, Save
+as UTF-8 (with a BOM) or Replace with "?" (`tools::export::Lossy`), in the Save dialog and on Ctrl+S.
+
+Opened through `convert`: `.xls`, `.xlsb`, `.ods` (`book_read`, calamine, a sheet read whole); `.gz`,
+`.zst` and a `.zip` of tables (`packed`) are unpacked beside themselves (`data.csv.gz` → `data.csv`,
+`dump.gz` → `dump.csv`), and what comes out opens as any file: an `.xlsx` in a zip then goes through
+its own import. A zip's members are base names only, whatever the archive says.
+
 ## Exports and saves (keep this line clear)
 
 An **export** writes another file and leaves the tab where it is: Excel, SQLite, Parquet, a CSV of
@@ -121,7 +146,11 @@ the table whole, hidden columns and filtered rows included: the tab goes on from
 anything left out would be lost. Never give a save `export_st`'s table. A tab with hidden
 columns says which of the two it is in the dialog's note.
 
-There is no JSON export. Group by and pivot results open as new tabs: they hold the columns chosen
+JSON, JSON Lines, TSV, any other delimiter, HTML and Markdown are exports too (the copies under
+the CSV choices in the Save dialog; `convert::text_write`, and `save::save` for the delimited ones,
+on `export_st`): they leave the tab on its file. "CSV — tab" stays a save-as. JSON gives bare numbers
+and booleans only for a column whose every cell comes back the same (no `007`, 15 digits at most),
+`null` for its empty cells. Group by and pivot results open as new tabs: they hold the columns chosen
 in their dialogs, over the rows shown.
 
 ## Parquet (`engine/src/convert/parquet_read.rs`, `parquet_write.rs`)
