@@ -105,9 +105,9 @@ fn save_as_goes_by_the_name() {
     assert_eq!(std::fs::read(&back).unwrap(), b, "from a .z64: the content, not its compressed bytes");
     let latin = d.join("c.csv.z64");
     let o = SaveOptions { enc: Some(Enc::Windows1252), bom: Some(false), ..Default::default() };
-    let src = "n\nZoé\n";
-    std::fs::write(&csv, src).unwrap();
-    let t = open(&csv);
+    let plain = d.join("c.csv");
+    std::fs::write(&plain, "n\nZoé\n").unwrap();
+    let t = open(&plain);
     save::save(&t.st, &latin, &o, None, &mut true).unwrap();
     assert_eq!(unpacked(&latin), b"n\nZo\xE9\n");
     let _ = std::fs::remove_dir_all(&d);
