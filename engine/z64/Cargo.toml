@@ -1,0 +1,19 @@
+# The z64 format's own crate, kept in the z64 project beside this one: a copy here, so that a
+# clone of this repository builds alone. src/ is that project's, unchanged, python.rs left out:
+# to take a new version, copy its files over these. Only this manifest differs (no Python, no
+# cdylib, zstd without its default features).
+[package]
+name = "z64"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Block-based zstd files (64 KiB blocks): gzip-like line I/O, fast seek, append, parallelism"
+
+[features]
+# Never on here: lib.rs names it, and python.rs is not copied.
+python = []
+
+[dependencies]
+memchr = "2"
+rayon = "1"
+zstd = { version = "0.14", default-features = false }

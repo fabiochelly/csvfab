@@ -77,6 +77,7 @@ csvfab                  # open the window
 csvfab data.csv more.tsv
 csvfab export.xlsx      # converted to export.csv beside it, which is what opens
 csvfab data.parquet     # the same for Parquet
+csvfab data.csv.z64     # a z64 file, saved back as z64
 csvfab server.log app.py  # not a table: opened as raw text, one line per row, coloured
 csvfab data.sqlite        # a table of a SQLite database, as a CSV beside it
 ```

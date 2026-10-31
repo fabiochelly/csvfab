@@ -352,7 +352,7 @@ fn big_files_parallel_and_head() {
         if head.partial {
             assert!(head.n <= full.n);
             for k in 0..head.n { assert_eq!(head.starts.get(k), full.starts.get(k), "{ctx}: head record {k}"); }
-            let done = head.complete(OpenOptions::default(), None);
+            let done = head.complete(OpenOptions::default(), None).unwrap();
             assert_eq!((done.n, done.width, done.enc, done.qerr), (full.n, full.width, full.enc, full.qerr), "{ctx}: completed");
             for k in 0..=done.n { assert_eq!(done.starts.get(k), full.starts.get(k)); }
         }

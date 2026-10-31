@@ -142,6 +142,25 @@ Opened through `convert`: `.xls`, `.xlsb`, `.ods` (`book_read`, calamine, a shee
 `dump.gz` → `dump.csv`), and what comes out opens as any file: an `.xlsx` in a zip then goes through
 its own import. A zip's members are base names only, whatever the archive says.
 
+A `.z64` (zstd in independent blocks of 64 KiB, `engine/src/z64file.rs`) is not unpacked beside itself:
+the tab stands on it, Ctrl+S writes it back. `Base::map` unpacks it whole, on every core, into anonymous
+memory, or, past half the memory available, into an unnamed file (beside it on Linux, where the
+temporary folder is often memory; the system's elsewhere). Everything after that sees bytes, as for a
+mapped file, except what really is about the file on disk: `Base::mapped` is false (no kernel copy from
+it), `size` is the content's while `stamp` is the file's, and `sample` is taken from the file.
+`open_head` decodes only its first blocks; `complete` then unpacks it, and can fail on a damaged block:
+the first rows are then dropped (`Tab::poll`), never left to pass for the file. A file with no end
+marker opens with every complete block, and a toast says so; a save makes it complete. What it holds
+decides how it opens: `data.csv.z64` a table, `app.log.z64` raw lines, `data.z64` by its content,
+`data.json.z64` and other formats with an import unpacked beside it as a `.gz` (`import_format`).
+The target's name decides a save (`save_with`, `combine::write`): ending in `.z64`, it is written
+compressed, which the save dialog's "Compressed as z64" adds to the name. Rows left as they were
+still come out byte for byte, and the index comes from the save, as for a CSV. Not followed
+(`tail::cannot_follow`): a tail would unpack the whole file at each check.
+
+`engine/z64/` is the format's own crate, its sources copied unchanged from the z64 project (no
+Python, no cdylib): to take a new version, copy `src/*.rs` over them, `python.rs` left out.
+
 ## Exports and saves (keep this line clear)
 
 An **export** writes another file and leaves the tab where it is: Excel, SQLite, Parquet, a CSV of

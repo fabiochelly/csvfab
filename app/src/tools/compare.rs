@@ -157,7 +157,7 @@ impl Cmp {
 fn pick(cx: &Cx, dir: Option<PathBuf>) -> Job<Option<PathBuf>> {
     let ctx = cx.ctx.clone();
     Job::spawn(&ctx, move |_, _| {
-        let mut d = rfd::FileDialog::new().set_title("Compare with…").add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat"]).add_filter("All files", &["*"]);
+        let mut d = rfd::FileDialog::new().set_title("Compare with…").add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "z64"]).add_filter("All files", &["*"]);
         if let Some(dir) = dir { d = d.set_directory(dir); }
         d.pick_file()
     })

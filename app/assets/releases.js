@@ -8,6 +8,7 @@ window.CSVFAB_RELEASES = [
         ['All the world\'s scripts', 'Fonts for other scripts load from your system when a file needs them, with colour emoji.'],
         ['More formats', 'Open .xls, .xlsb, .ods and compressed .gz, .zst or .zip files; export to JSON, JSON Lines, TSV, HTML and Markdown.'],
         ['Nothing replaced behind your back', 'A character the chosen encoding cannot hold is announced before saving, with the choice to save as UTF-8.'],
+        ['z64 files', 'Open and save .z64 files as they are, nothing unpacked beside them; any save can write one.'],
     ] },
     { v: '2.1.2', date: '2026-10-31', items: [
         ['Exact duplicates', 'A new option counts case and spaces when comparing rows.'],

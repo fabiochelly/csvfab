@@ -1217,6 +1217,128 @@ fn encoding_rs_bytes(s: &str) -> Vec<u8> {
     o
 }
 
+/// A `.z64` opens as itself, nothing unpacked beside it, and Save writes a `.z64` back.
+#[test]
+fn a_z64_opens_and_saves_as_itself() {
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-z64-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("table.csv.z64");
+    let log = dir.join("app.log.z64");
+    let pack = |s: &str| z64::compress(s.as_bytes(), z64::Options::default()).unwrap();
+    std::fs::write(&path, pack("name;n\nZoé;1\n東京;2\n")).unwrap();
+    std::fs::write(&log, pack("a,b,c\nd,e,f\n")).unwrap();
+    let (p2, l2) = (path.clone(), log.clone());
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![l2, p2]));
+    for _ in 0..800 {
+        h.step();
+        if h.state().tabs.len() == 2 && h.state().tabs.iter().all(|t| t.table.is_some() && !t.busy() && !t.partial()) { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let log_tab = h.state().tabs.iter().position(|t| t.name == "app.log.z64").unwrap();
+    assert!(h.state().tabs[log_tab].st().unwrap().base.dialect.lines, "a log stays lines, its commas are no columns");
+    let i = h.state().tabs.iter().position(|t| t.name == "table.csv.z64").unwrap();
+    h.state_mut().active = i;
+    let st = h.state().tabs[i].st().unwrap().clone();
+    assert_eq!(st.ncols, 2);
+    assert_eq!(st.cell(st.data_id(1), 0), "東京");
+    let ctx = h.ctx.clone();
+    let id = st.data_id(0);
+    let t = h.state_mut().tabs[i].table.as_mut().unwrap();
+    t.set_cells(&[(id, 1, "9".into())]);
+    h.state_mut().save(None, false, &ctx);
+    for _ in 0..400 {
+        h.step();
+        if !h.state().saving() && !h.state().tabs[i].dirty() && !h.state().tabs[i].busy() { break; }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(z64::decompress(&std::fs::read(&path).unwrap(), 1).unwrap(), "name;n\nZoé;9\n東京;2\n".as_bytes());
+    assert_eq!(h.state().tabs[i].st().unwrap().cell(h.state().tabs[i].st().unwrap().data_id(0), 1), "9");
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert!(!names.iter().any(|n| n == "table.csv" || n.ends_with(".tmp")), "{names:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A big `.z64`: its first rows from its first blocks, an edit made on them, the rest unpacked
+/// under it: the edit stays, on the whole file.
+#[test]
+fn a_big_z64_shows_its_head_then_the_whole() {
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-z64big-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("big.csv.z64");
+    let rows = 2_000_000;
+    let text: String = std::iter::once("id;name\n".to_string()).chain((0..rows).map(|i| format!("{i};name {i}\n"))).collect();
+    std::fs::write(&path, z64::compress(text.as_bytes(), z64::Options::default()).unwrap()).unwrap();
+    let p2 = path.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![p2]));
+    let mut edited = false;
+    for _ in 0..2000 {
+        h.step();
+        let tab = h.state_mut().tabs.first_mut();
+        if let Some(t) = tab.filter(|t| t.table.is_some()) {
+            if !edited && t.partial() {
+                edited = true;
+                let table = t.table.as_mut().unwrap();
+                let id = table.st.data_id(3);
+                table.set_cells(&[(id, 1, "edited".into())]);
+            }
+            if !t.partial() && !t.busy() { break; }
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let st = h.state().tabs[0].st().unwrap().clone();
+    assert!(!st.base.partial);
+    assert_eq!(st.len(), rows);
+    assert_eq!(st.cell(st.data_id(rows - 1), 1), format!("name {}", rows - 1));
+    if edited { assert_eq!(st.cell(st.data_id(3), 1), "edited", "the edit made on the first rows"); }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A block damaged further down: the first rows came, the whole cannot. They must not pass for
+/// the file: the tab says it cannot be read.
+#[test]
+fn a_damaged_z64_does_not_pass_for_its_first_rows() {
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-z64bad-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bad.csv.z64");
+    let text: String = std::iter::once("id;name\n".to_string()).chain((0..300_000).map(|i| format!("{i};name {i}\n"))).collect();
+    let mut bytes = z64::compress(text.as_bytes(), z64::Options::default()).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0x55;
+    std::fs::write(&path, bytes).unwrap();
+    let p2 = path.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![p2]));
+    for _ in 0..2000 {
+        h.step();
+        if h.state().tabs.first().is_some_and(|t| t.error.is_some()) { break; }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let t = &h.state().tabs[0];
+    assert!(t.error.is_some());
+    assert!(t.table.is_none(), "no table left on the first rows alone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A z64 whose writer stopped: what it holds shows, and a toast says so.
+#[test]
+fn an_unfinished_z64_is_told() {
+    let dir = std::env::temp_dir().join(format!("csvfab-ui-z64cut-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("cut.csv.z64");
+    let text: String = std::iter::once("id;name\n".to_string()).chain((0..300_000).map(|i| format!("{i};name {i}\n"))).collect();
+    let bytes = z64::compress(text.as_bytes(), z64::Options::default()).unwrap();
+    std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
+    let p2 = path.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 600.0)).with_pixels_per_point(1.0).build_eframe(move |cc| App::new(cc, vec![p2]));
+    for _ in 0..2000 {
+        h.step();
+        if !h.state().toasts.is_empty() { break; }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(h.state().toasts.iter().any(|t| t.text.contains("no end marker")));
+    assert!(h.state().tabs[0].st().unwrap().len() > 1000);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A zip of one table: unpacked beside it, what comes out opens in a tab.
 #[test]
 fn a_zip_opens_through_its_table() {

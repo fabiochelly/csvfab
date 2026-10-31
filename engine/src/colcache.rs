@@ -245,7 +245,8 @@ pub fn used_bytes() -> usize {
     USED.load(Ordering::Relaxed)
 }
 
-fn meminfo() -> Option<(u64, u64)> {
+/// The machine's memory: (total, available) bytes.
+pub(crate) fn meminfo() -> Option<(u64, u64)> {
     let s = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb = |k: &str| s.lines().find(|l| l.starts_with(k))?.split_whitespace().nth(1)?.parse::<u64>().ok().map(|v| v * 1024);
     Some((kb("MemTotal:")?, kb("MemAvailable:")?))

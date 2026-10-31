@@ -34,5 +34,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 libc = "0.2"
 
 [dev-dependencies]
+# A `.z64` made for a test (ui_tests.rs).
+z64 = { path = "../engine/z64" }
 # Off-screen rendering of the real app for look checks (examples/shot.rs): no window.
 egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }

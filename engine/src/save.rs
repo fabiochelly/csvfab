@@ -3,12 +3,14 @@
 //! without changing it gives back the same bytes; an edited row is written in
 //! the file's delimiter, encoding and line break. Saves are atomic: a
 //! temporary file beside the target, synced, then renamed over it — after a
-//! timestamped `.bak` of the original, the first time it is overwritten.
+//! timestamped `.bak` of the original, the first time it is overwritten. A target
+//! named `.z64` is written compressed, the same bytes through `z64file`.
 
 use crate::base::{Base, Expect, Stamp};
 use crate::enc::{self, Enc};
 use crate::scan::Offsets;
 use crate::table::{RowId, State};
+use crate::z64file;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -792,16 +794,23 @@ fn save_with(st: &State, path: &Path, o: &SaveOptions, expect: Option<Expect>, b
     let tmp = temp_beside(path);
     let res = (|| -> io::Result<()> {
         let f = File::create(&tmp)?;
-        let f = if p.to.is_some() {
-            let w = write_to(st, o, BufWriter::with_capacity(1 << 20, f))?;
-            w.into_inner().map_err(|e| e.into_error())?
-        } else {
-            let mut out = FileSink { w: BufWriter::with_capacity(1 << 20, f), src: source(b) };
-            if p.bom { out.put(p.enc.bom())?; }
+        if z64file::is_z64(path) {
+            let mut out = Out { w: z64file::writer(f), to: p.to, pending: Vec::new(), raw: p.exact.then_some(&**b), pos: (0, 0) };
+            if p.bom { out.w.write_all(p.enc.bom())?; }
             write_rows(st, o, &p, &mut out, ix.as_mut())?;
-            out.w.into_inner().map_err(|e| e.into_error())?
-        };
-        f.sync_all()?;
+            z64file::finish(out.finish()?)?;
+        } else {
+            let f = if p.to.is_some() {
+                let w = write_to(st, o, BufWriter::with_capacity(1 << 20, f))?;
+                w.into_inner().map_err(|e| e.into_error())?
+            } else {
+                let mut out = FileSink { w: BufWriter::with_capacity(1 << 20, f), src: source(b) };
+                if p.bom { out.put(p.enc.bom())?; }
+                write_rows(st, o, &p, &mut out, ix.as_mut())?;
+                out.w.into_inner().map_err(|e| e.into_error())?
+            };
+            f.sync_all()?;
+        }
         // Cut short while being written: the zeros read in its place must not land.
         if b.cut_short() { return Err(io::Error::other("cut short")); }
         // Written by another program while this was being written (a long save): theirs stays.

@@ -407,7 +407,7 @@ impl App {
         if path.is_dir() {
             let mut files: Vec<PathBuf> = std::fs::read_dir(&path).into_iter().flatten().flatten().map(|e| e.path())
                 .filter(|p| p.is_file() && (csvfab_engine::convert::import_format(p).is_some()
-                    || p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["csv", "tsv", "txt", "tab", "psv", "dat", "log"].contains(&e.to_ascii_lowercase().as_str()))))
+                    || p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["csv", "tsv", "txt", "tab", "psv", "dat", "log", "z64"].contains(&e.to_ascii_lowercase().as_str()))))
                 .collect();
             files.sort();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -431,8 +431,12 @@ impl App {
         }
         // Not a table by its name (a log, code, settings, no extension): raw text, as in the
         // web — commas in a .log or a .py must not cut its lines into columns. Text and .dat
-        // files are tables as often as not: read by their content.
-        let table = path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["csv", "tsv", "tab", "psv", "txt", "dat"].contains(&e.to_ascii_lowercase().as_str()));
+        // files are tables as often as not: read by their content. A `.z64` by what it holds
+        // (`data.csv.z64`, `app.log.z64`), by its content when its name does not tell (`data.z64`).
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let inner = std::path::Path::new(csvfab_engine::z64file::inner_name(name)).extension().and_then(|e| e.to_str());
+        let table = inner.is_some_and(|e| ["csv", "tsv", "tab", "psv", "txt", "dat"].contains(&e.to_ascii_lowercase().as_str()))
+            || (inner.is_none() && csvfab_engine::z64file::is_z64(&path));
         let opts = if table { self.next_opts } else { OpenOptions { delim: Some(0), ..self.next_opts } };
         self.tabs.push(Tab::open_with(path, opts, if table { self.next_header } else { None }, ctx));
         self.active = self.tabs.len() - 1;
@@ -443,13 +447,13 @@ impl App {
         // The system dialog blocks its thread: never the UI's.
         self.picking = Some(Job::spawn(ctx, |_, _| {
             rfd::FileDialog::new()
-                .add_filter("Tables: CSV, text, Excel, OpenDocument, JSON, SQLite, Parquet, compressed", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "xls", "xlsb", "ods", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3", "parquet", "parq", "pqt", "gz", "gzip", "zst", "zstd", "zip"])
-                .add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log"])
+                .add_filter("Tables: CSV, text, Excel, OpenDocument, JSON, SQLite, Parquet, compressed", &["csv", "tsv", "txt", "tab", "psv", "dat", "xlsx", "xlsm", "xls", "xlsb", "ods", "json", "jsonl", "ndjson", "sqlite", "sqlite3", "db", "db3", "parquet", "parq", "pqt", "gz", "gzip", "zst", "zstd", "zip", "z64"])
+                .add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log", "z64"])
                 .add_filter("Excel, OpenDocument", &["xlsx", "xlsm", "xls", "xlsb", "ods"])
                 .add_filter("JSON", &["json", "jsonl", "ndjson"])
                 .add_filter("SQLite", &["sqlite", "sqlite3", "db", "db3"])
                 .add_filter("Parquet", &["parquet", "parq", "pqt"])
-                .add_filter("Compressed", &["gz", "gzip", "zst", "zstd", "zip"])
+                .add_filter("Compressed", &["gz", "gzip", "zst", "zstd", "zip", "z64"])
                 .add_filter("All files", &["*"])
                 .pick_files()
                 .unwrap_or_default()
@@ -1211,6 +1215,8 @@ impl App {
         lap("input");
         let m = self.m.clone();
         for t in &mut self.tabs { t.poll(&ctx, &m); }
+        let notes: Vec<String> = self.tabs.iter_mut().filter_map(|t| t.note.take()).collect();
+        for n in notes { self.toast(n, &ctx); }
         lap("tab poll");
         self.poll_save(&ctx);
         self.poll_disk_job();

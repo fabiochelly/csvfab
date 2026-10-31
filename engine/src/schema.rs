@@ -146,6 +146,7 @@ fn value_str(v: &Value) -> String {
 
 /// The file name without its extension.
 pub fn stem(name: &str) -> &str {
+    let name = crate::z64file::inner_name(name);
     match name.rfind('.') { Some(k) => &name[..k], None => name }
 }
 

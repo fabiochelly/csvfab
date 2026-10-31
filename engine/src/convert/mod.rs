@@ -40,7 +40,7 @@ pub enum Format {
     Parquet,
     /// `.xls`, `.xlsb`, `.ods`.
     Book,
-    /// `.gz`, `.zst`: one file.
+    /// `.gz`, `.zst`, a `.z64` of what needs an import: one file.
     Packed,
     /// `.zip`: its tables, listed as sheets.
     Zip,
@@ -54,10 +54,11 @@ impl Format {
 }
 
 /// The format a file is opened through, from its extension (None: a CSV or
-/// text file, opened as it is).
+/// text file, opened as it is, a `.z64` of one too).
 pub fn import_format(path: &Path) -> Option<Format> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match ext.as_str() {
+        "z64" => import_format(Path::new(path.file_stem()?)).map(|_| Format::Packed)?,
         "xlsx" | "xlsm" => Format::Xlsx,
         "json" | "jsonl" | "ndjson" => Format::Json,
         "sqlite" | "sqlite3" | "db" | "db3" => Format::Sqlite,
@@ -162,6 +163,7 @@ pub fn fallback_dir() -> Option<PathBuf> {
 /// The stem of a table's file name, without the extension of a CSV, a text
 /// file, a workbook, a database or a Parquet file.
 fn stem_of(name: &str) -> &str {
+    let name = crate::z64file::inner_name(name);
     for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet", ".json", ".jsonl", ".html", ".md"] {
         if name.len() > ext.len() && name.is_char_boundary(name.len() - ext.len()) && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext) {
             return &name[..name.len() - ext.len()];

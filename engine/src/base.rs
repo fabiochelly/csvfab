@@ -1,9 +1,11 @@
-//! A file as read: its bytes (memory-mapped, never copied — transcoded encodings aside) and
-//! where each record starts. Immutable once built, shared with background jobs.
+//! A file as read: its bytes (memory-mapped, never copied — transcoded encodings aside; a `.z64`
+//! unpacked, `z64file`) and where each record starts. Immutable once built, shared with
+//! background jobs.
 
 use crate::enc::{self, Enc};
 use crate::scan::{self, Dialect, Offsets};
 use crate::mapguard::Guarded;
+use crate::z64file;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -119,6 +121,15 @@ fn windows_file_index(path: &Path) -> u64 {
     ((i.index_hi as u64) << 32) | i.index_lo as u64
 }
 
+/// A base read from a `.z64`: what is held is what the file holds, not the file's own bytes.
+#[derive(Clone, Copy, Debug)]
+pub struct Packed {
+    /// `file_sample` of the file itself, for `Base::sample`.
+    sample: Option<u64>,
+    /// The file has no end marker: `z64file::Unpacked::unfinished`.
+    unfinished: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OpenOptions {
     pub enc: Option<Enc>,
@@ -146,11 +157,13 @@ pub struct Base {
     pub width: usize,
     pub odd: Vec<(u32, u32)>,
     pub qerr: u32,
+    /// The size of the data: of what a `.z64` holds, for one (`stamp` has the file's own).
     pub size: u64,
     pub stamp: Option<Stamp>,
     pub load_time: std::time::Duration,
     /// Only the first records (`open_head`): the whole index is being built.
     pub partial: bool,
+    packed: Option<Packed>,
 }
 
 /// The file behind a base read through UTF-8: rows written as they were come from here (the
@@ -171,11 +184,12 @@ const HEAD_BYTES: usize = 1 << 20;
 impl Base {
     pub fn open(path: &Path, o: OpenOptions, progress: Option<&AtomicUsize>) -> std::io::Result<Base> {
         let t0 = Instant::now();
-        let (data, stamp, size) = map(path)?;
+        let (data, stamp, size, packed) = map(path, progress)?;
         let mut b = Base::from_data(data, o, progress);
         b.path = Some(path.to_path_buf());
         b.stamp = stamp;
         b.size = size;
+        b.packed = packed;
         b.load_time = t0.elapsed();
         Ok(b)
     }
@@ -187,25 +201,48 @@ impl Base {
     /// shows when the whole base comes).
     pub fn open_head(path: &Path, o: OpenOptions) -> std::io::Result<Base> {
         let t0 = Instant::now();
-        let (data, stamp, size) = map(path)?;
+        if z64file::is_z64(path) {
+            if let Some(b) = Base::packed_head(path, o)? { return Ok(Base { load_time: t0.elapsed(), ..b }); }
+        }
+        let (data, stamp, size, packed) = map(path, None)?;
         let mut b = Base::head(data, o);
         b.path = Some(path.to_path_buf());
         b.stamp = stamp;
         b.size = size;
+        b.packed = packed;
         b.load_time = t0.elapsed();
         Ok(b)
     }
 
+    /// `open_head` of a `.z64`: only the blocks of its first records unpacked. None when a head
+    /// cannot stand alone (a small file, a first record past them, a UTF-16 file): read it whole.
+    fn packed_head(path: &Path, o: OpenOptions) -> std::io::Result<Option<Base>> {
+        let stamp = Stamp::of(path);
+        let Some(bytes) = z64file::head(path, HEAD_BYTES + (1 << 16))? else { return Ok(None) };
+        let mut b = Base::head(Data::Owned(Arc::new(bytes)), o);
+        if !b.partial { return Ok(None); }
+        b.path = Some(path.to_path_buf());
+        b.stamp = stamp;
+        b.size = z64file::content_len(path)?;
+        b.packed = Some(Packed { sample: None, unfinished: false });
+        Ok(Some(b))
+    }
+
     /// The whole base of a head from `open_head`: the same mapping (its pages
-    /// already in), every record indexed.
-    pub fn complete(&self, o: OpenOptions, progress: Option<&AtomicUsize>) -> Base {
+    /// already in), every record indexed. A `.z64`'s head holds its first blocks only: the file
+    /// is unpacked here, which a damaged block can stop. Progress: bytes unpacked, then indexed.
+    pub fn complete(&self, o: OpenOptions, progress: Option<&AtomicUsize>) -> std::io::Result<Base> {
         let t0 = Instant::now();
-        let mut b = Base::from_data(self.source().clone(), o, progress);
+        let mut b = match self.path.as_deref().filter(|_| self.packed.is_some() && self.partial) {
+            Some(path) => return Base::open(path, o, progress).map(|b| Base { load_time: self.load_time + t0.elapsed(), ..b }),
+            None => Base::from_data(self.source().clone(), o, progress),
+        };
         b.path = self.path.clone();
         b.stamp = self.stamp;
         b.size = self.size;
+        b.packed = self.packed;
         b.load_time = self.load_time + t0.elapsed();
-        b
+        Ok(b)
     }
 
     /// The same bytes read with other options (another encoding, another
@@ -235,6 +272,7 @@ impl Base {
         b.path = self.path.clone();
         b.stamp = self.stamp;
         b.size = self.size;
+        b.packed = self.packed;
         b.load_time = t0.elapsed();
         Some(b)
     }
@@ -244,7 +282,7 @@ impl Base {
     /// as they are. None when that does not apply — then `open` it again.
     pub fn append(&self) -> std::io::Result<Option<Base>> {
         let Some(path) = &self.path else { return Ok(None) };
-        if self.partial || !self.dialect.lines || self.enc.transcoded() || !matches!(self.data, Data::Map(_)) || self.skip > 0 {
+        if self.partial || !self.dialect.lines || self.enc.transcoded() || !self.mapped() || self.skip > 0 {
             return Ok(None);
         }
         let old = self.bytes().len();
@@ -252,7 +290,7 @@ impl Base {
             return Ok(None);
         }
         let t0 = Instant::now();
-        let (data, stamp, size) = map(path)?;
+        let (data, stamp, size, _) = map(path, None)?;
         if (size as usize) < old || data[..old.min(4096)] != self.bytes()[..old.min(4096)] {
             return Ok(None);
         }
@@ -342,6 +380,7 @@ impl Base {
             stamp: None,
             load_time: Default::default(),
             partial: false,
+            packed: None,
         }
     }
 
@@ -389,6 +428,7 @@ impl Base {
             stamp: None,
             load_time: Default::default(),
             partial: true,
+            packed: None,
         }
     }
 
@@ -422,6 +462,7 @@ impl Base {
             stamp: None,
             load_time: Default::default(),
             partial: true,
+            packed: None,
         }
     }
 
@@ -492,19 +533,32 @@ impl Base {
         });
     }
 
-    /// Whether the bytes are the file's, mapped (not a copy in memory).
+    /// Whether the bytes are the file's, mapped (not a copy in memory, not a `.z64` unpacked).
     pub fn mapped(&self) -> bool {
-        matches!(self.data, Data::Map(_))
+        matches!(self.data, Data::Map(_)) && self.packed.is_none()
     }
 
-    /// Whether the file's own bytes are at hand, mapped (behind a transcoded base too).
+    /// Whether the file's content is held as it is on disk, read again the same way (behind a
+    /// transcoded base too; a `.z64` unpacked is): edits can stand on it.
     pub fn file_mapped(&self) -> bool {
         matches!(self.source(), Data::Map(_))
+    }
+
+    /// Read from a `.z64`.
+    pub fn is_packed(&self) -> bool {
+        self.packed.is_some()
+    }
+
+    /// Read from a `.z64` with no end marker: its writer stopped before the end, and what is
+    /// here is every complete block.
+    pub fn unfinished(&self) -> bool {
+        self.packed.is_some_and(|p| p.unfinished)
     }
 
     /// `file_sample` of the file as it was read (from the bytes mapped; None: not mapped, or
     /// cut short since).
     pub fn sample(&self) -> Option<u64> {
+        if let Some(p) = self.packed { return p.sample; }
         if !self.file_mapped() || self.cut_short() { return None; }
         let d: &[u8] = self.source();
         sample_of(d.len() as u64, |at, buf| { buf.copy_from_slice(&d[at as usize..at as usize + buf.len()]); Ok(()) })
@@ -562,7 +616,7 @@ impl Base {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_index(path: &Path, like: &Base, bom: bool, skip: usize, starts: Offsets, n: usize, width: usize, odd: Vec<(u32, u32)>, stamp: Stamp) -> std::io::Result<Option<Base>> {
         let t0 = Instant::now();
-        let (data, now, size) = map(path)?;
+        let (data, now, size, packed) = map(path, None)?;
         // Written without BOM but starting as one (a first cell's U+FEFF): a reading skips it.
         let bom_like = !bom && !like.enc.bom().is_empty() && data.starts_with(like.enc.bom());
         if now != Some(stamp) || size as usize != skip + starts.get(n) || data[..skip] != *(if bom { like.enc.bom() } else { b"" }) || bom_like {
@@ -592,11 +646,16 @@ impl Base {
             stamp: Some(stamp),
             load_time: t0.elapsed(),
             partial: false,
+            packed,
         }))
     }
 
-    /// Whether both hold the very same bytes (one map, one buffer).
+    /// Whether both hold the very same bytes (one map, one buffer), or one is the head of the
+    /// other (a `.z64`'s: its first blocks, the file unpacked apart for the whole).
     pub fn same_bytes(&self, other: &Base) -> bool {
+        if self.partial && self.packed.is_some() && other.packed.is_some() {
+            return self.path == other.path && self.stamp.is_some() && self.stamp == other.stamp;
+        }
         match (self.source(), other.source()) {
             (Data::Map(a), Data::Map(b)) => Arc::ptr_eq(a, b),
             (Data::Owned(a), Data::Owned(b)) => Arc::ptr_eq(a, b),
@@ -610,10 +669,15 @@ impl Base {
     }
 }
 
-/// The file mapped (read-only), as it is now.
-fn map(path: &Path) -> std::io::Result<(Data, Option<Stamp>, u64)> {
-    let f = File::open(path)?;
+/// The file mapped (read-only), as it is now; a `.z64` unpacked. Progress: bytes unpacked.
+fn map(path: &Path, progress: Option<&AtomicUsize>) -> std::io::Result<(Data, Option<Stamp>, u64, Option<Packed>)> {
     let stamp = Stamp::of(path);
+    if z64file::is_z64(path) {
+        let u = z64file::read(path, progress)?;
+        let sample = stamp.and_then(|s| file_sample(path, s.len));
+        return Ok((u.data, stamp, u.size, Some(Packed { sample, unfinished: u.unfinished })));
+    }
+    let f = File::open(path)?;
     let size = f.metadata()?.len();
     let data = if size == 0 {
         Data::Owned(Arc::new(Vec::new()))
@@ -628,7 +692,7 @@ fn map(path: &Path) -> std::io::Result<(Data, Option<Stamp>, u64)> {
         let _ = m.advise(memmap2::Advice::HugePage);
         Data::Map(Arc::new(m))
     };
-    Ok((data, stamp, size))
+    Ok((data, stamp, size, None))
 }
 
 /// Whether fields are cut on ASCII bytes only: a delimiter forced to a byte above 0x7F would
@@ -884,7 +948,7 @@ mod tests {
         assert!(head.partial && head.n > 1000 && head.n < full.n);
         assert_eq!(head.enc, Enc::Utf8);
         for i in 0..=head.n { assert_eq!(head.starts.get(i), full.starts.get(i)); }
-        let done = head.complete(OpenOptions::default(), None);
+        let done = head.complete(OpenOptions::default(), None).unwrap();
         assert!(!done.partial);
         same(&done, &full);
         std::fs::remove_dir_all(p.parent().unwrap()).unwrap();

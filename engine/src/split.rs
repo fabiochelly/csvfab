@@ -109,6 +109,7 @@ pub fn safe_file_name(s: &str) -> String {
 
 /// The name without its table extension.
 pub fn stem_of(name: &str) -> &str {
+    let name = crate::z64file::inner_name(name);
     let lower = name.to_ascii_lowercase();
     for ext in [".csv", ".tsv", ".txt", ".xlsx", ".sqlite", ".parquet", ".json", ".jsonl", ".html", ".md"] {
         if lower.ends_with(ext) && name.is_char_boundary(name.len() - ext.len()) {
@@ -120,6 +121,7 @@ pub fn stem_of(name: &str) -> &str {
 
 /// The extension new files get: the source's own (.csv, .tsv, .txt), else .csv.
 pub fn csv_ext(name: &str) -> &str {
+    let name = crate::z64file::inner_name(name);
     let lower = name.to_ascii_lowercase();
     for ext in [".csv", ".tsv", ".txt"] {
         if lower.ends_with(ext) && name.is_char_boundary(name.len() - ext.len()) {

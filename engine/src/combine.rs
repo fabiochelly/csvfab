@@ -237,8 +237,12 @@ pub fn write(sources: &[Source], cols: &[OutCol], source_col: bool, f: &Format, 
     let tmp = path.with_file_name(format!(".{name}.csvfab-{}.tmp", std::process::id()));
     let res = (|| {
         let file = std::fs::File::create(&tmp)?;
-        let w = write_to(sources, cols, source_col, f, BufWriter::with_capacity(1 << 20, file), cancel, progress)?;
-        w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        if crate::z64file::is_z64(path) {
+            crate::z64file::finish(write_to(sources, cols, source_col, f, crate::z64file::writer(file), cancel, progress)?)?;
+        } else {
+            let w = write_to(sources, cols, source_col, f, BufWriter::with_capacity(1 << 20, file), cancel, progress)?;
+            w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        }
         std::fs::rename(&tmp, path)
     })();
     if res.is_err() { let _ = std::fs::remove_file(&tmp); }

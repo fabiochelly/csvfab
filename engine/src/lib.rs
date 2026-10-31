@@ -35,6 +35,7 @@ pub mod table;
 pub mod tail;
 pub mod text;
 pub mod view;
+pub mod z64file;
 
 pub use base::{Base, Expect, OpenOptions, Stamp};
 pub use enc::Enc;

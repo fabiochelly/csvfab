@@ -1,7 +1,7 @@
 //! Save as, export and extract (14-save-export.js): the save dialog — a file
-//! name, a format (CSV with its delimiter and encoding; as a copy, an Excel workbook, a
-//! SQLite database, a Parquet file, JSON, JSON Lines, TSV or any delimiter, an HTML or
-//! Markdown table), only the rows shown — written in a job; Extract (the
+//! name, a format (CSV with its delimiter and encoding, compressed as z64 or not; as a copy,
+//! an Excel workbook, a SQLite database, a Parquet file, JSON, JSON Lines, TSV or any delimiter,
+//! an HTML or Markdown table), only the rows shown — written in a job; Extract (the
 //! rows shown to a new file beside the source, opened as a tab); Discard (the
 //! edits dropped, the file read again).
 //!
@@ -24,7 +24,7 @@ use csvfab_engine::convert::text_write::{self, TextFormat};
 use csvfab_engine::convert::{self, Format};
 use csvfab_engine::save::{self, SaveError, SaveOptions, Switch};
 use csvfab_engine::table::RowMask;
-use csvfab_engine::{Enc, RowId, State};
+use csvfab_engine::{z64file, Enc, RowId, State};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +35,7 @@ pub fn commands() -> Vec<Command> {
         Command { name: "Save as Excel workbook", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Xlsx)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Save as SQLite database", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Sqlite)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Save as Parquet file", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Parquet)); cx.out.push(Cmd::Tool(Box::new(t))) } },
+        Command { name: "Save as compressed z64 file", group: "Save", keys: None, enabled: has_table, run: |cx| { let mut t = SaveAs::new(cx.tab, None); t.name = z64_name(&t.name, true); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Export as JSON", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Json)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Export as JSON Lines", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::JsonLines)); cx.out.push(Cmd::Tool(Box::new(t))) } },
         Command { name: "Export as TSV", group: "Save", keys: None, enabled: has_table, run: |cx| { let t = SaveAs::new(cx.tab, Some(Fmt::Delim(b'\t'))); cx.out.push(Cmd::Tool(Box::new(t))) } },
@@ -139,8 +140,20 @@ fn csv_ext(name: &str) -> &str {
     csvfab_engine::split::csv_ext(name)
 }
 
+/// `name` with or without `.z64`: `a.csv` ↔ `a.csv.z64`. A name without an extension gets `.csv`
+/// inside, for what it holds to show.
+fn z64_name(name: &str, on: bool) -> String {
+    let inner = z64file::inner_name(name);
+    match (on, Path::new(inner).extension()) {
+        (false, _) => inner.to_string(),
+        (true, Some(_)) => format!("{inner}.z64"),
+        (true, None) => format!("{inner}.csv.z64"),
+    }
+}
+
 /// `foo-3.csv` → `foo-4.csv`, `v007.csv` → `v008.csv` (padding kept), `foo.csv` → `foo-2.csv`.
 pub fn next_name(name: &str) -> String {
+    if let Some(inner) = z64file::strip(name) { return format!("{}.z64", next_name(inner)); }
     let (stem, ext) = match name.rfind('.') {
         Some(k) if k > 0 => (&name[..k], &name[k..]),
         _ => (name, ".csv"),
@@ -631,10 +644,11 @@ impl SaveAs {
             if let Some(f) = pick {
                 // The extension follows the format; the stem typed is kept.
                 let stem = stem_of(self.name.trim()).to_string();
-                let ext = Path::new(&self.name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
+                let packed = z64file::strip(self.name.trim()).is_some();
+                let ext = Path::new(z64file::inner_name(self.name.trim())).extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
                 match f.ext() {
                     Some(e) => self.name = format!("{stem}{e}"),
-                    None if matches!(ext.as_deref(), Some("xlsx" | "sqlite" | "parquet" | "json" | "jsonl" | "html" | "md" | "tsv")) => self.name = format!("{stem}{}", csv_ext(&tab_name)),
+                    None if matches!(ext.as_deref(), Some("xlsx" | "sqlite" | "parquet" | "json" | "jsonl" | "html" | "md" | "tsv")) => self.name = z64_name(&format!("{stem}{}", csv_ext(&tab_name)), packed),
                     None => {}
                 }
                 self.fmt = f;
@@ -652,6 +666,12 @@ impl SaveAs {
                     form::check(ui, &p, &mut self.bom, "With a BOM — Excel then reads the accents right");
                     ui.add_space(6.0);
                 }
+                // The name says it: what ends in .z64 is written compressed.
+                let mut packed = z64file::strip(self.name.trim()).is_some();
+                if form::check(ui, &p, &mut packed, "Compressed as z64 — opens here just the same") {
+                    self.name = z64_name(self.name.trim(), packed);
+                }
+                ui.add_space(6.0);
             }
             if filtered {
                 ui.add_space(6.0);
@@ -918,6 +938,11 @@ mod tests {
     #[test]
     fn next_names() {
         assert_eq!(next_name("foo.csv"), "foo-2.csv");
+        assert_eq!(next_name("foo.csv.z64"), "foo-2.csv.z64");
+        assert_eq!(next_name("foo-3.tsv.z64"), "foo-4.tsv.z64");
+        assert_eq!(z64_name("foo.csv", true), "foo.csv.z64");
+        assert_eq!(z64_name("foo.csv.z64", false), "foo.csv");
+        assert_eq!(z64_name("foo", true), "foo.csv.z64");
         assert_eq!(next_name("foo-3.csv"), "foo-4.csv");
         assert_eq!(next_name("v007.csv"), "v008.csv");
         assert_eq!(next_name("v099.tsv"), "v100.tsv");

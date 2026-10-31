@@ -44,8 +44,13 @@ impl Guarded {
     pub fn map(f: &File) -> std::io::Result<Guarded> {
         // SAFETY: read-only; the file shrinking under it is what the handler catches.
         let map = unsafe { Mmap::map(f)? };
+        Ok(Guarded::of(map))
+    }
+
+    /// A map made elsewhere (`len` > 0), under watch.
+    pub fn of(map: Mmap) -> Guarded {
         let slot = watch(map.as_ptr() as usize, map.len());
-        Ok(Guarded { map: std::mem::ManuallyDrop::new(map), slot })
+        Guarded { map: std::mem::ManuallyDrop::new(map), slot }
     }
 
     /// Whether another program cut the file short while it was mapped: the bytes past

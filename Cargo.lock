@@ -1056,6 +1056,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "unicode-bidi",
+ "z64",
  "zip",
 ]
 
@@ -1097,6 +1098,7 @@ dependencies = [
  "sha3",
  "simdutf8",
  "unicode-normalization",
+ "z64",
  "zip",
  "zmij",
  "zstd",
@@ -5271,6 +5273,15 @@ dependencies = [
  "quote",
  "syn 3.0.9",
  "synstructure",
+]
+
+[[package]]
+name = "z64"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "rayon",
+ "zstd",
 ]
 
 [[package]]

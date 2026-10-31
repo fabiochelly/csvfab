@@ -178,7 +178,7 @@ fn a_big_multi_byte_file_opens_by_its_head() {
         assert!(head.partial);
         assert_eq!(head.enc, Enc::ShiftJis);
         assert_eq!(head.size, b.len() as u64);
-        let full = head.complete(o, None);
+        let full = head.complete(o, None).unwrap();
         assert!(!full.partial);
         assert_eq!(full.n, 150_001);
         assert!(head.same_bytes(&full));
@@ -322,7 +322,7 @@ fn perf_multi_byte_open_and_save() {
         let t0 = std::time::Instant::now();
         let head = Base::open_head(&p, OpenOptions::default()).unwrap();
         let t1 = t0.elapsed();
-        let full = head.complete(OpenOptions::default(), None);
+        let full = head.complete(OpenOptions::default(), None).unwrap();
         let t2 = t0.elapsed();
         println!("{size:.0} MB {:?}: head {t1:?} ({} rows), whole {t2:?}, {} rows, {:.0} MB kept", full.enc, head.n, full.n, full.heap_bytes() as f64 / 1e6);
         let mut t = Table::new(Arc::new(full), None);

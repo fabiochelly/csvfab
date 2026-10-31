@@ -124,7 +124,7 @@ impl LookupTool {
     /// The system's file dialog, then the file read — off the UI thread.
     fn pick(&mut self, ctx: &eframe::egui::Context) {
         self.picking = Some(Job::spawn(ctx, |_, _| {
-            let path = rfd::FileDialog::new().add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat"]).add_filter("All files", &["*"]).pick_file()?;
+            let path = rfd::FileDialog::new().add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "z64"]).add_filter("All files", &["*"]).pick_file()?;
             Some(csvfab_engine::combine::Source::open(&path).map(|s| (s.name, s.st)).map_err(|e| format!("Cannot read {}: {e}", path.display())))
         }));
     }

@@ -71,8 +71,9 @@ enum Load {
 struct Loader {
     rx: Receiver<Load>,
     progress: Arc<AtomicUsize>,
+    /// What `progress` runs to; for a `.z64`, known on the read's thread once its table is read.
     cancel: Arc<AtomicBool>,
-    total: u64,
+    total: Arc<AtomicUsize>,
     started: Instant,
 }
 
@@ -85,14 +86,18 @@ impl Loader {
         let (tx, rx) = channel();
         let progress = Arc::new(AtomicUsize::new(0));
         let cancel = Arc::new(AtomicBool::new(false));
-        let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        let (p, c, ctx) = (progress.clone(), cancel.clone(), ctx.clone());
+        let total = Arc::new(AtomicUsize::new(std::fs::metadata(&path).map_or(0, |m| m.len() as usize)));
+        let (p, t, c, ctx) = (progress.clone(), total.clone(), cancel.clone(), ctx.clone());
         std::thread::Builder::new().name("csvfab-read".into()).spawn(move || {
             let send = |m: Load| {
                 let _ = tx.send(m);
                 ctx.request_repaint();
             };
             let read = || -> Result<Load, String> {
+                // Its content is unpacked, then indexed: both count, and neither is the file's size.
+                if csvfab_engine::z64file::is_z64(&path) {
+                    if let Ok(n) = csvfab_engine::z64file::content_len(&path) { t.store(n as usize * 2, Ordering::Relaxed); }
+                }
                 if let Some(j) = journal {
                     let base = Arc::new(Base::open(&path, opts, Some(&p)).map_err(|e| e.to_string())?);
                     let t = csvfab_engine::journal::replay(base, &j).map_err(|e| format!("The unsaved edits could not be restored: {e}."))?;
@@ -113,7 +118,7 @@ impl Loader {
                 let header = Some(first.table.st.header);
                 send(Load::Head(Box::new(first)));
                 if c.load(Ordering::Relaxed) { return Err(String::new()); }
-                Ok(Load::Full(Box::new(Ready::new(base.complete(opts, Some(&p)), header))))
+                Ok(Load::Full(Box::new(Ready::new(base.complete(opts, Some(&p)).map_err(|e| e.to_string())?, header))))
             };
             match crate::job::guarded(read).unwrap_or_else(|m| Err(format!("internal error: {m}"))) {
                 Ok(m) => send(m),
@@ -337,6 +342,8 @@ pub struct Tab {
     pending: Option<ViewMemo>,
     pub view_time: Option<Duration>,
     pub backed_up: bool,
+    /// To tell the user, once: the app takes it each frame.
+    pub note: Option<String>,
     pub grid: crate::grid::GridState,
     pub show_filters: bool,
     pub show_charts: bool,
@@ -482,6 +489,7 @@ impl Tab {
             pending: None,
             view_time: None,
             backed_up: false,
+            note: None,
             grid: Default::default(),
             show_filters: true,
             show_charts: true,
@@ -514,7 +522,7 @@ impl Tab {
 
     /// While reading: the share done.
     pub fn load_progress(&self) -> Option<f32> {
-        self.loading.as_ref().map(|l| (l.progress.load(Ordering::Relaxed) as f32 / l.total.max(1) as f32).min(1.0))
+        self.loading.as_ref().map(|l| (l.progress.load(Ordering::Relaxed) as f32 / l.total.load(Ordering::Relaxed).max(1) as f32).min(1.0))
     }
 
     /// Whether the rows shown are only the file's first ones, the rest being indexed.
@@ -535,6 +543,9 @@ impl Tab {
             Some(Load::Failed(e)) => {
                 self.loading = None;
                 self.error = Some(e);
+                // The first rows came, the rest cannot (a damaged block further down a `.z64`):
+                // the first rows alone would pass for the file.
+                if self.partial() { crate::app::drop_later(self.table.take()); }
             }
             Some(Load::Head(r)) => self.install(*r, ctx, m),
             Some(Load::Full(r)) => {
@@ -542,6 +553,9 @@ impl Tab {
                     crate::profile::mark(&format!("file read ({:.1} ms in the engine, {:.1} ms since the read started)", r.table.st.base.load_time.as_secs_f64() * 1e3, l.started.elapsed().as_secs_f64() * 1e3));
                 }
                 self.loading = None;
+                if r.table.st.base.unfinished() {
+                    self.note = Some(format!("{} | This z64 file has no end marker: its writing stopped before the end. All its complete blocks are shown; saving writes a complete file.", self.name));
+                }
                 self.install(*r, ctx, m);
             }
             None => {}

@@ -33,6 +33,8 @@ pub fn cannot_follow(base: &Base) -> Option<&'static str> {
         Some("Follow works on raw text files.")
     } else if base.path.is_none() {
         Some("This table is not a file on disk.")
+    } else if base.is_packed() {
+        Some("A compressed file cannot be followed.")
     } else if base.enc.transcoded() {
         Some("A file in this encoding cannot be followed.")
     } else {

@@ -633,7 +633,7 @@ pub fn pick_save(ctx: &egui::Context, name: &str, dir: Option<std::path::PathBuf
 /// The system's dialog to pick files to open.
 pub fn pick_files(ctx: &egui::Context, dir: Option<std::path::PathBuf>) -> crate::job::Job<Vec<std::path::PathBuf>> {
     crate::job::Job::spawn(ctx, move |_, _| {
-        let mut d = rfd::FileDialog::new().add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log"]).add_filter("All files", &["*"]);
+        let mut d = rfd::FileDialog::new().add_filter("CSV and text", &["csv", "tsv", "txt", "tab", "psv", "dat", "log", "z64"]).add_filter("All files", &["*"]);
         if let Some(dir) = dir { d = d.set_directory(dir); }
         d.pick_files().unwrap_or_default()
     })

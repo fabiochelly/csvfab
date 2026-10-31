@@ -38,6 +38,8 @@ pub struct Lang {
 pub fn lang_of(name: &str) -> Lang {
     use Grammar::*;
     let n = name.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase();
+    // A `.z64` is read as what it holds.
+    let n = csvfab_engine::z64file::inner_name(&n).to_string();
     let ext = n.rfind('.').map_or("", |i| &n[i + 1..]);
     let is = |l: &[&str]| l.contains(&ext);
     let named = |l: &[&str]| l.contains(&n.as_str());
@@ -390,6 +392,8 @@ mod tests {
         assert_eq!(l("syslog.log.1"), ("Log", Grammar::Log));
         assert_eq!(l("app.out.12"), ("Log", Grammar::Log));
         assert_eq!(l("x.log.gz"), ("Log", Grammar::Log));
+        assert_eq!(l("x.log.z64"), ("Log", Grammar::Log));
+        assert_eq!(l("main.py.z64"), ("Python", Grammar::Py));
         assert_eq!(l("README"), ("Text", Grammar::Log));
         assert_eq!(l("notes.txt"), ("Text", Grammar::Log));
         assert_eq!(l("Makefile"), ("Makefile", Grammar::Sh));

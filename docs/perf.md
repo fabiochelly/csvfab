@@ -419,6 +419,28 @@ spell, so compare within a line), checksums identical on every `f global` case; 
   this alone through `GLIBC_TUNABLES` on the old binary); find, insights, dupes, sort_multi and the
   other ops stay within noise.
 
+## z64 (2026-10-31, the user's 2 GB file: 5.3M rows × 38 columns, 16 threads, `--profile fast`, file warm, four passes)
+
+Read and written as they are (`z64file.rs`), not unpacked beside themselves:
+
+| | CSV, 2.0 GB | `.csv.z64`, 921 MB |
+|---|---|---|
+| First rows | | 3 ms |
+| Whole file | 100–160 ms | 650 ms |
+| Save, one cell edited | 1.6–1.8 s | 0.85 s |
+| Save, then the tab on the file saved | | 1.9 s |
+
+- The whole file: 450 ms unpacked (4.5 GB/s), then the same scan as a CSV. The CSV's number stands on
+  pages already in memory; a cold 921 MB read is the z64's advantage, not measured here.
+- A save is faster than the CSV's: half the bytes to write and to sync. Compression (level 1, every
+  core) keeps ahead of the rows.
+- After a save the tab reads the file again (unpacked, no scan: the index comes from the save).
+- Did not pay: the size of a step (16 MiB to the whole file: 475 to 345 ms, 64 MiB kept, for the
+  progress shown and the compressed bytes held) and `MADV_HUGEPAGE` (the same here, with
+  huge pages set to `always`; kept for machines on `madvise`).
+- Measuring: several 2 GB bases alive at once doubled these times (page faults once memory is
+  fragmented). One base at a time, or the numbers mislead.
+
 ## How to measure
 
 - `./perf.sh` (whole suite) or `./perf.sh engine`. It takes a lock: only one
