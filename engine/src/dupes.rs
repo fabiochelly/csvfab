@@ -1034,6 +1034,19 @@ const TWICE_SHARE: u64 = 4;
 /// A print's "nothing to look at again": a row without a key, or with its pair made.
 const DONE: u32 = 0;
 
+/// A hash's print in the "seen" tables: its bits mixed first (murmur3's finaliser), since the
+/// tables read the top ones and foldhash, for some of its seeds, spreads those badly over close
+/// keys: nearly every row then found its bit taken and the filter let them all through.
+#[inline]
+fn print_of(mut h: u64) -> u32 {
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xC4CE_B9FE_1A85_EC53);
+    h ^= h >> 33;
+    ((h >> 32) as u32).max(1)
+}
+
 /// The (hash, position) pairs of the rows whose hash another row has too, some others (a false
 /// "seen") among them, sorted. `hash` gives a row's: None, the row has no key. Every row of a
 /// repeated hash is here: the first of them finds its bit free and leaves its print, each next
@@ -1051,7 +1064,7 @@ fn repeated(ids: &[RowId], hash: impl Fn(RowId, &mut Scratch) -> Option<u64> + S
             if cancel.load(Ordering::Relaxed) { return out; }
             for (k, &id) in chunk.iter().enumerate() {
                 let Some(h) = hash(id, s) else { continue };
-                let print = ((h >> 32) as u32).max(1);
+                let print = print_of(h);
                 if seen.set(print) {
                     twice.set(print);
                     out.push((h, (ci * CH + k) as u32));
