@@ -2,6 +2,10 @@
 
 Newest first. Every version is on the [releases page](https://github.com/fabiochelly/csvfab/releases).
 
+## 2.2.1 · 21 November 2026
+
+- **Fixed on Windows: csvfab didn't start on a computer without the Visual C++ Redistributable** (a missing `VCRUNTIME140.dll`). The C runtime is now part of `csvfab.exe`, so nothing else needs installing.
+
 ## 2.2.0 · 31 October 2026
 
 - **33 encodings, detected on open**: Cyrillic, Central European, Greek, Turkish, Baltic, Vietnamese, Thai, Hebrew, Arabic, Japanese, Korean, Simplified and Traditional Chinese, UTF-32. The status bar lists them by region, with a search. An untouched file saves back byte for byte.

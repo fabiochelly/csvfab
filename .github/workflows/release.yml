@@ -125,6 +125,10 @@ jobs:
           Start-Process build\csvfab.exe -ArgumentList '--version' -Wait -NoNewWindow -RedirectStandardOutput build\v.txt
           $got = (Get-Content build\v.txt -Raw).Trim()
           if ($got -ne "csvfab $v") { throw "csvfab.exe --version answers: $got" }
+          # This runner has the Visual C++ runtime, a fresh Windows does not: the C runtime
+          # must be linked in (.cargo/config.toml), never asked of VCRUNTIME140.dll.
+          $imports = & "$(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -find 'VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1)" /dependents build\csvfab.exe
+          if ($imports -match 'VCRUNTIME|MSVCP') { throw "csvfab.exe needs the Visual C++ runtime:`n$($imports -join "`n")" }
           Copy-Item build\csvfab.exe, install.ps1, LICENSE, README.md pkg\csvfab\
           Copy-Item icons\csvfab.ico pkg\csvfab\icons\
           Compress-Archive pkg\csvfab "dist\csvfab-$v-windows-x86_64.zip"

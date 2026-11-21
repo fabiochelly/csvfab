@@ -1,0 +1,5 @@
+# The C runtime linked into the Windows program: without it csvfab.exe needs
+# VCRUNTIME140.dll (the Visual C++ Redistributable), absent from a fresh Windows,
+# and does not start there (STATUS_DLL_NOT_FOUND, seen by winget's validation).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
