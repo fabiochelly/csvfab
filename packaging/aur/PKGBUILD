@@ -1,6 +1,6 @@
 # Maintainer: Fabio Chelly
 pkgname=csvfab
-pkgver=2.2.0
+pkgver=2.2.1
 pkgrel=1
 pkgdesc="Desktop CSV editor: open, filter, clean and rewrite large CSV files in place"
 arch=('x86_64' 'aarch64')
@@ -17,7 +17,7 @@ optdepends=('wayland: Wayland sessions'
 makedepends=('cargo')
 options=('!lto')   # the workspace's release profile does its own
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('63bc28218d8fab3b5c5f0ed3448825cf02799f4bc5d35f93ca4d5250c218885c')
+sha256sums=('d2984a4628e203a5a895c5c540467e42af779eadd6f9c5cade7d4551e64c1205')
 
 prepare() {
     cd "$pkgname-$pkgver"
